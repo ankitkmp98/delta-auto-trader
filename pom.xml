@@ -78,17 +78,19 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.8.1</version>
                 <configuration>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
+                    <source>17</source>
+                    <target>17</target>
                 </configuration>
             </plugin>
-
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
                     <mainClass>DeltaExchangeBracketOrder14A_BUY_SELL</mainClass>
+                    <arguments>
+                        <argument>arg1</argument> <!-- Add any args if needed -->
+                    </arguments>
                 </configuration>
             </plugin>
         </plugins>
