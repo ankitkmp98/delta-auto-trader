@@ -13,8 +13,9 @@ import java.nio.charset.StandardCharsets;
 public class DeltaExchangeBracketOrder14A_BUY_SELL {
 
     // API Configuration
-    private static final String API_KEY = "FGfU0k3Xs5cxZFUioz2rI7Z77MLwKe";
-    private static final String API_SECRET = "ti5ECVcbsMClkJoXy2CpfKLbb4SMjjMGHRIS0JN7QiSCLIHBSiQQ7sd4EjuX";
+    // Replace hardcoded keys with environment variables
+private static final String API_KEY = System.getenv("DELTA_API_KEY");
+private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.india.delta.exchange";
 
     // Trade summary class to hold position details
