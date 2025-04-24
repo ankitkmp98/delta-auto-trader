@@ -1,8 +1,8 @@
 name: Delta Exchange Auto-Trader
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Runs every 5 minutes
-  workflow_dispatch:       # Allows manual triggering
+    - cron: '*/2 * * * *'  # Changed to run every 2 minutes
+  workflow_dispatch:       # Still allows manual triggering
 
 jobs:
   run-bot:
@@ -16,23 +16,16 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'maven'  # Caches dependencies to speed up future runs
+          cache: 'maven'
 
-      - name: Build and package application
-        env:
-          DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
-          DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
-        run: |
-          # Build the JAR file with dependencies
-          mvn clean package -DskipTests
+      - name: Build and package
+        run: mvn clean package
 
       - name: Run trading bot
         env:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
-        run: |
-          # Execute the built JAR file
-          java -jar target/short-order-bot-1.0-SNAPSHOT.jar
+        run: java -jar target/short-order-bot-1.0-SNAPSHOT.jar
 
       - name: Upload logs on failure
         if: failure()
