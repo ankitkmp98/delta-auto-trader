@@ -31,5 +31,5 @@ jobs:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
         run: |
-          mvn --batch-mode clean package
-          mvn --batch-mode exec:java -Dexec.mainClass="DeltaExchangeBracketOrder14A_BUY_SELL"
+          mvn clean package
+          mvn exec:java -Dexec.mainClass="DeltaExchangeBracketOrder14A_BUY_SELL" -Dexec.cleanupDaemonThreads=false
