@@ -25,11 +25,11 @@ jobs:
         env:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
-        run: java -jar target/short-order-bot-1.0-SNAPSHOT.jar
+        run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar  # Fixed JAR name
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4  # Changed from v3 to v4
+        uses: actions/upload-artifact@v4
         with:
           name: error-logs
           path: |
