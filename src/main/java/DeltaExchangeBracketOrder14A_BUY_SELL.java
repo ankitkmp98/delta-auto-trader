@@ -1,3 +1,4 @@
+package com.trading.bot;  // Add this line at the top
 import org.json.JSONArray;
 import org.json.JSONObject;
 
