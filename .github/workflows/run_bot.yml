@@ -18,10 +18,10 @@ jobs:
         run: |
           mkdir -p lib
           wget -O lib/json.jar https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar
-  - name: Compile and Run
-  env:
-    DELTA_API_KEY: ${{ secrets.API_KEY }}
-    DELTA_API_SECRET: ${{ secrets.API_SECRET }}
-  run: |
-    javac -cp "lib/json.jar" DeltaExchangeBracketOrder14A_BUY_SELL.java
-    java -cp ".:lib/json.jar" DeltaExchangeBracketOrder14A_BUY_SELL
+      - name: Compile and Run
+        env:
+          DELTA_API_KEY: ${{ secrets.API_KEY }}
+          DELTA_API_SECRET: ${{ secrets.API_SECRET }}
+        run: |
+          javac -cp "lib/json.jar" DeltaExchangeBracketOrder14A_BUY_SELL.java
+          java -cp ".:lib/json.jar" DeltaExchangeBracketOrder14A_BUY_SELL
