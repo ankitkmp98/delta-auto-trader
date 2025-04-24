@@ -19,5 +19,5 @@ jobs:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
         run: |
-          mvn compile
+          mvn clean compile
           mvn exec:java -Dexec.mainClass="DeltaExchangeBracketOrder14A_BUY_SELL"
