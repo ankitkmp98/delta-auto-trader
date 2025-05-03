@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_____________ {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static final String API_KEY = System.getenv("DELTA_API_KEY");
  private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
@@ -233,8 +233,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_____________ {
     private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
         double conversionRate = 93.0; // USDT to INR conversion rate
 
-        double tpPercentage = 0.50; // 50% of margin for TP
-        double slPercentage = 0.12; // 8% of margin for SL
+        double tpPercentage = 0.30; // 50% of margin for TP
+        double slPercentage = 0.50; // 8% of margin for SL
 
 
         double tpPriceDiff = (margin * tpPercentage) / (quantity * conversionRate);
