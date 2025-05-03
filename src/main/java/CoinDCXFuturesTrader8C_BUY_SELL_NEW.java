@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_____________ {
     private static final String API_KEY = System.getenv("DELTA_API_KEY");
  private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
