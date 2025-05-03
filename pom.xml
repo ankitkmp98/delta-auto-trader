@@ -81,7 +81,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>DeltaExchangeBracketOrder14A_BUY_SELL</mainClass>
+                            <mainClass>CoinDCXFuturesTrader8C_BUY_SELL_NEW</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
