@@ -1,9 +1,0 @@
-{
-  "image": "mcr.microsoft.com/devcontainers/java:17",
-  "postCreateCommand": "mvn clean package",
-  "customizations": {
-    "vscode": {
-      "extensions": ["vscjava.vscode-java-pack"]
-    }
-  }
-}
