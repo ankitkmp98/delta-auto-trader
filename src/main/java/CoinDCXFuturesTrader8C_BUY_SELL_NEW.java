@@ -243,7 +243,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
         double conversionRate = 93.0; // USDT to INR conversion rate
 
-        double tpPercentage = 0.55; // 50% of margin for TP
+        double tpPercentage = 0.60; // 50% of margin for TP
         double slPercentage = 0.25; // 8% of margin for SL
 
 
