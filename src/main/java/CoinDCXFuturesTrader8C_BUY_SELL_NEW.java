@@ -45,7 +45,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
  //   "YFI", "BAND", "OMG", "REN", "REP", "KNC", "LSK", "POLY", "CVC", "LOOM",
  //   "POWR", "ELF", "FUN", "REQ", "RLC", "SNT", "AST", "BLZ", "EDO", "GTO",
  //   "LUN", "MCO", "POE", "QSP", "RCN", "TRST", "VEN", "WINGS", "WTC", "XEM",
-  /  "ZEN", "ZSC", "1ST", "2GIVE", "808TA", "ABT", "ABY", "AC", "ACT", "ADA",
+  //  "ZEN", "ZSC", "1ST", "2GIVE", "808TA", "ABT", "ABY", "AC", "ACT", "ADA",
  //   "ADT", "ADX", "AE", "AEON", "AGI", "AGRS", "AI", "AION", "AIR", "AKRO",
 //    "ALGO", "AMB", "AMP", "ANT", "AOA", "APPC", "ARDR", "ARK", "ARN", "ART",
    // "AST", "ATM", "ATOM", "ATS", "AUR", "AVAX", "BAN", "BAND", "BAT", "BAY",
