@@ -247,7 +247,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
         double conversionRate = 93.0; // USDT to INR conversion rate
 
         double tpPercentage = 0.10; // 50% of margin for TP
-        double slPercentage = 0.20; // 8% of margin for SL
+        double slPercentage = 0.15; // 8% of margin for SL
 
 
         double tpPriceDiff = (margin * tpPercentage) / (quantity * conversionRate);
