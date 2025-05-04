@@ -33,54 +33,66 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
 
     private static final String[] COIN_SYMBOLS = 
     {
-        
-// "BTC", "ETH", "VOXEL", "SOL", "NKN", "MAGIC", "XRP", "1000PEPE", "FARTCOIN", "DOGE",
-// "TAO", "SUI", "TRUMP", "PERP", "OM","ADA", "BNB", "LINK", "PEOPLE", "GMT",
-// "FET", "MUBARAK", "WIF", "LAYER", "AVAX", "HIGH", "ALPACA", "FLM", "ENA", "BSW",
-// "FIL", "DOT", "LTC", "ARK", "ENJ", "EOS", "USUAL", "TRX", "RENDER", "CRV",
-// "BCH", "OGN", "ONDO", "1000SHIB", "BIO", "AAVE", "ORCA", "NEAR", "PNUT", "T",
-// "POPCAT", "FUN", "VTHO", "WLD", "ALCH", "GAS", "XAI", "GALA", "TIA", "MBOX",
-// "APT", "ORDI", "HBAR", "OP", "INJ", "BEL", "JASMY", "RED", "KAITO", "PARTI",
-// "ARB", "BIGTIME", "AI16Z", "1000SATS", "NEIRO", "ETC", "JUP", "BOME", "UNI", "TON",
-// "1000BONK", "ACH", "XLM", "GOAT", "SAND", "ATOM", "LEVER", "S", "CAKE", "NOT",
-// "LOKA", "ARC", "VINE", "PENDLE", "LDO", "SEI", "HIFI", "RAYSOL", "APE", "RARE",
-// "WAXP", "GPS", "IP", "COTI", "AVAAI", "KOMA", "HFT", "ARKM", "ANIME", "ACT",
-// "ALGO", "VIRTUAL", "MAVIA", "ALICE", "MANTA", "ZRO", "AGLD", "STX", "API3", "PIXEL",
-// "MELANIA", "NEO", "IMX", "1000WHY", "MANA", "ACE", "SWARMS", "MKR", "AUCTION", "ICP",
-// "PORTAL", "THETA", "CHESS", "ZEREBRO", "1000FLOKI", "PENGU", "STRK", "CATI", "TRB", "SAGA",
-// "NIL", "TURBO", "AIXBT", "W", "PYTH", "LISTA", "CHILLGUY", "GRIFFAIN", "REZ", "IO",
-// "UXLINK", "SHELL", "BTCDOM", "POL", "GRT", "BRETT", "DYDX", "JTO", "MOODENG", "ETHFI",
-// "OMNI", "DOGS", "EIGEN", "ENS", "XMR", "D", "SOLV", "VET", "RUNE", "MEW",
-// "AXS", "XCN", "SXP", "MASK", "BMT", "BANANA", "NFP", "XTZ", "FORTH", "ALPHA",
-// "REI", "AR", "YGG", "PAXG", "SPX", "TRU", "ID", "GTC", "CHZ", "BLUR",
-// "GRASS", "KAVA", "SPELL", "RSR", "FIDA", "MORPHO", "VANA", "RPL", "ANKR", "TLM",
-// "CFX", "HIPPO", "TST", "ZEN", "ME", "AI", "MOVR", "GLM", "ZIL", "1000RATS",
-// "HOOK", "ALT", "ZK", "BAKE", "COW", "SUSHI", "MLN", "SANTOS", "1MBABYDOGE", "SNX",
-// "STORJ", "BEAMX", "WOO", "B3", "AEVO", "CTSI", "1000LUNC", "OXT", "ILV", "IOTA",
-// "QTUM", "EPIC", "NEIROETH", "THE", "EDU", "ZEC", "AERO", "SKL", "ARPA", "BAN",
-// "COMP", "CHR", "NMR", "ZETA", "LUMIA", "COOKIE", "PHB", "MINA", "1000CHEEMS", "1000CAT",
-// "GHST", "KAS", "SUPER", "ROSE", "IOTX", "DYM", "EGLD", "SONIC", "RDNT", "LPT",
-// "LUNA2", "PLUME", "XVG", "MYRO", "LQTY", "USTC", "C98", "SCR", "BB", "STEEM",
-// "ONE", "FLOW", "QNT", "SSV", "POWR", "DEXE", "CGPT", "VANRY", "POLYX", "ZRX",
-// "YFI", "TNSR", "GMX", "SYS", "1INCH", "CELO", "METIS", "1000X", "HEI", "ONT",
-// "KSM", "KDA", "IOST", "BAT", "CETUS", "DF", "LRC", "HIVE", "DEGEN",
-// "MTL", "SAFE", "CELR", "AVA", "CKB", "RIF", "FIO", "1000000MOG", "KNC", "ICX",
-// "CYBER", "RONIN", "ONG", "VVV", "FXS", "MAV", "DEGO", "DASH", "ASTR", "PHA",
-// "AXL", "BICO", "BAND", "SCRT", "HOT", "TOKEN", "STG", "PONKE", "DODOX", "DUSK",
-// "SYN", "RVN", "UMA", "PIPPIN", "DENT", "PROM", "FLUX", "VELODROME", "SWELL", "MOCA",
-// "ATA", "KAIA", "ATH", "XVS", "G", "LSK", "SUN", "NTRN", "RLC", "JOE",
-// "1000XEC", "VIC", "SFP", "TWT", "QUICK", "BSV", "DIA", "BNT", "ACX", "COS",
-// "ETHW", "DRIFT", "AKT", "KMNO", "SLERF", "DEFI", "USDC"
 
-    "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
-    "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
-    "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
-    "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
-    "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
-    "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
-    "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
-    "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
-    "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
+    "BTC", "ETH", "SOL", "XRP", "ADA", "BNB", "DOGE", "AVAX", "LINK", "DOT",
+    "MATIC", "SHIB", "TON", "PEPE", "USDC", "LTC", "ARB", "OP", "APT", "FIL",
+    "XLM", "ATOM", "NEAR", "UNI", "INJ", "RUNE", "IMX", "STX", "HBAR", "ETC",
+    "THETA", "GALA", "XMR", "APE", "EGLD", "KAS", "AAVE", "FLOW", "GRT", "XTZ",
+    "RNDR", "ALGO", "MANA", "SAND", "EOS", "CHZ", "AXS", "ROSE", "KAVA", "IOTA",
+    "ENJ", "FLOW", "ZEC", "ONE", "GMT", "KSM", "DYDX", "OCEAN", "COMP", "SNX",
+    "CRV", "BCH", "LDO", "MKR", "ENS", "FXS", "GNO", "ICX", "QTUM", "RVN",
+    "ZIL", "SC", "STORJ", "ONT", "WAVES", "BAT", "NEO", "ZRX", "ANKR", "CELO",
+    "YFI", "BAND", "OMG", "REN", "REP", "KNC", "LSK", "POLY", "CVC", "LOOM",
+    "POWR", "ELF", "FUN", "REQ", "RLC", "SNT", "AST", "BLZ", "EDO", "GTO",
+    "LUN", "MCO", "POE", "QSP", "RCN", "TRST", "VEN", "WINGS", "WTC", "XEM",
+    "ZEN", "ZSC", "1ST", "2GIVE", "808TA", "ABT", "ABY", "AC", "ACT", "ADA",
+    "ADT", "ADX", "AE", "AEON", "AGI", "AGRS", "AI", "AION", "AIR", "AKRO",
+    "ALGO", "AMB", "AMP", "ANT", "AOA", "APPC", "ARDR", "ARK", "ARN", "ART",
+    "AST", "ATM", "ATOM", "ATS", "AUR", "AVAX", "BAN", "BAND", "BAT", "BAY",
+    "BCC", "BCD", "BCH", "BCN", "BCPT", "BDL", "BELA", "BFT", "BIS", "BITB",
+    "BLK", "BLOCK", "BLZ", "BNB", "BNT", "BQX", "BRD", "BSD", "BSV", "BTG",
+    "BTS", "BTT", "BTX", "BURST", "CDT", "CFI", "CHAT", "CHZ", "CLAM", "CLOAK",
+    "CMT", "CND", "CNX", "COFI", "COSS", "COVAL", "CRPT", "CRW", "CSNO", "CTR",
+    "CTXC", "CVC", "DAI", "DAR", "DASH", "DATA", "DBC", "DCN", "DCR", "DCT",
+    "DDF", "DENT", "DFS", "DGB", "DGD", "DICE", "DLT", "DNT", "DOGE", "DOPE",
+    "DRGN", "DTA", "DTH", "DTR", "EBST", "EDG", "EDO", "ELA", "ELEC", "ELF",
+    "ELIX", "EMC", "EMC2", "ENG", "ENJ", "EOS", "EOT", "EQT", "ERC", "ETC",
+    "ETH", "ETN", "ETP", "EVX", "EXP", "FCT", "FLDC", "FLO", "FSN", "FTC",
+    "FUEL", "FUN", "GAME", "GAS", "GBYTE", "GNO", "GNT", "GNX", "GRC", "GRS",
+    "GRT", "GTO", "GUP", "GVT", "GXS", "HCC", "HOT", "HPB", "HSR", "HT", "HUSH",
+    "ICN", "ICX", "IGNIS", "INK", "INS", "ION", "IOP", "IOST", "IOTA", "IQ",
+    "ITC", "JNT", "KCS", "KICK", "KIN", "KMD", "KNC", "KORE", "LBC", "LEND",
+    "LEO", "LINK", "LKK", "LRC", "LSK", "LTC", "LUN", "MAID", "MANA", "MCO",
+    "MDA", "MDS", "MED", "MEME", "MER", "MFT", "MIOTA", "MKR", "MLN", "MONA",
+    "MTL", "MUSIC", "MZC", "NAV", "NBT", "NCASH", "NDZ", "NEBL", "NEO", "NEOS",
+    "NET", "NLC2", "NLG", "NMC", "NULS", "NVC", "NXT", "OAX", "OMG", "OMNI",
+    "ONG", "ONT", "OST", "PART", "PASC", "PAY", "PINK", "PIVX", "PIX", "PLR",
+    "POA", "POE", "POLY", "POT", "POWR", "PPC", "PPT", "PRL", "PURA", "QASH",
+    "QIWI", "QLC", "QRK", "QSP", "QTUM", "R", "RADS", "RAIN", "RCN", "RDD",
+    "RDN", "REP", "REQ", "RHOC", "RLC", "RPX", "RUB", "RVN", "SALT", "SAN",
+    "SBD", "SBTC", "SC", "SHIFT", "SIB", "SKY", "SLR", "SLS", "SMART", "SMT",
+    "SNGLS", "SNM", "SNT", "SNX", "SOC", "SPANK", "SPHTX", "SRN", "STEEM", "STORM",
+    "STQ", "STRAT", "SUB", "SWFTC", "SYS", "TAAS", "TAU", "TCC", "TFL", "THC",
+    "TIME", "TIX", "TKN", "TNB", "TNT", "TOPC", "TRAC", "TRIG", "TRST", "TRX",
+    "TUSD", "TX", "UBQ", "UKG", "ULA", "UNITY", "UNO", "UPP", "UQC", "USDT",
+    "UTK", "VEE", "VIA", "VIB", "VIBE", "VOX", "VPN", "VRC", "VRSC", "VTC",
+    "VTHO", "WABI", "WAN", "WAVES", "WAX", "WGR", "WINGS", "WPR", "WTC", "XAS",
+    "XBC", "XBY", "XCP", "XDN", "XEM", "XLM", "XMR", "XPM", "XRP", "XSPEC",
+    "XST", "XTZ", "XUC", "XVC", "XVG", "XZC", "YOYOW", "ZCL", "ZEC", "ZEN",
+    "ZIL", "ZRX"
+
+
+        
+    // "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
+    // "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
+    // "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
+    // "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
+    // "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
+    // "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
+    // "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
+    // "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
+    // "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
+        
 };
 
 
@@ -246,8 +258,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
         double conversionRate = 93.0; // USDT to INR conversion rate
 
-        double tpPercentage = 0.65; // 50% of margin for TP
-        double slPercentage = 0.20; // 8% of margin for SL
+        double tpPercentage = 0.60; // 50% of margin for TP
+        double slPercentage = 0.25; // 8% of margin for SL
 
 
         double tpPriceDiff = (margin * tpPercentage) / (quantity * conversionRate);
