@@ -34,31 +34,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static final String[] COIN_SYMBOLS = 
     {
 
-    "BTC", "ETH", "SOL", "XRP", "ADA", "BNB", "DOGE", "AVAX", "LINK", "DOT",
-    "MATIC", "SHIB", "TON", "PEPE", "USDC", "LTC", "ARB", "OP", "APT", "FIL",
-    "XLM", "ATOM", "NEAR", "UNI", "INJ", "RUNE", "IMX", "STX", "HBAR", "ETC",
-    "THETA", "GALA", "XMR", "APE", "EGLD", "KAS", "AAVE", "FLOW", "GRT", "XTZ",
-    "RNDR", "ALGO", "MANA", "SAND", "EOS", "CHZ", "AXS", "ROSE", "KAVA", "IOTA",
-    "ENJ", "FLOW", "ZEC", "ONE", "GMT", "KSM", "DYDX", "OCEAN", "COMP", "SNX",
-    "CRV", "BCH", "LDO", "MKR", "ENS", "FXS", "GNO", "ICX", "QTUM", "RVN",
-    "ZIL", "SC", "STORJ", "ONT", "WAVES", "BAT", "NEO", "ZRX", "ANKR", "CELO",
-    "YFI", "BAND", "OMG", "REN", "REP", "KNC", "LSK", "POLY", "CVC", "LOOM",
-    "POWR", "ELF", "FUN", "REQ", "RLC", "SNT", "AST", "BLZ", "EDO", "GTO",
-    "LUN", "MCO", "POE", "QSP", "RCN", "TRST", "VEN", "WINGS", "WTC", "XEM",
-    "ZEN", "ZSC", "1ST", "2GIVE", "808TA", "ABT", "ABY", "AC", "ACT", "ADA",
-    "ADT", "ADX", "AE", "AEON", "AGI", "AGRS", "AI", "AION", "AIR", "AKRO",
-    "ALGO", "AMB", "AMP", "ANT", "AOA", "APPC", "ARDR", "ARK", "ARN", "ART",
-    "AST", "ATM", "ATOM", "ATS", "AUR", "AVAX", "BAN", "BAND", "BAT", "BAY",
-    "BCC", "BCD", "BCH", "BCN", "BCPT", "BDL", "BELA", "BFT", "BIS", "BITB",
-    "BLK", "BLOCK", "BLZ", "BNB", "BNT", "BQX", "BRD", "BSD", "BSV", "BTG",
-    "BTS", "BTT", "BTX", "BURST", "CDT", "CFI", "CHAT", "CHZ", "CLAM", "CLOAK",
-    "CMT", "CND", "CNX", "COFI", "COSS", "COVAL", "CRPT", "CRW", "CSNO", "CTR",
-    "CTXC", "CVC", "DAI", "DAR", "DASH", "DATA", "DBC", "DCN", "DCR", "DCT",
-    "DDF", "DENT", "DFS", "DGB", "DGD", "DICE", "DLT", "DNT", "DOGE", "DOPE",
-    "DRGN", "DTA", "DTH", "DTR", "EBST", "EDG", "EDO", "ELA", "ELEC", "ELF",
-    "ELIX", "EMC", "EMC2", "ENG", "ENJ", "EOS", "EOT", "EQT", "ERC", "ETC",
-    "ETH", "ETN", "ETP", "EVX", "EXP", "FCT", "FLDC", "FLO", "FSN", "FTC",
-    "FUEL", "FUN", "GAME", "GAS", "GBYTE", "GNO", "GNT", "GNX", "GRC", "GRS",
+//    "BTC", "ETH", "SOL", "XRP", "ADA", "BNB", "DOGE", "AVAX", "LINK", "DOT",
+//    "MATIC", "SHIB", "TON", "PEPE", "USDC", "LTC", "ARB", "OP", "APT", "FIL",
+//    "XLM", "ATOM", "NEAR", "UNI", "INJ", "RUNE", "IMX", "STX", "HBAR", "ETC",
+//    "THETA", "GALA", "XMR", "APE", "EGLD", "KAS", "AAVE", "FLOW", "GRT", "XTZ",
+//    "RNDR", "ALGO", "MANA", "SAND", "EOS", "CHZ", "AXS", "ROSE", "KAVA", "IOTA",
+//    "ENJ", "FLOW", "ZEC", "ONE", "GMT", "KSM", "DYDX", "OCEAN", "COMP", "SNX",
+//    "CRV", "BCH", "LDO", "MKR", "ENS", "FXS", "GNO", "ICX", "QTUM", "RVN",
+//    "ZIL", "SC", "STORJ", "ONT", "WAVES", "BAT", "NEO", "ZRX", "ANKR", "CELO",
+ //   "YFI", "BAND", "OMG", "REN", "REP", "KNC", "LSK", "POLY", "CVC", "LOOM",
+ //   "POWR", "ELF", "FUN", "REQ", "RLC", "SNT", "AST", "BLZ", "EDO", "GTO",
+ //   "LUN", "MCO", "POE", "QSP", "RCN", "TRST", "VEN", "WINGS", "WTC", "XEM",
+  /  "ZEN", "ZSC", "1ST", "2GIVE", "808TA", "ABT", "ABY", "AC", "ACT", "ADA",
+ //   "ADT", "ADX", "AE", "AEON", "AGI", "AGRS", "AI", "AION", "AIR", "AKRO",
+//    "ALGO", "AMB", "AMP", "ANT", "AOA", "APPC", "ARDR", "ARK", "ARN", "ART",
+   // "AST", "ATM", "ATOM", "ATS", "AUR", "AVAX", "BAN", "BAND", "BAT", "BAY",
+  //  "BCC", "BCD", "BCH", "BCN", "BCPT", "BDL", "BELA", "BFT", "BIS", "BITB",
+  //  "BLK", "BLOCK", "BLZ", "BNB", "BNT", "BQX", "BRD", "BSD", "BSV", "BTG",
+  //  "BTS", "BTT", "BTX", "BURST", "CDT", "CFI", "CHAT", "CHZ", "CLAM", "CLOAK",
+  //  "CMT", "CND", "CNX", "COFI", "COSS", "COVAL", "CRPT", "CRW", "CSNO", "CTR",
+   // "CTXC", "CVC", "DAI", "DAR", "DASH", "DATA", "DBC", "DCN", "DCR", "DCT",
+   // "DDF", "DENT", "DFS", "DGB", "DGD", "DICE", "DLT", "DNT", "DOGE", "DOPE",
+   // "DRGN", "DTA", "DTH", "DTR", "EBST", "EDG", "EDO", "ELA", "ELEC", "ELF",
+   // "ELIX", "EMC", "EMC2", "ENG", "ENJ", "EOS", "EOT", "EQT", "ERC", "ETC",
+    //"ETH", "ETN", "ETP", "EVX", "EXP", "FCT", "FLDC", "FLO", "FSN", "FTC",
+    // "FUEL", "FUN", "GAME", "GAS", "GBYTE", "GNO", "GNT", "GNX", "GRC", "GRS",
     // "GRT", "GTO", "GUP", "GVT", "GXS", "HCC", "HOT", "HPB", "HSR", "HT", "HUSH",
     // "ICN", "ICX", "IGNIS", "INK", "INS", "ION", "IOP", "IOST", "IOTA", "IQ",
     // "ITC", "JNT", "KCS", "KICK", "KIN", "KMD", "KNC", "KORE", "LBC", "LEND",
@@ -83,15 +83,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
 
 
         
-    // "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
-    // "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
-    // "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
-    // "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
-    // "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
-    // "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
-    // "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
-    // "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
-    // "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
+     "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
+     "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
+     "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
+     "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
+    "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
+    "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
+    "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
+     "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
+     "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
         
 };
 
@@ -258,8 +258,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
         double conversionRate = 93.0; // USDT to INR conversion rate
 
-        double tpPercentage = 0.60; // 50% of margin for TP
-        double slPercentage = 0.25; // 8% of margin for SL
+        double tpPercentage = 0.50; // 50% of margin for TP
+        double slPercentage = 0.15; // 8% of margin for SL
 
 
         double tpPriceDiff = (margin * tpPercentage) / (quantity * conversionRate);
