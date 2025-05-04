@@ -22,7 +22,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
  private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-    private static final double MAX_MARGIN = 600.0;
+    private static final double MAX_MARGIN = 900.0;
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
@@ -32,54 +32,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW {
     private static long lastInstrumentUpdateTime = 0;
 
     private static final String[] COIN_SYMBOLS = 
-//     {
-//     "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
-//     "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
-//     "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
-//     "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
-//     "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
-//     "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
-//     "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
-//     "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
-//     "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
-// };
-
     {
-    "1000BONK", "1000CAT", "1000CHEEMS", "1000FLOKI", "1000LUNC", "1000RATS", "1000SATS", "1000SHIB", "1000WHY", "1000X", 
-    "1000XEC", "1000000MOG", "1INCH", "1MBABYDOGE", "AAVE", "ACE", "ACH", "ACT", "ADA", "AEVO", 
-    "AGLD", "AI", "AI16Z", "AIXBT", "AKT", "ALCH", "ALGO", "ALICE", "ALPHA", "ALT", 
-    "ANKR", "ANIME", "APE", "API3", "APT", "AR", "ARB", "ARC", "ARK", "ARKM", 
-    "ARPA", "ARB", "ASTR", "ATOM", "AVAAI", "AVA", "AXL", "AXS", "B3", "BAN", 
-    "BANANA", "BAND", "BAT", "BB", "BEAMX", "BEL", "BICO", "BIGTIME", "BIO", "BMT", 
-    "BNT", "BOME", "BONK", "BRETT", "BSV", "BTCDOM", "BCH", "CAKE", "CATI", "C98", 
-    "CELO", "CELR", "CETUS", "CFX", "CGPT", "CHESS", "CHILLGUY", "CHR", "CHZ", "COMP", 
-    "COOKIE", "COTI", "COW", "CRV", "CTSI", "CYBER", "D", "DASH", "DEGEN", "DEGO", 
-    "DENT", "DEXE", "DF", "DIA", "DODOX", "DOGE", "DOGS", "DOT", "DUSK", "DYDX", 
-    "DYM", "EDU", "EGLD", "EIGEN", "EOS", "ENS", "ENJ", "EPIC", "ETC", "ETHFI", 
-    "ETHW", "FARTCOIN", "FIDA", "FIL", "FIO", "FLOW", "FLUX", "FLOKI", "FORTH", "FUN", 
-    "FXS", "G", "GALA", "GAS", "GHST", "GLM", "GMX", "GOAT", "GPS", "GRASS", 
-    "GRT", "GRIFFAIN", "GTC", "HFT", "HBAR", "HEI", "HIFI", "HIPPO", "HIVE", "HOT", 
-    "HOOK", "ICX", "ID", "ILV", "IMX", "INJ", "IOST", "IOTA", "IOTX", "IO", 
-    "ICP", "JASMY", "JOE", "JTO", "JUP", "KAIA", "KAITO", "KAS", "KAVA", "KDA", 
-    "KMNO", "KNC", "KOMA", "LDO", "LEVER", "LPT", "LQTY", "LRC", "LSK", "LTC", 
-    "LUNA2", "LUMIA", "LDO", "LISTA", "LOKA", "MANA", "MANTA", "MASK", "MAVIA", "MAV", 
-    "MBOX", "ME", "MELANIA", "MEME", "METIS", "MEW", "MINA", "MKR", "MLN", "MOCA", 
-    "MOODENG", "MORPHO", "MOVR", "MOVE", "MUBARAK", "MTL", "MYRO", "NEO", "NEAR", "NEIRO", 
-    "NEIROETH", "NFP", "NIL", "NMR", "NOT", "NTRN", "OBN", "OGN", "OMNI", "ONDO", 
-    "ONE", "ONG", "ONT", "OP", "ORCA", "ORDI", "OXT", "PAXG", "PARTI", "PENDLE", 
-    "PEOPLE", "PEPE", "PENGU", "PHA", "PHB", "PI", "PIPPIN", "PIXEL", "PLUME", "PNUT", 
-    "POL", "POLYX", "PONKE", "POPCAT", "POWR", "PROM", "PORTAL", "PYTH", "QNT", "QTUM", 
-    "QUICK", "RARE", "RAYSOL", "RDNT", "RED", "REI", "REZ", "RENDER", "RIF", "RLC", 
-    "RONIN", "ROSE", "RPL", "RSR", "RUNE", "RVN", "S", "SAFE", "SAGA", "SAND", 
-    "SANTOS", "SCR", "SCRT", "SEI", "SFP", "SHIB", "SHELL", "SKL", "SLERF", "SNX", 
-    "SOLV", "SONIC", "SPELL", "SPX", "STEEM", "STORJ", "STG", "STX", "SUN", "SUPER", 
-    "SUSHI", "SWARMS", "SXP", "SYN", "SYS", "T", "THE", "THETA", "TIA", "TNSR", 
-    "TOKEN", "TON", "TRB", "TRU", "TRX", "TST", "TURBO", "TWT", "UMA", "UNI", 
-    "USDC", "USUAL", "USTC", "UXLINK", "VANA", "VET", "VIC", "VINE", "VIRTUAL", "VTHO", 
-    "VVV", "W", "WAXP", "WIF", "WLD", "WOO", "XAI", "XCN", "XLM", "XMR", 
-    "XRP", "XVS", "XVG", "YFI", "YGG", "ZEC", "ZEN", "ZETA", "ZIL", "ZRO", 
-    "ZRX", "ZK"
-    };
+    "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3", 
+    "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE", 
+    "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI", 
+    "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY", 
+    "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG", 
+    "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", 
+    "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI", 
+    "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX", 
+    "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK"
+};
+
 
     private static final Set<String> INTEGER_QUANTITY_PAIRS = Stream.of(COIN_SYMBOLS)
             .flatMap(symbol -> Stream.of("B-" + symbol + "_USDT", symbol + "_USDT"))
