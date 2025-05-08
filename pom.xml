@@ -81,7 +81,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE</mainClass>
+                            <mainClass>CoinDCXFuturesTraderImprovedSL_FOUR</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
