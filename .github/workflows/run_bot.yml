@@ -1,8 +1,12 @@
 name: Delta Exchange Auto-Trader
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Runs every 20 minutes
+    - cron: '*/5 * * * *'  # Runs every 5 minutes
   workflow_dispatch:
+
+concurrency: 
+  group: "delta-bot"
+  cancel-in-progress: true
 
 jobs:
   run-bot:
@@ -25,7 +29,7 @@ jobs:
         env:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
-        run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar  # Fixed JAR name
+        run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar
 
       - name: Upload logs on failure
         if: failure()
