@@ -80,7 +80,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // Determine market trend and decide position side
                 String side = determinePositionSide(pair);
                 // int leverage = 3;
-                int leverage = 3;
+                int leverage = 4;
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
