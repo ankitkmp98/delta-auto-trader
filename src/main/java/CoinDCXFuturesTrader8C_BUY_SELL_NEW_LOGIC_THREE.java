@@ -79,7 +79,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 // Determine market trend and decide position side
                 String side = determinePositionSide(pair);
-                int leverage = 3;
+                // int leverage = 3;
+                int leverage = 5;
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -337,7 +338,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double conversionRate = 93.0; // USDT to INR conversion rate
 
             double tpPercentage = 0.03; // 50% of margin for TP
-            double slPercentage = 0.20; // 8% of margin for SL
+            double slPercentage = 0.10; // 8% of margin for SL
 
 
             // double tpPercentage = 0.50; // 50% of margin for TP
