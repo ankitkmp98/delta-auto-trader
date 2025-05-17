@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-    private static final double MAX_MARGIN = 750.0;
+    private static final double MAX_MARGIN = 600.0;
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
@@ -80,7 +80,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // Determine market trend and decide position side
                 String side = determinePositionSide(pair);
                 // int leverage = 3;
-                int leverage = 5;
+                int leverage = 3;
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -337,8 +337,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
             double conversionRate = 93.0; // USDT to INR conversion rate
 
-            double tpPercentage = 0.03; // 50% of margin for TP
-            double slPercentage = 0.05; // 8% of margin for SL
+            double tpPercentage = 0.05; // 50% of margin for TP
+            double slPercentage = 0.07; // 8% of margin for SL
 
 
             // double tpPercentage = 0.50; // 50% of margin for TP
