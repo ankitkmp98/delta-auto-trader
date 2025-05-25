@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 6; // Hours for trend analysis
+    private static final int LOOKBACK_PERIOD = 4; // Hours for trend analysis
     private static final double TREND_THRESHOLD = 0.02; // 2% change threshold for trend
 
     // Cache for instrument details with timestamp
@@ -337,8 +337,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
             double conversionRate = 93.0; // USDT to INR conversion rate
 
-            double tpPercentage = 0.06; // 50% of margin for TP
-            double slPercentage = 0.03; // 8% of margin for SL
+            double tpPercentage = 0.09; // 50% of margin for TP
+            double slPercentage = 0.04; // 8% of margin for SL
 
             // double tpPercentage = 0.50; // 50% of margin for TP
             // double slPercentage = 0.05; // 8% of margin for SL
