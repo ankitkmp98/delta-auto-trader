@@ -620,25 +620,3 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     }
 
-
-
-
-
-    // Rest of your existing methods remain unchanged...
-    // initializeInstrumentDetails()
-    // sendPublicRequest()
-    // getTickSizeForPair()
-    // roundToTickSize()
-    // validatePrice()
-    // calculateTpSlPrices()
-    // getEntryPriceFromPosition()
-    // findPosition()
-    // calculateQuantity()
-    // getLastPrice()
-    // placeFuturesMarketOrder()
-    // setTakeProfitAndStopLoss()
-    // getPositionId()
-    // sendAuthenticatedRequest()
-    // readAllLines()
-    // generateHmacSHA256()
-    // getActivePositions()
