@@ -301,8 +301,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE_new {
 
     private static double[] calculateTpSlPrices(String side, double entryPrice, double quantity, double margin) {
         double conversionRate = 93.0;
-        double tpPercentage = 0.02;
-        double slPercentage = 0.06;
+        double tpPercentage = 0.06;
+        double slPercentage = 0.03;
 
         double tpPriceDiff = (margin * tpPercentage) / (quantity * conversionRate);
         double slPriceDiff = (margin * slPercentage) / (quantity * conversionRate);
