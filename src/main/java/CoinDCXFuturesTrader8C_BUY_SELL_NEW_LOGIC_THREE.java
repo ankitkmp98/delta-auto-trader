@@ -74,7 +74,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                int leverage = 2; // Default leverage
+                int leverage = 10; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -318,8 +318,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
 
 
-        double tpPercentage = 0.12;
-        double slPercentage = 0.10;
+        double tpPercentage = 0.40;
+        double slPercentage = 0.30;
 
 
 
