@@ -318,8 +318,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
 
 
-        double tpPercentage = 0.40;
-        double slPercentage = 0.25;
+        double tpPercentage = 0.20;
+        double slPercentage = 0.35;
 
 
 
