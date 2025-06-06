@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 10; // Hours for trend analysis
+    private static final int LOOKBACK_PERIOD = 4; // Hours for trend analysis
     private static final double TREND_THRESHOLD = 0.02; // 2% change threshold for trend
     private static final double TRAILING_DISTANCE_PERCENT = 0.01; // 1% trailing distance
     private static final int TRAILING_UPDATE_INTERVAL_SEC = 10; // Check every 10 seconds
