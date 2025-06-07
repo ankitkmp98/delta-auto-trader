@@ -35,7 +35,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 private static final int LOOKBACK_PERIOD = 2; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.02; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.01; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.01; // 5% stop loss
+    private static final double SL_PERCENTAGE = 0.02; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -80,7 +80,7 @@ private static final int LOOKBACK_PERIOD = 2; // Minutes for trend analysis (cha
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                int leverage = 30; // Default leverage
+                int leverage = 4; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
