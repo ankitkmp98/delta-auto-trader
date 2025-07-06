@@ -19,8 +19,6 @@ import java.util.stream.Stream;
 
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     
-    // private static final String API_KEY = "72707da4dc9c55175867e72d425dbc210c0da5ae3765e381";
-    // private static final String API_SECRET = "72973c321fe3ee434029f8cde165212dee99cdb9b7d99adf1cc02fe539e5be14";
 
      private static final String API_KEY = System.getenv("DELTA_API_KEY");
    private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
