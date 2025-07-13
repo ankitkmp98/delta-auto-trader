@@ -78,7 +78,7 @@ private static final int LOOKBACK_PERIOD = 5; // Minutes for trend analysis (cha
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                int leverage = 15; // Default leverage
+                int leverage = 30; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
