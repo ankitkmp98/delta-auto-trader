@@ -14,7 +14,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
-public class AdvancedCoinDCXFuturesTrader {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     
     // API Configuration
     private static final String API_KEY = System.getenv("DELTA_API_KEY");
