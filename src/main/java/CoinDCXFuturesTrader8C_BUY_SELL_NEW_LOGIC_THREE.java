@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 
-public class CoinDCXFuturesTradingBot {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // --- Configuration and API ---
     private static final String API_KEY = System.getenv("DELTA_API_KEY");
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
