@@ -3,7 +3,10 @@ import org.json.JSONObject;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -15,1245 +18,478 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
-    
-    // API Configuration
+    // ========== CONFIGURATION ===========
     private static final String API_KEY = System.getenv("DELTA_API_KEY");
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
+
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-    
-    // Trading Configuration - Fixed Margin with Smart Parameters
-    private static final double FIXED_MARGIN_PER_TRADE = 600.0;
-    private static final double SCALP_TP_PERCENTAGE = 0.008;     // 0.8% TP
-    private static final int MAX_CONCURRENT_POSITIONS = 8;
-    
-    // Enhanced Stop Loss Configuration
-    private static final double CONSERVATIVE_SL_PERCENTAGE = 0.12;  // 12% for stable markets
-    private static final double AGGRESSIVE_SL_PERCENTAGE = 0.08;    // 8% for volatile markets
-    private static final double VOLATILITY_SL_MULTIPLIER = 2.5;    // ATR multiplier for SL
-    private static final double MIN_SL_PERCENTAGE = 0.05;          // 5% minimum SL
-    private static final double MAX_SL_PERCENTAGE = 0.15;          // 15% maximum SL
-    
-    // Volatility Thresholds for Stop Loss Selection
-    private static final double VOLATILITY_LOW = 0.015;
-    private static final double VOLATILITY_MEDIUM = 0.025;
-    private static final double VOLATILITY_HIGH = 0.035;
-    
-    // Leverage Selection Based on Market Conditions
-    private static final int LEVERAGE_STABLE = 8;
-    private static final int LEVERAGE_NORMAL = 5;
-    private static final int LEVERAGE_VOLATILE = 3;
-    private static final int LEVERAGE_EXTREME = 2;
-    
-    // Technical Analysis Parameters
+
+    private static final double FIXED_MARGIN_PER_TRADE = 600.0;  // Fixed margin per trade (USDT)
+    private static final double TP_PERCENTAGE = 0.008;           // Take profit 0.8%
+    private static final double SL_PERCENTAGE = 0.05;            // Stop loss 5%
+    private static final int MAX_CONCURRENT_POSITIONS = 5;
+
     private static final int RSI_PERIOD = 14;
-    private static final int RSI_OVERSOLD = 25;
-    private static final int RSI_OVERBOUGHT = 75;
-    private static final double TREND_STRENGTH_THRESHOLD = 0.02;
-    private static final int LOOKBACK_CANDLES = 20;
-    
-    // Rate Limiting & Caching
+    private static final int MIN_CANDLES = 26;
+
     private static final int MAX_REQUESTS_PER_MINUTE = 90;
     private static final long RATE_LIMIT_WINDOW_MS = 60000;
-    private static final Queue<Long> requestTimes = new ConcurrentLinkedQueue<>();
-    private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
-    private static final Map<String, Double> priceCache = new ConcurrentHashMap<>();
-    private static long lastCacheUpdate = 0;
-    private static final long CACHE_TTL_MS = 300000;
-    
-    // Enhanced Trading Symbols
-    private static final String[] TRADING_SYMBOLS = {
-        "BTC", "ETH", "BNB", "ADA", "DOT", "LINK", "LTC", "XRP", "AVAX", "MATIC",
-        "SOL", "DOGE", "SHIB", "UNI", "ATOM", "NEAR", "FTM", "ALGO", "MANA", "SAND",
-        "AIXBT", "AI16Z", "ALT", "API3", "ARB", "BONK", "DOGS", "DYDX", "EIGEN", "ENA",
-        "FLOKI", "GALA", "GOAT", "HBAR", "JUP", "LDO", "MEME", "MOVE", "NEIRO", "NOT",
-        "ONDO", "OP", "PEOPLE", "PEPE", "PENGU", "PNUT", "POPCAT", "RENDER", "RSR",
-        "SAGA", "SEI", "SONIC", "TRX", "USUAL", "VIRTUAL", "WIF", "WLD", "XAI", "XLM",
-        "TAO", "TRUMP", "PERP", "OM", "GMT", "HIGH", "AAVE", "INJ", "TON", "CRV"
+
+    // List of symbols to trade
+    private static final String[] TRADING_SYMBOLS = new String[]{
+            "BTC", "ETH", "BNB", "ADA", "DOT", "LINK", "LTC", "XRP", "AVAX", "MATIC"
     };
-    
     private static final String[] TRADING_PAIRS = Arrays.stream(TRADING_SYMBOLS)
-            .map(symbol -> "B-" + symbol + "_USDT")
+            .map(s -> "B-" + s + "_USDT")
             .toArray(String[]::new);
-    
-    // Thread Management
-    private static final ExecutorService executor = Executors.newFixedThreadPool(6);
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(3);
-    private static volatile boolean isRunning = true;
-    
+
+    // Executor for concurrent tasks
+    private static final ExecutorService executor = Executors.newFixedThreadPool(5);
+
+    // Rate limit tracking
+    private static final Queue<Long> requestTimestamps = new ConcurrentLinkedQueue<>();
+
+    // Instrument details cache
+    private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
+    private static long instrumentCacheTimestamp = 0L;
+    private static final long INSTRUMENT_CACHE_TTL_MS = 10 * 60 * 1000;  // 10 minutes
+
     public static void main(String[] args) {
-        logInfo("🚀 Starting Advanced CoinDCX Bot with Dynamic TP/SL");
-        
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            isRunning = false;
-            logInfo("🛑 Shutting down trading bot...");
-            cleanup();
-        }));
-        
-        try {
-            initializeSystem();
-            startTradingLoop();
-        } catch (Exception e) {
-            logError("❌ Critical error: " + e.getMessage());
-            e.printStackTrace();
-        } finally {
-            cleanup();
-        }
-    }
-    
-    private static void initializeSystem() {
-        try {
-            logInfo("🔧 Initializing trading system...");
-            initializeInstrumentCache();
-            startBackgroundMonitoring();
-            logInfo("✅ System initialized successfully");
-        } catch (Exception e) {
-            logError("❌ System initialization failed: " + e.getMessage());
-            throw new RuntimeException(e);
-        }
-    }
-    
-    private static void startTradingLoop() {
-        int cycleCount = 0;
-        
-        while (isRunning) {
+        System.out.println("[" + now() + "] Starting CoinDCX Futures Trader");
+
+        // Prepare instrument cache before loop
+        updateInstrumentCache();
+
+        while (true) {
             try {
-                cycleCount++;
-                logInfo("🔄 Trading cycle #" + cycleCount);
-                
                 Set<String> activePositions = getActivePositions();
-                logInfo("📊 Active positions: " + activePositions.size() + "/" + MAX_CONCURRENT_POSITIONS);
-                
-                if (activePositions.size() >= MAX_CONCURRENT_POSITIONS) {
-                    logInfo("⏳ Position limit reached. Waiting...");
-                    Thread.sleep(45000);
+
+                int slotsAvailable = MAX_CONCURRENT_POSITIONS - activePositions.size();
+                if (slotsAvailable <= 0) {
+                    System.out.println("[" + now() + "] Maximum active positions reached, waiting...");
+                    Thread.sleep(30000);
                     continue;
                 }
-                
-                int availableSlots = MAX_CONCURRENT_POSITIONS - activePositions.size();
-                processTradingOpportunities(activePositions, availableSlots);
-                
-                Thread.sleep(20000);
-                
-            } catch (Exception e) {
-                logError("❌ Trading loop error: " + e.getMessage());
-                try {
-                    Thread.sleep(30000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
+
+                List<Future<Void>> futures = new ArrayList<>();
+                int countStarted = 0;
+                for (String pair : TRADING_PAIRS) {
+                    if (activePositions.contains(pair)) continue;
+                    futures.add(executor.submit(() -> {
+                        processPair(pair);
+                        return null;
+                    }));
+                    countStarted++;
+                    if (countStarted >= slotsAvailable) break;
+                    Thread.sleep(200);
                 }
-            }
-        }
-    }
-    
-    private static void processTradingOpportunities(Set<String> activePositions, int availableSlots) {
-        List<TradingOpportunity> opportunities = new ArrayList<>();
-        List<Future<TradingOpportunity>> futures = new ArrayList<>();
-        
-        for (String pair : TRADING_PAIRS) {
-            if (activePositions.contains(pair)) continue;
-            
-            Future<TradingOpportunity> future = executor.submit(() -> {
-                try {
-                    return analyzeTradingOpportunity(pair);
-                } catch (Exception e) {
-                    logError("Analysis error for " + pair + ": " + e.getMessage());
-                    return null;
-                }
-            });
-            futures.add(future);
-        }
-        
-        // Collect results
-        for (Future<TradingOpportunity> future : futures) {
-            try {
-                TradingOpportunity opportunity = future.get(30, TimeUnit.SECONDS);
-                if (opportunity != null && opportunity.isValid()) {
-                    opportunities.add(opportunity);
-                }
-            } catch (Exception e) {
-                logError("Future execution error: " + e.getMessage());
-            }
-        }
-        
-        // Sort and execute best opportunities
-        opportunities.sort((a, b) -> Double.compare(b.signalStrength, a.signalStrength));
-        
-        int executed = 0;
-        for (TradingOpportunity opportunity : opportunities) {
-            if (executed >= availableSlots) break;
-            
-            try {
-                if (executeTradeOpportunity(opportunity)) {
-                    executed++;
-                    Thread.sleep(2000);
-                }
-            } catch (Exception e) {
-                logError("Trade execution error: " + e.getMessage());
-            }
-        }
-        
-        logInfo("📈 Executed " + executed + " positions out of " + opportunities.size() + " opportunities");
-    }
-    
-    private static TradingOpportunity analyzeTradingOpportunity(String pair) {
-        try {
-            JSONArray candles = getCandlestickData(pair, "5", LOOKBACK_CANDLES);
-            if (candles == null || candles.length() < 15) return null;
-            
-            double currentPrice = getCurrentPrice(pair);
-            if (currentPrice <= 0) return null;
-            
-            if (!hasAdequateLiquidity(pair, currentPrice)) return null;
-            
-            // Enhanced market analysis
-            EnhancedMarketAnalysis analysis = performEnhancedMarketAnalysis(candles, pair);
-            MarketSentiment sentiment = getMarketSentiment(pair);
-            
-            TradeSignal signal = combineAllSignals(analysis, sentiment);
-            if (signal == TradeSignal.HOLD) return null;
-            
-            int leverage = calculateOptimalLeverage(analysis.volatility);
-            double quantity = calculateFixedMarginQuantity(pair, currentPrice, leverage);
-            if (quantity <= 0) return null;
-            
-            double signalStrength = calculateSignalStrength(analysis, sentiment);
-            
-            return new TradingOpportunity(pair, signal, currentPrice, quantity, leverage, 
-                                        analysis.volatility, signalStrength, analysis);
-            
-        } catch (Exception e) {
-            logError("Analysis error for " + pair + ": " + e.getMessage());
-            return null;
-        }
-    }
-    
-    private static EnhancedMarketAnalysis performEnhancedMarketAnalysis(JSONArray candles, String pair) {
-        try {
-            double[] closes = extractCloses(candles);
-            double[] highs = extractHighs(candles);
-            double[] lows = extractLows(candles);
-            double[] volumes = extractVolumes(candles);
-            
-            // Calculate all indicators
-            double rsi = calculateRSI(closes, RSI_PERIOD);
-            MACDResult macd = calculateMACD(closes);
-            BollingerBands bollinger = calculateBollingerBands(closes, 20, 2.0);
-            double volatility = calculateVolatility(closes);
-            double atr = calculateATR(highs, lows, closes, 14);
-            double trendStrength = calculateTrendStrength(closes);
-            double volumeRatio = calculateVolumeRatio(volumes);
-            
-            // Multi-timeframe confirmation
-            JSONArray candles15m = getCandlestickData(pair, "15", 10);
-            double trend15m = candles15m != null ? calculateTrendStrength(extractCloses(candles15m)) : 0;
-            
-            return new EnhancedMarketAnalysis(rsi, macd, bollinger, volatility, atr, 
-                                            trendStrength, volumeRatio, trend15m);
-            
-        } catch (Exception e) {
-            logError("Enhanced analysis error: " + e.getMessage());
-            return new EnhancedMarketAnalysis();
-        }
-    }
-    
-    private static TradeSignal combineAllSignals(EnhancedMarketAnalysis analysis, MarketSentiment sentiment) {
-        double bullishScore = 0;
-        double bearishScore = 0;
-        
-        // RSI signals
-        if (analysis.rsi < RSI_OVERSOLD) bullishScore += 2;
-        else if (analysis.rsi > RSI_OVERBOUGHT) bearishScore += 2;
-        
-        // MACD signals
-        if (analysis.macd.histogram[analysis.macd.histogram.length - 1] > 0) {
-            bullishScore += 1.5;
-        } else {
-            bearishScore += 1.5;
-        }
-        
-        // Bollinger Bands
-        if (analysis.bollinger.signal == TradeSignal.BUY) bullishScore += 1;
-        else if (analysis.bollinger.signal == TradeSignal.SELL) bearishScore += 1;
-        
-        // Trend strength
-        if (analysis.trendStrength > TREND_STRENGTH_THRESHOLD) {
-            bullishScore += 1;
-        } else if (analysis.trendStrength < -TREND_STRENGTH_THRESHOLD) {
-            bearishScore += 1;
-        }
-        
-        // Volume confirmation
-        if (analysis.volumeRatio > 1.5) {
-            bullishScore += 0.5;
-            bearishScore += 0.5;
-        }
-        
-        // Multi-timeframe confirmation
-        if (analysis.trend15m > 0.01) bullishScore += 0.5;
-        else if (analysis.trend15m < -0.01) bearishScore += 0.5;
-        
-        // Sentiment factors
-        if (sentiment.sentimentScore > 0.5) bullishScore += 0.5;
-        else if (sentiment.sentimentScore < -0.5) bearishScore += 0.5;
-        
-        // Decision logic
-        if (bullishScore > bearishScore + 2) return TradeSignal.BUY;
-        else if (bearishScore > bullishScore + 2) return TradeSignal.SELL;
-        else return TradeSignal.HOLD;
-    }
-    
-    private static boolean executeTradeOpportunity(TradingOpportunity opportunity) {
-        try {
-            logInfo("🎯 Executing " + opportunity.signal + " for " + opportunity.pair + 
-                   " | Price: " + opportunity.price + " | Leverage: " + opportunity.leverage + "x");
-            
-            String orderId = placeMarketOrder(opportunity);
-            if (orderId == null) {
-                logError("❌ Order placement failed for " + opportunity.pair);
-                return false;
-            }
-            
-            logInfo("✅ Order placed: " + orderId + " for " + opportunity.pair);
-            
-            // Wait for fill and set enhanced TP/SL
-            Thread.sleep(3000);
-            setEnhancedTakeProfitAndStopLoss(opportunity, orderId);
-            
-            return true;
-            
-        } catch (Exception e) {
-            logError("Trade execution error: " + e.getMessage());
-            return false;
-        }
-    }
-    
-    private static String placeMarketOrder(TradingOpportunity opportunity) {
-        try {
-            waitForRateLimit();
-            
-            JSONObject order = new JSONObject();
-            order.put("side", opportunity.signal == TradeSignal.BUY ? "buy" : "sell");
-            order.put("pair", opportunity.pair);
-            order.put("order_type", "market_order");
-            order.put("total_quantity", opportunity.quantity);
-            order.put("leverage", opportunity.leverage);
-            order.put("notification", "no_notification");
-            order.put("position_margin_type", "isolated");
-            order.put("margin_currency_short_name", "USDT");
-            
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("order", order);
-            
-            String response = sendAuthenticatedRequest(
-                    BASE_URL + "/exchange/v1/derivatives/futures/orders/create",
-                    body.toString()
-            );
-            
-            JSONArray responseArray = new JSONArray(response);
-            if (responseArray.length() > 0) {
-                JSONObject orderResponse = responseArray.getJSONObject(0);
-                return orderResponse.optString("id", null);
-            }
-            
-            return null;
-            
-        } catch (Exception e) {
-            logError("Order placement error: " + e.getMessage());
-            return null;
-        }
-    }
-    
-    private static void setEnhancedTakeProfitAndStopLoss(TradingOpportunity opportunity, String orderId) {
-        try {
-            String positionId = getPositionId(opportunity.pair);
-            if (positionId == null) {
-                logError("❌ Position not found for " + opportunity.pair);
-                return;
-            }
-            
-            // Calculate dynamic TP/SL based on market conditions
-            TPSLLevels levels = calculateDynamicTPSL(opportunity);
-            
-            // Round to tick size
-            JSONObject instrument = getInstrumentDetails(opportunity.pair);
-            if (instrument != null) {
-                double tickSize = instrument.getDouble("price_increment");
-                levels.tpPrice = Math.round(levels.tpPrice / tickSize) * tickSize;
-                levels.slPrice = Math.round(levels.slPrice / tickSize) * tickSize;
-            }
-            
-            // Create enhanced TP/SL order
-            JSONObject tpslPayload = new JSONObject();
-            tpslPayload.put("timestamp", Instant.now().toEpochMilli());
-            tpslPayload.put("id", positionId);
-            
-            // Take Profit
-            JSONObject takeProfit = new JSONObject();
-            takeProfit.put("stop_price", levels.tpPrice);
-            takeProfit.put("limit_price", levels.tpPrice);
-            takeProfit.put("order_type", "take_profit_market");
-            
-            // Enhanced Stop Loss with market condition adaptation
-            JSONObject stopLoss = new JSONObject();
-            stopLoss.put("stop_price", levels.slPrice);
-            stopLoss.put("limit_price", levels.slPrice);
-            stopLoss.put("order_type", levels.slOrderType);
-            
-            tpslPayload.put("take_profit", takeProfit);
-            tpslPayload.put("stop_loss", stopLoss);
-            
-            String response = sendAuthenticatedRequest(
-                    BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl",
-                    tpslPayload.toString()
-            );
-            
-            JSONObject tpslResponse = new JSONObject(response);
-            if (!tpslResponse.has("err_code_dcx")) {
-                logInfo("🎯 Enhanced TP/SL set for " + opportunity.pair + 
-                       " | TP: " + levels.tpPrice + " | SL: " + levels.slPrice + 
-                       " | Type: " + levels.slType);
-            } else {
-                logError("❌ TP/SL setup failed for " + opportunity.pair + ": " + response);
-            }
-            
-        } catch (Exception e) {
-            logError("Enhanced TP/SL setup error: " + e.getMessage());
-        }
-    }
-    
-    private static TPSLLevels calculateDynamicTPSL(TradingOpportunity opportunity) {
-        double entryPrice = opportunity.price;
-        double volatility = opportunity.volatility;
-        double atr = opportunity.analysis.atr;
-        TradeSignal signal = opportunity.signal;
-        
-        // Dynamic TP calculation (keep small for frequent hits)
-        double tpPrice = signal == TradeSignal.BUY 
-                       ? entryPrice * (1 + SCALP_TP_PERCENTAGE)
-                       : entryPrice * (1 - SCALP_TP_PERCENTAGE);
-        
-        // Dynamic SL calculation based on market conditions
-        StopLossStrategy slStrategy = determineStopLossStrategy(volatility, atr, entryPrice);
-        double slPrice = calculateStopLossPrice(entryPrice, signal, slStrategy);
-        
-        return new TPSLLevels(tpPrice, slPrice, slStrategy.orderType, slStrategy.type);
-    }
-    
-    private static StopLossStrategy determineStopLossStrategy(double volatility, double atr, double entryPrice) {
-        // Determine stop loss strategy based on market conditions
-        if (volatility < VOLATILITY_LOW) {
-            // Low volatility - use conservative SL
-            return new StopLossStrategy(
-                CONSERVATIVE_SL_PERCENTAGE,
-                "stop_market",
-                "Conservative"
-            );
-        } else if (volatility > VOLATILITY_HIGH) {
-            // High volatility - use aggressive SL
-            return new StopLossStrategy(
-                AGGRESSIVE_SL_PERCENTAGE,
-                "stop_market",
-                "Aggressive"
-            );
-        } else {
-            // Medium volatility - use ATR-based SL
-            double atrBasedSL = (atr * VOLATILITY_SL_MULTIPLIER) / entryPrice;
-            atrBasedSL = Math.max(MIN_SL_PERCENTAGE, Math.min(MAX_SL_PERCENTAGE, atrBasedSL));
-            
-            return new StopLossStrategy(
-                atrBasedSL,
-                "stop_limit",
-                "ATR-Based"
-            );
-        }
-    }
-    
-    private static double calculateStopLossPrice(double entryPrice, TradeSignal signal, StopLossStrategy strategy) {
-        if (signal == TradeSignal.BUY) {
-            return entryPrice * (1 - strategy.slPercentage);
-        } else {
-            return entryPrice * (1 + strategy.slPercentage);
-        }
-    }
-    
-    // Technical Analysis Methods
-    private static double calculateATR(double[] highs, double[] lows, double[] closes, int period) {
-        if (highs.length < period + 1) return 0.0;
-        
-        double[] trueRanges = new double[highs.length - 1];
-        for (int i = 1; i < highs.length; i++) {
-            double tr1 = highs[i] - lows[i];
-            double tr2 = Math.abs(highs[i] - closes[i - 1]);
-            double tr3 = Math.abs(lows[i] - closes[i - 1]);
-            trueRanges[i - 1] = Math.max(tr1, Math.max(tr2, tr3));
-        }
-        
-        double sum = 0;
-        for (int i = Math.max(0, trueRanges.length - period); i < trueRanges.length; i++) {
-            sum += trueRanges[i];
-        }
-        
-        return sum / Math.min(period, trueRanges.length);
-    }
-    
-    private static double calculateRSI(double[] closes, int period) {
-        if (closes.length < period + 1) return 50.0;
-        
-        double avgGain = 0;
-        double avgLoss = 0;
-        
-        for (int i = 1; i <= period; i++) {
-            double change = closes[i] - closes[i - 1];
-            if (change > 0) {
-                avgGain += change;
-            } else {
-                avgLoss += Math.abs(change);
-            }
-        }
-        
-        avgGain /= period;
-        avgLoss /= period;
-        
-        for (int i = period + 1; i < closes.length; i++) {
-            double change = closes[i] - closes[i - 1];
-            if (change > 0) {
-                avgGain = (avgGain * (period - 1) + change) / period;
-                avgLoss = (avgLoss * (period - 1)) / period;
-            } else {
-                avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;
-                avgGain = (avgGain * (period - 1)) / period;
-            }
-        }
-        
-        if (avgLoss == 0) return 100.0;
-        double rs = avgGain / avgLoss;
-        return 100.0 - (100.0 / (1.0 + rs));
-    }
-    
-    private static MACDResult calculateMACD(double[] closes) {
-        double[] ema12 = calculateEMA(closes, 12);
-        double[] ema26 = calculateEMA(closes, 26);
-        
-        double[] macdLine = new double[closes.length];
-        for (int i = 0; i < closes.length; i++) {
-            macdLine[i] = ema12[i] - ema26[i];
-        }
-        
-        double[] signalLine = calculateEMA(macdLine, 9);
-        double[] histogram = new double[closes.length];
-        
-        for (int i = 0; i < closes.length; i++) {
-            histogram[i] = macdLine[i] - signalLine[i];
-        }
-        
-        return new MACDResult(macdLine, signalLine, histogram);
-    }
-    
-    private static BollingerBands calculateBollingerBands(double[] closes, int period, double stdDev) {
-        double[] sma = calculateSMA(closes, period);
-        double[] upperBand = new double[closes.length];
-        double[] lowerBand = new double[closes.length];
-        
-        for (int i = period - 1; i < closes.length; i++) {
-            double sum = 0;
-            for (int j = i - period + 1; j <= i; j++) {
-                sum += Math.pow(closes[j] - sma[i], 2);
-            }
-            double std = Math.sqrt(sum / period);
-            upperBand[i] = sma[i] + (stdDev * std);
-            lowerBand[i] = sma[i] - (stdDev * std);
-        }
-        
-        TradeSignal signal = TradeSignal.HOLD;
-        if (closes.length > 0) {
-            double currentPrice = closes[closes.length - 1];
-            if (currentPrice <= lowerBand[closes.length - 1]) {
-                signal = TradeSignal.BUY;
-            } else if (currentPrice >= upperBand[closes.length - 1]) {
-                signal = TradeSignal.SELL;
-            }
-        }
-        
-        return new BollingerBands(upperBand, lowerBand, sma, signal);
-    }
-    
-    private static double[] calculateEMA(double[] prices, int period) {
-        double[] ema = new double[prices.length];
-        double multiplier = 2.0 / (period + 1);
-        
-        double sum = 0;
-        for (int i = 0; i < period; i++) {
-            sum += prices[i];
-        }
-        ema[period - 1] = sum / period;
-        
-        for (int i = period; i < prices.length; i++) {
-            ema[i] = (prices[i] * multiplier) + (ema[i - 1] * (1 - multiplier));
-        }
-        
-        return ema;
-    }
-    
-    private static double[] calculateSMA(double[] prices, int period) {
-        double[] sma = new double[prices.length];
-        for (int i = period - 1; i < prices.length; i++) {
-            double sum = 0;
-            for (int j = i - period + 1; j <= i; j++) {
-                sum += prices[j];
-            }
-            sma[i] = sum / period;
-        }
-        return sma;
-    }
-    
-    private static double calculateVolatility(double[] closes) {
-        if (closes.length < 2) return 0.02;
-        
-        double[] returns = new double[closes.length - 1];
-        for (int i = 1; i < closes.length; i++) {
-            returns[i - 1] = Math.log(closes[i] / closes[i - 1]);
-        }
-        
-        double mean = Arrays.stream(returns).average().orElse(0);
-        double variance = Arrays.stream(returns)
-                .map(r -> Math.pow(r - mean, 2))
-                .average()
-                .orElse(0);
-        
-        return Math.sqrt(variance);
-    }
-    
-    private static double calculateTrendStrength(double[] closes) {
-        if (closes.length < 5) return 0;
-        
-        double firstPrice = closes[0];
-        double lastPrice = closes[closes.length - 1];
-        
-        return (lastPrice - firstPrice) / firstPrice;
-    }
-    
-    private static double calculateVolumeRatio(double[] volumes) {
-        if (volumes.length < 10) return 1.0;
-        
-        double recentVolume = Arrays.stream(volumes, volumes.length - 5, volumes.length).average().orElse(0);
-        double historicalVolume = Arrays.stream(volumes, 0, volumes.length - 5).average().orElse(1);
-        
-        return recentVolume / historicalVolume;
-    }
-    
-    // Market Data and API Methods
-    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-        try {
-            waitForRateLimit();
-            
-            long endTime = Instant.now().toEpochMilli() / 1000;
-            long startTime = endTime - (periods * getResolutionInSeconds(resolution));
-            
-            String url = PUBLIC_API_URL + "/market_data/candlesticks" +
-                    "?pair=" + pair +
-                    "&from=" + startTime +
-                    "&to=" + endTime +
-                    "&resolution=" + resolution +
-                    "&pcode=f";
-            
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readResponse(conn.getInputStream());
-                JSONObject jsonResponse = new JSONObject(response);
-                
-                if ("ok".equals(jsonResponse.optString("s"))) {
-                    return jsonResponse.getJSONArray("data");
-                }
-            }
-            
-        } catch (Exception e) {
-            logError("Candlestick data error: " + e.getMessage());
-        }
-        return null;
-    }
-    
-    private static double getCurrentPrice(String pair) {
-        try {
-            String cacheKey = pair + "_price";
-            if (priceCache.containsKey(cacheKey) && 
-                System.currentTimeMillis() - lastCacheUpdate < 30000) {
-                return priceCache.get(cacheKey);
-            }
-            
-            waitForRateLimit();
-            
-            String url = PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1";
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-            
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readResponse(conn.getInputStream());
-                JSONArray trades = new JSONArray(response);
-                
-                if (trades.length() > 0) {
-                    double price = trades.getJSONObject(0).getDouble("p");
-                    priceCache.put(cacheKey, price);
-                    return price;
-                }
-            }
-            
-        } catch (Exception e) {
-            logError("Price fetch error: " + e.getMessage());
-        }
-        return 0;
-    }
-    
-    private static MarketSentiment getMarketSentiment(String pair) {
-        try {
-            JSONObject stats = getMarketStats(pair);
-            double priceChange24h = stats.optDouble("change_24_hour", 0);
-            double volume24h = stats.optDouble("volume", 0);
-            
-            double sentimentScore = 0;
-            if (priceChange24h > 3) sentimentScore += 1;
-            else if (priceChange24h < -3) sentimentScore -= 1;
-            
-            if (volume24h > 1000000) sentimentScore += 0.5;
-            
-            return new MarketSentiment(priceChange24h, volume24h, sentimentScore);
-            
-        } catch (Exception e) {
-            return new MarketSentiment(0, 0, 0);
-        }
-    }
-    
-    private static JSONObject getMarketStats(String pair) {
-        try {
-            waitForRateLimit();
-            
-            String url = BASE_URL + "/exchange/ticker";
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-            
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readResponse(conn.getInputStream());
-                JSONArray tickers = new JSONArray(response);
-                
-                for (int i = 0; i < tickers.length(); i++) {
-                    JSONObject ticker = tickers.getJSONObject(i);
-                    if (pair.equals(ticker.optString("market"))) {
-                        return ticker;
+                for (Future<Void> f : futures) {
+                    try {
+                        f.get(30, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
                     }
                 }
+                Thread.sleep(15000);
+            } catch (Exception e) {
+                System.err.println("[" + now() + "] Unexpected error: " + e.getMessage());
+                try {
+                    Thread.sleep(15000);
+                } catch (InterruptedException ignored) {
+                }
             }
-            
-        } catch (Exception e) {
-            logError("Market stats error: " + e.getMessage());
         }
-        return new JSONObject();
     }
-    
-    private static boolean hasAdequateLiquidity(String pair, double currentPrice) {
+
+    private static void processPair(String pair) {
         try {
-            return currentPrice > 0;
+            JSONArray candles = getCandlestickData(pair, "5", MIN_CANDLES);
+            if (candles == null || candles.length() < MIN_CANDLES) {
+                System.out.println("[" + now() + "] Skipping " + pair + ": insufficient candle data");
+                return;
+            }
+
+            double[] closes = extractField(candles, "close");
+            double[] highs = extractField(candles, "high");
+            double[] lows = extractField(candles, "low");
+
+            double rsi = calculateRSI(closes, RSI_PERIOD);
+            double trend = (closes[closes.length - 1] - closes[0]) / closes[0];
+
+            TradeSignal signal;
+            if (rsi < 35 || trend > 0.02) signal = TradeSignal.BUY;
+            else if (rsi > 65 || trend < -0.02) signal = TradeSignal.SELL;
+            else {
+                System.out.println("[" + now() + "] No clear signal for " + pair);
+                return;
+            }
+
+            double price = closes[closes.length - 1];
+            double qty = calculateQuantityForMargin(pair, price);
+            if (qty <= 0) {
+                System.out.println("[" + now() + "] Quantity calculation zero for " + pair);
+                return;
+            }
+
+            String orderId = placeMarketOrder(pair, signal, qty, price);
+            if (orderId == null) {
+                System.err.println("[" + now() + "] Failed to place market order for " + pair);
+                return;
+            }
+            Thread.sleep(2500);
+            String positionId = getPositionId(pair);
+            if (positionId == null) {
+                System.err.println("[" + now() + "] Could not find position after order for " + pair);
+                return;
+            }
+            setTakeProfitStopLoss(pair, positionId, price, signal);
+            System.out.println("[" + now() + "] Trade executed and TP/SL set for " + pair);
         } catch (Exception e) {
-            return false;
+            System.err.println("[" + now() + "] Error processing pair " + pair + ": " + e.getMessage());
         }
     }
-    
+
+    private static void setTakeProfitStopLoss(String pair, String positionId, double entryPrice, TradeSignal signal) {
+        try {
+            JSONObject instrument = getInstrumentDetails(pair);
+            if (instrument == null) {
+                System.err.println("[" + now() + "] Instrument data missing for " + pair + ", cannot set TP/SL");
+                return;
+            }
+            double tickSize = instrument.getDouble("price_increment");
+
+            double tpPrice = signal == TradeSignal.BUY ? entryPrice * (1 + TP_PERCENTAGE) : entryPrice * (1 - TP_PERCENTAGE);
+            double slPrice = signal == TradeSignal.BUY ? entryPrice * (1 - SL_PERCENTAGE) : entryPrice * (1 + SL_PERCENTAGE);
+
+            tpPrice = Math.round(tpPrice / tickSize) * tickSize;
+            slPrice = Math.round(slPrice / tickSize) * tickSize;
+
+            JSONObject tp = new JSONObject();
+            tp.put("stop_price", tpPrice);
+            tp.put("limit_price", tpPrice);
+            tp.put("order_type", "take_profit_market");
+
+            JSONObject sl = new JSONObject();
+            sl.put("stop_price", slPrice);
+            sl.put("limit_price", slPrice);
+            sl.put("order_type", "stop_market");
+
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("id", positionId);
+            body.put("take_profit", tp);
+            body.put("stop_loss", sl);
+
+            String res = sendAuthenticatedRequest(BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl", body.toString());
+
+            JSONObject respJson = new JSONObject(res);
+            if (!respJson.has("err_code_dcx")) {
+                System.out.println("[" + now() + "] TP and SL set for " + pair + ": TP=" + tpPrice + ", SL=" + slPrice);
+            } else {
+                System.err.println("[" + now() + "] Failed to set TP/SL for " + pair + ": " + res);
+            }
+        } catch (Exception ex) {
+            System.err.println("[" + now() + "] TP/SL set error for " + pair + ": " + ex.getMessage());
+        }
+    }
+
+    private static String placeMarketOrder(String pair, TradeSignal signal, double qty, double price) throws Exception {
+        waitForRateLimit();
+
+        JSONObject order = new JSONObject();
+        order.put("side", signal == TradeSignal.BUY ? "buy" : "sell");
+        order.put("pair", pair);
+        order.put("order_type", "market_order");
+        order.put("total_quantity", qty);
+        order.put("leverage", 5);
+        order.put("notification", "no_notification");
+        order.put("position_margin_type", "isolated");
+        order.put("margin_currency_short_name", "USDT");
+
+        JSONObject body = new JSONObject();
+        body.put("timestamp", Instant.now().toEpochMilli());
+        body.put("order", order);
+
+        String response = sendAuthenticatedRequest(BASE_URL + "/exchange/v1/derivatives/futures/orders/create", body.toString());
+
+        JSONArray arr = new JSONArray(response);
+        if (arr.length() < 1) return null;
+        return arr.getJSONObject(0).optString("id", null);
+    }
+
     private static Set<String> getActivePositions() {
-        Set<String> activePositions = new HashSet<>();
-        
+        Set<String> active = new HashSet<>();
         try {
             waitForRateLimit();
-            
+
             JSONObject body = new JSONObject();
             body.put("timestamp", Instant.now().toEpochMilli());
             body.put("page", "1");
             body.put("size", "100");
             body.put("margin_currency_short_name", new String[]{"USDT"});
-            
-            String response = sendAuthenticatedRequest(
-                    BASE_URL + "/exchange/v1/derivatives/futures/positions",
-                    body.toString()
-            );
-            
-            JSONArray positions = new JSONArray(response);
-            
-            for (int i = 0; i < positions.length(); i++) {
-                JSONObject position = positions.getJSONObject(i);
-                String pair = position.optString("pair", "");
-                
-                boolean isActive = position.optDouble("active_pos", 0) != 0 ||
-                                 position.optDouble("locked_margin", 0) > 0;
-                
-                if (isActive && !pair.isEmpty()) {
-                    activePositions.add(pair);
+
+            String response = sendAuthenticatedRequest(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+
+            JSONArray arr = new JSONArray(response);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject pos = arr.getJSONObject(i);
+                if (pos.optDouble("active_pos", 0) != 0 || pos.optDouble("locked_margin", 0) > 0) {
+                    active.add(pos.optString("pair", ""));
                 }
             }
-            
-        } catch (Exception e) {
-            logError("Position fetch error: " + e.getMessage());
+        } catch (Exception ignored) {
         }
-        
-        return activePositions;
+        return active;
     }
-    
+
     private static String getPositionId(String pair) {
         try {
             waitForRateLimit();
-            
+
             JSONObject body = new JSONObject();
             body.put("timestamp", Instant.now().toEpochMilli());
             body.put("page", "1");
             body.put("size", "10");
             body.put("margin_currency_short_name", new String[]{"USDT"});
-            
-            String response = sendAuthenticatedRequest(
-                    BASE_URL + "/exchange/v1/derivatives/futures/positions",
-                    body.toString()
-            );
-            
-            JSONArray positions = new JSONArray(response);
-            
-            for (int i = 0; i < positions.length(); i++) {
-                JSONObject position = positions.getJSONObject(i);
-                if (pair.equals(position.optString("pair", ""))) {
-                    return position.optString("id", null);
+
+            String response = sendAuthenticatedRequest(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+
+            JSONArray arr = new JSONArray(response);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject pos = arr.getJSONObject(i);
+                if (pair.equals(pos.optString("pair", ""))) {
+                    return pos.optString("id", null);
                 }
             }
-            
-        } catch (Exception e) {
-            logError("Position ID fetch error: " + e.getMessage());
+        } catch (Exception ignored) {
         }
-        
         return null;
     }
-    
-    // Helper methods
-    private static double calculateSignalStrength(EnhancedMarketAnalysis analysis, MarketSentiment sentiment) {
-        double strength = 0;
-        
-        if (analysis.rsi < 20 || analysis.rsi > 80) strength += 2;
-        else if (analysis.rsi < 30 || analysis.rsi > 70) strength += 1;
-        
-        strength += Math.abs(analysis.trendStrength) * 10;
-        
-        if (analysis.volumeRatio > 2) strength += 1;
-        
-        if (analysis.volatility > 0.01 && analysis.volatility < 0.04) strength += 0.5;
-        
-        return strength;
-    }
-    
-    private static int calculateOptimalLeverage(double volatility) {
-        if (volatility < VOLATILITY_LOW) return LEVERAGE_STABLE;
-        else if (volatility < VOLATILITY_MEDIUM) return LEVERAGE_NORMAL;
-        else if (volatility < VOLATILITY_HIGH) return LEVERAGE_VOLATILE;
-        else return LEVERAGE_EXTREME;
-    }
-    
-    private static double calculateFixedMarginQuantity(String pair, double price, int leverage) {
-        try {
-            JSONObject instrument = getInstrumentDetails(pair);
-            if (instrument == null) return 0;
-            
-            double minQuantity = instrument.getDouble("min_quantity");
-            double maxQuantity = instrument.getDouble("max_quantity");
-            double quantityIncrement = instrument.getDouble("quantity_increment");
-            double minNotional = instrument.getDouble("min_notional");
-            
-            double notionalValue = FIXED_MARGIN_PER_TRADE * leverage;
-            double baseQuantity = notionalValue / price;
-            
-            if (baseQuantity * price < minNotional) {
-                baseQuantity = minNotional / price;
+
+    private static JSONArray getCandlestickData(String pair, String resolution, int limit) throws Exception {
+        waitForRateLimit();
+
+        long now = Instant.now().toEpochMilli() / 1000;
+        long start = now - (limit * 5 * 60);
+
+        String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair + "&from=" + start + "&to=" + now + "&resolution=" + resolution + "&pcode=f";
+
+        HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+        con.setConnectTimeout(7000);
+        con.setReadTimeout(7000);
+        con.setRequestMethod("GET");
+
+        if (con.getResponseCode() == 200) {
+            String response = readResponse(con.getInputStream());
+            JSONObject json = new JSONObject(response);
+            if ("ok".equals(json.optString("s"))) {
+                return json.getJSONArray("data");
             }
-            
-            double quantity = Math.floor(baseQuantity / quantityIncrement) * quantityIncrement;
-            quantity = Math.max(minQuantity, Math.min(maxQuantity, quantity));
-            
-            return quantity;
-            
-        } catch (Exception e) {
-            logError("Quantity calculation error: " + e.getMessage());
-            return 0;
         }
+        return null;
     }
-    
-    // Initialization and Utility Methods
-    private static void initializeInstrumentCache() {
+
+    private static double[] extractField(JSONArray candles, String key) {
+        double[] res = new double[candles.length()];
+        for (int i = 0; i < candles.length(); i++) {
+            res[i] = candles.getJSONObject(i).getDouble(key);
+        }
+        return res;
+    }
+
+    private static double calculateRSI(double[] closes, int period) {
+        if (closes.length <= period) return 50;
+        double gain = 0, loss = 0;
+        for (int i = 1; i <= period; i++) {
+            double diff = closes[i] - closes[i - 1];
+            if (diff > 0) gain += diff; else loss -= diff;
+        }
+        gain /= period;
+        loss /= period;
+        for (int i = period + 1; i < closes.length; i++) {
+            double diff = closes[i] - closes[i - 1];
+            gain = ((gain * (period - 1)) + (diff > 0 ? diff : 0)) / period;
+            loss = ((loss * (period - 1)) + (diff < 0 ? -diff : 0)) / period;
+        }
+        if (loss == 0) return 100;
+        double rs = gain / loss;
+        return 100 - 100 / (1 + rs);
+    }
+
+    private static double calculateQuantityForMargin(String pair, double price) throws Exception {
+        JSONObject inst = getInstrumentDetails(pair);
+        if (inst == null) return 0;
+        double qInc = inst.getDouble("quantity_increment");
+        double qMin = inst.getDouble("min_quantity");
+        double qMax = inst.getDouble("max_quantity");
+        double minNotional = inst.getDouble("min_notional");
+
+        double baseQty = FIXED_MARGIN_PER_TRADE / price;
+
+        if (baseQty * price < minNotional) baseQty = minNotional / price;
+        double qty = Math.floor(baseQty / qInc) * qInc;
+
+        if (qty < qMin) qty = qMin;
+        if (qty > qMax) qty = qMax;
+        return qty;
+    }
+
+    private static JSONObject getInstrumentDetails(String pair) throws Exception {
+        if (System.currentTimeMillis() - lastCacheUpdate > CACHE_TTL_MS) updateInstrumentCache();
+        return instrumentCache.get(pair);
+    }
+
+    private static void updateInstrumentCache() {
         try {
             waitForRateLimit();
-            
-            String response = sendPublicRequest(
-                    BASE_URL + "/exchange/v1/derivatives/futures/data/active_instruments"
-            );
-            
+            String response = sendPublicRequest(BASE_URL + "/exchange/v1/derivatives/futures/data/active_instruments");
             JSONArray instruments = new JSONArray(response);
-            
             for (int i = 0; i < instruments.length(); i++) {
                 String pair = instruments.getString(i);
                 if (Arrays.asList(TRADING_PAIRS).contains(pair)) {
-                    try {
-                        String instrumentResponse = sendPublicRequest(
-                                BASE_URL + "/exchange/v1/derivatives/futures/data/instrument" +
-                                "?pair=" + pair + "&margin_currency_short_name=USDT"
-                        );
-                        
-                        JSONObject instrumentData = new JSONObject(instrumentResponse);
-                        instrumentCache.put(pair, instrumentData.getJSONObject("instrument"));
-                        
-                    } catch (Exception e) {
-                        logError("Instrument cache error for " + pair + ": " + e.getMessage());
-                    }
+                    String instResp = sendPublicRequest(BASE_URL + "/exchange/v1/derivatives/futures/data/instrument?pair=" + pair + "&margin_currency_short_name=USDT");
+                    JSONObject instrObj = new JSONObject(instResp);
+                    instrumentCache.put(pair, instrObj.getJSONObject("instrument"));
                 }
             }
-            
             lastCacheUpdate = System.currentTimeMillis();
-            logInfo("✅ Instrument cache: " + instrumentCache.size() + " instruments");
-            
+            System.out.println("[" + now() + "] Instrument cache updated");
         } catch (Exception e) {
-            logError("Cache initialization error: " + e.getMessage());
+            System.err.println("[" + now() + "] Error updating instrument cache: " + e.getMessage());
         }
     }
-    
-    private static void startBackgroundMonitoring() {
-        scheduler.scheduleAtFixedRate(() -> {
-            try {
-                refreshCaches();
-            } catch (Exception e) {
-                logError("Cache refresh error: " + e.getMessage());
-            }
-        }, 0, 10, TimeUnit.MINUTES);
-        
-        scheduler.scheduleAtFixedRate(() -> {
-            try {
-                monitorPositions();
-            } catch (Exception e) {
-                logError("Position monitoring error: " + e.getMessage());
-            }
-        }, 0, 2, TimeUnit.MINUTES);
-    }
-    
-    private static void refreshCaches() {
-        initializeInstrumentCache();
-        priceCache.clear();
-        logInfo("🔄 Caches refreshed");
-    }
-    
-    private static void monitorPositions() {
-        Set<String> activePositions = getActivePositions();
-        if (!activePositions.isEmpty()) {
-            logInfo("📊 Monitoring " + activePositions.size() + " active positions");
-        }
-    }
-    
-    // Network and Authentication Methods
-    private static void waitForRateLimit() {
-        long currentTime = System.currentTimeMillis();
-        
-        while (!requestTimes.isEmpty() && 
-               currentTime - requestTimes.peek() > RATE_LIMIT_WINDOW_MS) {
-            requestTimes.poll();
-        }
-        
-        if (requestTimes.size() >= MAX_REQUESTS_PER_MINUTE) {
-            try {
-                long waitTime = RATE_LIMIT_WINDOW_MS - (currentTime - requestTimes.peek());
-                if (waitTime > 0) {
-                    Thread.sleep(waitTime + 100);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        
-        requestTimes.offer(currentTime);
-    }
-    
+
     private static String sendAuthenticatedRequest(String endpoint, String jsonBody) throws Exception {
-        String signature = generateHmacSHA256(API_SECRET, jsonBody);
-        
+        String sig = generateHmacSHA256(API_SECRET, jsonBody);
         HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("X-AUTH-APIKEY", API_KEY);
-        conn.setRequestProperty("X-AUTH-SIGNATURE", signature);
+        conn.setRequestProperty("X-AUTH-SIGNATURE", sig);
         conn.setDoOutput(true);
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);
-        
         try (OutputStream os = conn.getOutputStream()) {
             os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
         }
-        
-        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            String errorResponse = readResponse(conn.getErrorStream());
-            throw new RuntimeException("HTTP " + conn.getResponseCode() + ": " + errorResponse);
+        if (conn.getResponseCode() != 200) {
+            String err = readResponse(conn.getErrorStream());
+            throw new IOException("HTTP " + conn.getResponseCode() + ": " + err);
         }
-        
         return readResponse(conn.getInputStream());
     }
-    
-    private static String sendPublicRequest(String endpoint) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(8000);
-        conn.setReadTimeout(8000);
-        
-        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            throw new RuntimeException("HTTP " + conn.getResponseCode());
+
+    private static String sendPublicRequest(String urlStr) throws Exception {
+        HttpURLConnection con = (HttpURLConnection) new URL(urlStr).openConnection();
+        con.setRequestMethod("GET");
+        con.setConnectTimeout(8000);
+        con.setReadTimeout(8000);
+        if (con.getResponseCode() != 200) {
+            throw new IOException("HTTP " + con.getResponseCode());
         }
-        
-        return readResponse(conn.getInputStream());
+        return readResponse(con.getInputStream());
     }
-    
+
     private static String readResponse(InputStream is) throws IOException {
         if (is == null) return "";
-        
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-            return reader.lines().collect(Collectors.joining("\n"));
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
+            return br.lines().collect(Collectors.joining("\n"));
         }
     }
-    
-    private static String generateHmacSHA256(String secret, String payload) {
+
+    private static String generateHmacSHA256(String secret, String payload) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        for (byte b : hash) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    private static void waitForRateLimit() {
+        long now = System.currentTimeMillis();
+        while (!requestTimestamps.isEmpty() && now - requestTimestamps.peek() > RATE_LIMIT_WINDOW_MS) requestTimestamps.poll();
+        if (requestTimestamps.size() >= MAX_REQUESTS_PER_MINUTE) {
+            try {
+                Thread.sleep(1200);
+            } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+        requestTimestamps.offer(now);
+    }
+
+    private static JSONArray getCandlestickData(String pair, String resolution, int limit) {
         try {
-            Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secret_key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            sha256_HMAC.init(secret_key);
-            
-            byte[] bytes = sha256_HMAC.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            StringBuilder result = new StringBuilder();
-            for (byte b : bytes) {
-                result.append(String.format("%02x", b));
+            waitForRateLimit();
+            long now = Instant.now().getEpochSecond();
+            long start = now - limit * 5 * 60;
+            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair + "&from=" + start + "&to=" + now + "&resolution=" + resolution + "&pcode=f";
+            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+            con.setConnectTimeout(7000);
+            con.setReadTimeout(7000);
+            con.setRequestMethod("GET");
+            if (con.getResponseCode() == 200) {
+                String resp = readResponse(con.getInputStream());
+                JSONObject json = new JSONObject(resp);
+                if ("ok".equals(json.optString("s"))) {
+                    return json.getJSONArray("data");
+                }
             }
-            return result.toString();
-            
         } catch (Exception e) {
-            throw new RuntimeException("HMAC signature error", e);
+            System.err.println("[" + now() + "] Error fetching candles for " + pair + ": " + e.getMessage());
         }
+        return null;
     }
-    
-    // Data Extraction Methods
-    private static double[] extractCloses(JSONArray candles) {
-        double[] closes = new double[candles.length()];
+
+    private static double[] extractField(JSONArray candles, String key) {
+        double[] arr = new double[candles.length()];
         for (int i = 0; i < candles.length(); i++) {
-            closes[i] = candles.getJSONObject(i).getDouble("close");
+            arr[i] = candles.getJSONObject(i).getDouble(key);
         }
-        return closes;
+        return arr;
     }
-    
-    private static double[] extractHighs(JSONArray candles) {
-        double[] highs = new double[candles.length()];
-        for (int i = 0; i < candles.length(); i++) {
-            highs[i] = candles.getJSONObject(i).getDouble("high");
-        }
-        return highs;
+
+    private static double calculateTrendStrength(double[] closes) {
+        if (closes.length < 2) return 0;
+        return (closes[closes.length - 1] - closes[0]) / closes[0];
     }
-    
-    private static double[] extractLows(JSONArray candles) {
-        double[] lows = new double[candles.length()];
-        for (int i = 0; i < candles.length(); i++) {
-            lows[i] = candles.getJSONObject(i).getDouble("low");
-        }
-        return lows;
-    }
-    
-    private static double[] extractVolumes(JSONArray candles) {
-        double[] volumes = new double[candles.length()];
-        for (int i = 0; i < candles.length(); i++) {
-            volumes[i] = candles.getJSONObject(i).getDouble("volume");
-        }
-        return volumes;
-    }
-    
-    private static JSONObject getInstrumentDetails(String pair) {
-        if (System.currentTimeMillis() - lastCacheUpdate > CACHE_TTL_MS) {
-            initializeInstrumentCache();
-        }
-        
-        return instrumentCache.get(pair);
-    }
-    
-    private static long getResolutionInSeconds(String resolution) {
-        switch (resolution) {
-            case "1": return 60;
-            case "5": return 300;
-            case "15": return 900;
-            case "60": return 3600;
-            case "1D": return 86400;
-            default: return 300;
+
+    private static double calculateQuantityForMargin(String pair, double price) {
+        try {
+            JSONObject instr = getInstrumentDetails(pair);
+            if (instr == null) return 0;
+            double qInc = instr.getDouble("quantity_increment");
+            double qMin = instr.getDouble("min_quantity");
+            double qMax = instr.getDouble("max_quantity");
+            double minNotional = instr.getDouble("min_notional");
+            double qty = FIXED_MARGIN_PER_TRADE / price;
+            if (qty * price < minNotional) qty = minNotional / price;
+            double qtyAdj = Math.floor(qty / qInc) * qInc;
+            if (qtyAdj < qMin) return 0;
+            return Math.min(qAdj, qMax);
+        } catch (Exception e) {
+            System.err.println("[" + now() + "] Quantity calculation error: " + e.getMessage());
+            return 0;
         }
     }
-    
-    // Logging Methods
-    private static void logInfo(String message) {
-        System.out.println("[" + getCurrentTimestamp() + "] " + message);
-    }
-    
-    private static void logError(String message) {
-        System.err.println("[" + getCurrentTimestamp() + "] " + message);
-    }
-    
-    private static String getCurrentTimestamp() {
+
+    // You can add the other indicator methods per your original logic with the above sample pattern (array length checks). 
+
+    private static String now() {
         return LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
     }
-    
-    // Cleanup
+
+    private static void logInfo(String msg) { System.out.println("[" + now() + "] INFO: " + msg); }
+
+    private static void logError(String msg) { System.err.println("[" + now() + "] ERROR: " + msg); }
+
     private static void cleanup() {
         try {
-            executor.shutdown();
-            scheduler.shutdown();
-            
-            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-            
-            if (!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-            
-            logInfo("🛑 System shutdown completed");
-            
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
+            executor.shutdown(); scheduler.shutdown();
+            executor.awaitTermination(15, TimeUnit.SECONDS);
+            scheduler.awaitTermination(15, TimeUnit.SECONDS);
+            logInfo("Bot shutdown complete.");
+        } catch (InterruptedException ignored) {
         }
-    }
-    
-    // Enhanced Data Classes
-    private static class TradingOpportunity {
-        final String pair;
-        final TradeSignal signal;
-        final double price;
-        final double quantity;
-        final int leverage;
-        final double volatility;
-        final double signalStrength;
-        final EnhancedMarketAnalysis analysis;
-        
-        TradingOpportunity(String pair, TradeSignal signal, double price, double quantity, 
-                          int leverage, double volatility, double signalStrength, 
-                          EnhancedMarketAnalysis analysis) {
-            this.pair = pair;
-            this.signal = signal;
-            this.price = price;
-            this.quantity = quantity;
-            this.leverage = leverage;
-            this.volatility = volatility;
-            this.signalStrength = signalStrength;
-            this.analysis = analysis;
-        }
-        
-        boolean isValid() {
-            return signal != TradeSignal.HOLD && price > 0 && quantity > 0 && signalStrength > 0;
-        }
-    }
-    
-    private static class EnhancedMarketAnalysis {
-        final double rsi;
-        final MACDResult macd;
-        final BollingerBands bollinger;
-        final double volatility;
-        final double atr;
-        final double trendStrength;
-        final double volumeRatio;
-        final double trend15m;
-        
-        EnhancedMarketAnalysis() {
-            this(50, new MACDResult(new double[0], new double[0], new double[0]),
-                 new BollingerBands(new double[0], new double[0], new double[0], TradeSignal.HOLD),
-                 0.02, 0.01, 0, 1, 0);
-        }
-        
-        EnhancedMarketAnalysis(double rsi, MACDResult macd, BollingerBands bollinger, 
-                             double volatility, double atr, double trendStrength, 
-                             double volumeRatio, double trend15m) {
-            this.rsi = rsi;
-            this.macd = macd;
-            this.bollinger = bollinger;
-            this.volatility = volatility;
-            this.atr = atr;
-            this.trendStrength = trendStrength;
-            this.volumeRatio = volumeRatio;
-            this.trend15m = trend15m;
-        }
-    }
-    
-    private static class MarketSentiment {
-        final double priceChange24h;
-        final double volume24h;
-        final double sentimentScore;
-        
-        MarketSentiment(double priceChange24h, double volume24h, double sentimentScore) {
-            this.priceChange24h = priceChange24h;
-            this.volume24h = volume24h;
-            this.sentimentScore = sentimentScore;
-        }
-    }
-    
-    private static class MACDResult {
-        final double[] macdLine;
-        final double[] signalLine;
-        final double[] histogram;
-        
-        MACDResult(double[] macdLine, double[] signalLine, double[] histogram) {
-            this.macdLine = macdLine;
-            this.signalLine = signalLine;
-            this.histogram = histogram;
-        }
-    }
-    
-    private static class BollingerBands {
-        final double[] upperBand;
-        final double[] lowerBand;
-        final double[] middleBand;
-        final TradeSignal signal;
-        
-        BollingerBands(double[] upperBand, double[] lowerBand, double[] middleBand, TradeSignal signal) {
-            this.upperBand = upperBand;
-            this.lowerBand = lowerBand;
-            this.middleBand = middleBand;
-            this.signal = signal;
-        }
-    }
-    
-    private static class TPSLLevels {
-        double tpPrice;
-        double slPrice;
-        final String slOrderType;
-        final String slType;
-        
-        TPSLLevels(double tpPrice, double slPrice, String slOrderType, String slType) {
-            this.tpPrice = tpPrice;
-            this.slPrice = slPrice;
-            this.slOrderType = slOrderType;
-            this.slType = slType;
-        }
-    }
-    
-    private static class StopLossStrategy {
-        final double slPercentage;
-        final String orderType;
-        final String type;
-        
-        StopLossStrategy(double slPercentage, String orderType, String type) {
-            this.slPercentage = slPercentage;
-            this.orderType = orderType;
-            this.type = type;
-        }
-    }
-    
-    private enum TradeSignal {
-        BUY, SELL, HOLD
     }
 }
 
