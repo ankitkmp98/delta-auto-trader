@@ -1227,8 +1227,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
     
     private static class TPSLLevels {
-        final double tpPrice;
-        final double slPrice;
+        double tpPrice;
+        double slPrice;
         final String slOrderType;
         final String slType;
         
