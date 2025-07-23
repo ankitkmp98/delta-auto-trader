@@ -1,7 +1,7 @@
 name: Delta Exchange Auto-Trader
 on:
   schedule:
-    - cron: '*/8 * * * *'  # Runs every 8 minutes
+    - cron: '*/2 * * * *'  # Runs every 2 minutes
   workflow_dispatch:
 
 jobs:
