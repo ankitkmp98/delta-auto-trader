@@ -497,6 +497,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return activePairs;
     }
 
+    
+    public static String getPositionId(String pair) {
+    try {
+        JSONObject position = findPosition(pair);
+        return position != null ? position.getString("id") : null;
+    } catch (Exception e) {
+        System.err.println("❌ Error getting position ID: " + e.getMessage());
+        return null;
+    }
+}
+
     // Send authenticated POST request
     private static String sendAuthenticatedRequest(String url, String jsonBody, String signature) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
