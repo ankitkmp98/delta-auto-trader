@@ -28,9 +28,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 90; // Minutes for trend analysis (changed from hours)
+    private static final int LOOKBACK_PERIOD = 9; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.027; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.01; // 3% take profit
+    private static final double TP_PERCENTAGE = 0.003; // 3% take profit
     private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
 
     // Cache for instrument details with timestamp
@@ -116,7 +116,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                int leverage = 3; // Default leverage
+                int leverage = 2; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
