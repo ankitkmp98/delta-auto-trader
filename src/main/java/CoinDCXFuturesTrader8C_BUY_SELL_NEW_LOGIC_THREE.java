@@ -24,14 +24,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-    private static final double MAX_MARGIN = 1000.0;
+    private static final double MAX_MARGIN = 900.0;
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 9; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.027; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.0036; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.05; // 5% stop loss
+    private static final double TP_PERCENTAGE = 0.009; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.09; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -116,7 +116,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                int leverage = 9; // Default leverage
+                int leverage = 2; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
