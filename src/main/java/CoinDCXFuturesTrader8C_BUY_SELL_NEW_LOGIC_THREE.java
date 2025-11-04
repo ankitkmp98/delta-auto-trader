@@ -30,8 +30,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 15; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.027; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.09; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.09; // 5% stop loss
+    private static final double TP_PERCENTAGE = 0.04; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -116,10 +116,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                if ("buy".equalsIgnoreCase(side)) {
+               /* if ("buy".equalsIgnoreCase(side)) {
     System.out.println("⏩ Skipping " + pair + " - Buy (Long) side is disabled");
     continue;
-}
+}*/
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
