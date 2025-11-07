@@ -116,10 +116,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = determinePositionSide(pair);
                 if (side == null) continue; // No trade when RSI is neutral
 
-                if ("buy".equalsIgnoreCase(side)) {
+               /* if ("buy".equalsIgnoreCase(side)) {
     System.out.println("⏩ Skipping " + pair + " - Buy (Long) side is disabled");
     continue;
-}
+} */
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
