@@ -28,10 +28,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 60; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.060; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.09; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.06; // 5% stop loss
+    private static final int LOOKBACK_PERIOD = 20; // Minutes for trend analysis (changed from hours)
+    private static final double TREND_THRESHOLD = 0.03; // 2% change threshold for trend
+    private static final double TP_PERCENTAGE = 0.12; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.04; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
