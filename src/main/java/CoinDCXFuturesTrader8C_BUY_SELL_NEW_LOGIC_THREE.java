@@ -30,8 +30,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 20; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.03; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.07; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.02; // 5% stop loss
+    private static final double TP_PERCENTAGE = 0.09; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -123,7 +123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 5; // Default leverage
+                int leverage = 10; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -195,11 +195,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String determinePositionSide(String pair) {
         try {
             // Changed resolution from "1h" to "5m" to match 5-minute lookback
-            JSONArray candles = getCandlestickData(pair, "15m", LOOKBACK_PERIOD);
+            JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
 
             if (candles == null || candles.length() < 2) {
                 System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
-                return Math.random() > 0.5 ? "buy" : "sell";
+                return Math.random() > 0.5 ? "sell" : "buy";
             }
 
             double firstClose = candles.getJSONObject(0).getDouble("close");
