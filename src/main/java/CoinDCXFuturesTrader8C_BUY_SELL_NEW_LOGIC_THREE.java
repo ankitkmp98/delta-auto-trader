@@ -161,15 +161,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 System.out.println("Entry Price: " + entryPrice + " INR");
 
-                // Calculate fixed percentage TP/SL prices
-                double tpPrice, slPrice;
-                if ("buy".equalsIgnoreCase(side)) {
-                    tpPrice = entryPrice * (1 + TP_PERCENTAGE);
-                    slPrice = entryPrice * (1 - SL_PERCENTAGE);
-                } else {
-                    tpPrice = entryPrice * (1 - TP_PERCENTAGE);
-                    slPrice = entryPrice * (1 + SL_PERCENTAGE);
-                }
+         // Re-use the same resolution+lookback used for entries
+JSONArray recentCandles = getCandlestickData(pair, "5m", LOOKBACK_PERIOD);
+double vol = estimateVolatilityPct(recentCandles); // e.g. 0.01 = 1% average bar
+
+// Example: TP = 2×vol, SL = 1×vol, but bounded by your hard caps
+double dynamicTpPct = Math.min(Math.max(2 * vol, 0.01), TP_PERCENTAGE); // between 1% and max TP_PERCENTAGE
+double dynamicSlPct = Math.min(Math.max(1 * vol, 0.005), SL_PERCENTAGE); // between 0.5% and max SL_PERCENTAGE
+
+double tpPrice, slPrice;
+if ("buy".equalsIgnoreCase(side)) {
+    tpPrice = entryPrice * (1 + dynamicTpPct);
+    slPrice = entryPrice * (1 - dynamicSlPct);
+} else {
+    tpPrice = entryPrice * (1 - dynamicTpPct);
+    slPrice = entryPrice * (1 + dynamicSlPct);
+}
+
+System.out.println("Dynamic TP%: " + (dynamicTpPct * 100) + "%, SL%: " + (dynamicSlPct * 100) + "%");
+
 
                 // Round to tick size
                 double tickSize = getTickSizeForPair(pair);
