@@ -607,5 +607,26 @@ private static JSONArray getCandlestickData(String pair, String resolution, int 
         }
         return activePairs;
     }
+
+    private static double estimateVolatilityPct(JSONArray candles) {
+    // simple high-low based dailyized volatility proxy over the lookback
+    if (candles == null || candles.length() == 0) return 0.02; // default 2%
+
+    double sumRangePct = 0.0;
+    int count = 0;
+    for (int i = 0; i < candles.length(); i++) {
+        JSONObject c = candles.getJSONObject(i);
+        double high = c.getDouble("high");
+        double low  = c.getDouble("low");
+        double close = c.getDouble("close");
+        if (close <= 0) continue;
+        double rangePct = (high - low) / close;
+        sumRangePct += rangePct;
+        count++;
+    }
+    if (count == 0) return 0.02;
+    return sumRangePct / count; // average intrabar range
+}
+
 }
 
