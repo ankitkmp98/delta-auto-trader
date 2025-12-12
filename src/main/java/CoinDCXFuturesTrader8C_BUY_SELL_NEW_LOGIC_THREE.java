@@ -199,7 +199,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
             if (candles == null || candles.length() < 2) {
                 System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
-                return Math.random() > 0.5 ? "sell" : "buy";
+                return Math.random() > 0.5 ? "buy" : "sell";
             }
 
             double firstClose = candles.getJSONObject(0).getDouble("close");
@@ -223,7 +223,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         } catch (Exception e) {
             System.err.println("❌ Error determining position side: " + e.getMessage());
-            return Math.random() > 0.5 ? "sell" : "buy";
+            return Math.random() > 0.5 ? "buy" : "sell";
         }
     }
 
