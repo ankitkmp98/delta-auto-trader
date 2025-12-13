@@ -118,35 +118,26 @@ for (String symbol : COINS_TO_TRADE) {
 
     /* ================= STRATEGY ================= */
 
-    private static String determinePositionSide(String pair) {
-
+private static String determinePositionSide(String pair) {
     try {
         JSONArray candles = getCandles(pair);
-        if (candles == null || candles.length() < 2) {
-            System.out.println(pair + " ❌ insufficient candles");
-            return null;
-        }
+        if (candles == null || candles.length() < 2) return null;
 
-        double firstClose = candles.getJSONObject(0).getDouble("close");
-        double lastClose  = candles.getJSONObject(candles.length() - 1).getDouble("close");
+        double firstClose = candles.getJSONArray(0).getDouble(4);
+        double lastClose = candles.getJSONArray(candles.length() - 1).getDouble(4);
 
         double change = (lastClose - firstClose) / firstClose;
 
-        System.out.printf(
-                "%s trend change: %.4f%%%n",
-                pair,
-                change * 100
-        );
+        System.out.printf("%s trend change: %.4f%%%n", pair, change * 100);
 
-        if (change > TREND_THRESHOLD) {
-            return "buy";
-        }
-
-        if (change < -TREND_THRESHOLD) {
-            return "sell";
-        }
+        if (change > TREND_THRESHOLD) return "buy";
+        if (change < -TREND_THRESHOLD) return "sell";
 
     } catch (Exception e) {
+        System.err.println("Trend calc failed for " + pair);
+    }
+    return null;
+} catch (Exception e) {
         System.err.println("Trend calc failed for " + pair);
     }
 
@@ -157,17 +148,17 @@ for (String symbol : COINS_TO_TRADE) {
     /* ================= API HELPERS ================= */
 
 private static JSONArray getCandles(String pair) throws Exception {
-    long to = Instant.now().toEpochMilli();
-    long from = to - TimeUnit.MINUTES.toMillis(LOOKBACK_MINUTES);
+    long to = Instant.now().getEpochSecond(); // seconds
+    long from = to - TimeUnit.MINUTES.toSeconds(LOOKBACK_MINUTES);
 
     String url = PUBLIC_URL + "/market_data/candlesticks"
             + "?pair=" + pair
-            + "&resolution=" + CANDLE_MINUTES
+            + "&resolution=" + CANDLE_MINUTES + "m"
             + "&from=" + from
             + "&to=" + to;
 
-    JSONObject res = new JSONObject(httpGet(url));
-    return res.getJSONArray("data");
+    JSONArray res = new JSONArray(httpGet(url)); // array of arrays
+    return res;
 }
 
 
