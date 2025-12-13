@@ -120,31 +120,39 @@ for (String symbol : COINS_TO_TRADE) {
 
     private static String determinePositionSide(String pair) {
 
-        double change = (last - first) / first;
+    try {
+        JSONArray candles = getCandles(pair);
+        if (candles == null || candles.length() < 2) {
+            System.out.println(pair + " ❌ insufficient candles");
+            return null;
+        }
 
-System.out.printf(
-    "%s trend: %.4f%%\n",
-    pair,
-    change * 100
-);
+        double firstClose = candles.getJSONObject(0).getDouble("close");
+        double lastClose  = candles.getJSONObject(candles.length() - 1).getDouble("close");
 
-if (change > TREND_THRESHOLD) return "buy";
-if (change < -TREND_THRESHOLD) return "sell";
+        double change = (lastClose - firstClose) / firstClose;
 
-        try {
-            JSONArray candles = getCandles(pair);
-            if (candles == null || candles.length() < 2) return null;
+        System.out.printf(
+                "%s trend change: %.4f%%%n",
+                pair,
+                change * 100
+        );
 
-            double first = candles.getJSONObject(0).getDouble("close");
-            double last = candles.getJSONObject(candles.length() - 1).getDouble("close");
-            double change = (last - first) / first;
+        if (change > TREND_THRESHOLD) {
+            return "buy";
+        }
 
-            if (change > TREND_THRESHOLD) return "buy";
-            if (change < -TREND_THRESHOLD) return "sell";
+        if (change < -TREND_THRESHOLD) {
+            return "sell";
+        }
 
-        } catch (Exception ignored) {}
-        return null;
+    } catch (Exception e) {
+        System.err.println("Trend calc failed for " + pair);
     }
+
+    return null;
+}
+
 
     /* ================= API HELPERS ================= */
 
