@@ -1,11 +1,5 @@
-// FINAL WORKING VERSION
-// CoinDCX Futures Trader with Correct Trend Logic (Minutes), ATR SL/TP,
-// Risk-Based Position Sizing, Max Trades Per Cycle, Drawdown Kill-Switch
-// APIs implemented strictly as per CoinDCX Futures documentation
-
-// NOTE: This code is production-grade but still RECOMMENDED to test on small capital first
-
-import org.json.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,7 +14,7 @@ import java.util.stream.Collectors;
 
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
-    /* ===================== CONFIG ===================== */
+    /* ================= CONFIG ================= */
 
     private static final String API_KEY = System.getenv("COINDCX_API_KEY");
     private static final String API_SECRET = System.getenv("COINDCX_API_SECRET");
@@ -28,218 +22,192 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_URL = "https://public.coindcx.com";
 
-    private static final double ACCOUNT_BALANCE_USDT = 1200.0; // update dynamically if needed
-    private static final double RISK_PER_TRADE = 0.01;         // 1%
-    private static final int MAX_TRADES_PER_RUN = 3;
-    private static final double MAX_DAILY_DRAWDOWN = 0.03;     // 3%
+    private static final double MAX_MARGIN = 1200.0;
+    private static final int LEVERAGE = 6;
 
-    private static final int LEVERAGE = 5;
-
-    /* Trend & Indicators */
+    /* Trend (FIXED) */
     private static final int CANDLE_MINUTES = 5;
     private static final int LOOKBACK_MINUTES = 60; // 12 candles
     private static final double TREND_THRESHOLD = 0.003; // 0.3%
 
-    /* ATR */
-    private static final int ATR_PERIOD = 14;
-    private static final double SL_ATR_MULT = 1.5;
-    private static final double TP_ATR_MULT = 2.5;
+    /* Fixed TP / SL */
+    private static final double TP_PERCENTAGE = 0.099;
+    private static final double SL_PERCENTAGE = 0.06;
 
-    /* ===================== SYMBOLS ===================== */
+    /* ================= SYMBOLS ================= */
 
-    private static final String[] SYMBOLS = {
+    private static final String[] COINS_TO_TRADE = {
             "B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT", "B-XRP_USDT"
     };
 
-    /* ===================== RUNTIME ===================== */
-
-    private static int tradesPlaced = 0;
-    private static double dailyLoss = 0.0;
-
-    /* ===================== MAIN ===================== */
+    /* ================= MAIN ================= */
 
     public static void main(String[] args) {
 
         System.out.println("=== CoinDCX Futures Bot Started ===");
 
-        Set<String> activePositions = fetchActivePositions();
+        Set<String> activePairs = getActivePositions();
 
-  for (String pair : COINS_TO_TRADE) {
+        for (String pair : COINS_TO_TRADE) {
 
-    try {
+            try {
 
-        if (activePairs.contains(pair)) {
-            System.out.println("⏩ Skipping " + pair + " - Active position exists");
-            continue;
+                if (activePairs.contains(pair)) {
+                    System.out.println("⏩ Skipping " + pair + " (active position)");
+                    continue;
+                }
+
+                String side = determinePositionSide(pair);
+                if (side == null) continue;
+
+                double currentPrice = getLastPrice(pair);
+                if (currentPrice <= 0) continue;
+
+                double quantity = calculateQuantity(currentPrice);
+                if (quantity <= 0) continue;
+
+                JSONObject order = placeFuturesMarketOrder(
+                        side, pair, quantity, LEVERAGE,
+                        "email_notification", "isolated", "USDT"
+                );
+
+                if (order == null || !order.has("id")) continue;
+
+                String orderId = order.getString("id");
+
+                double entryPrice = getEntryPriceFromPosition(pair);
+                if (entryPrice <= 0) continue;
+
+                double tp = side.equals("buy")
+                        ? entryPrice * (1 + TP_PERCENTAGE)
+                        : entryPrice * (1 - TP_PERCENTAGE);
+
+                double sl = side.equals("buy")
+                        ? entryPrice * (1 - SL_PERCENTAGE)
+                        : entryPrice * (1 + SL_PERCENTAGE);
+
+                String positionId = getPositionId(pair);
+                if (positionId != null) {
+                    setTakeProfitAndStopLoss(positionId, tp, sl);
+                }
+
+                System.out.println("✅ Trade placed: " + pair + " " + side.toUpperCase());
+
+            } catch (Exception e) {
+                System.err.println("❌ Error on " + pair);
+                e.printStackTrace();
+            }
         }
-
-        String side = determinePositionSide(pair);
-        if (side == null) continue;
-
-        int leverage = 6;
-
-        double currentPrice = getLastPrice(pair);
-        if (currentPrice <= 0) continue;
-
-        double quantity = calculateQuantity(currentPrice, leverage, pair);
-        if (quantity <= 0) continue;
-
-        JSONObject orderResponse = placeFuturesMarketOrder(
-                side, pair, quantity, leverage,
-                "email_notification", "isolated", "INR"
-        );
-
-        if (orderResponse == null || !orderResponse.has("id")) continue;
-
-        String orderId = orderResponse.getString("id");
-
-        double entryPrice = getEntryPriceFromPosition(pair, orderId);
-        if (entryPrice <= 0) continue;
-
-        double tpPrice, slPrice;
-        if ("buy".equalsIgnoreCase(side)) {
-            tpPrice = entryPrice * (1 + TP_PERCENTAGE);
-            slPrice = entryPrice * (1 - SL_PERCENTAGE);
-        } else {
-            tpPrice = entryPrice * (1 - TP_PERCENTAGE);
-            slPrice = entryPrice * (1 + SL_PERCENTAGE);
-        }
-
-        double tickSize = getTickSizeForPair(pair);
-        tpPrice = Math.round(tpPrice / tickSize) * tickSize;
-        slPrice = Math.round(slPrice / tickSize) * tickSize;
-
-        String positionId = getPositionId(pair);
-        if (positionId != null) {
-            setTakeProfitAndStopLoss(positionId, tpPrice, slPrice, side, pair);
-        }
-
-    } catch (Exception e) {
-        System.err.println("❌ Error processing " + pair);
-        e.printStackTrace();
-    }
-}
-
 
         System.out.println("=== Bot Finished ===");
     }
 
-    /* ===================== STRATEGY ===================== */
+    /* ================= STRATEGY ================= */
 
-    private static String determineTrend(JSONArray candles) {
-        double first = candles.getJSONObject(0).getDouble("close");
-        double last = candles.getJSONObject(candles.length() - 1).getDouble("close");
-        double change = (last - first) / first;
+    private static String determinePositionSide(String pair) {
+        try {
+            JSONArray candles = getCandles(pair);
+            if (candles == null || candles.length() < 2) return null;
 
-        if (change > TREND_THRESHOLD) return "buy";
-        if (change < -TREND_THRESHOLD) return "sell";
+            double first = candles.getJSONObject(0).getDouble("close");
+            double last = candles.getJSONObject(candles.length() - 1).getDouble("close");
+            double change = (last - first) / first;
+
+            if (change > TREND_THRESHOLD) return "buy";
+            if (change < -TREND_THRESHOLD) return "sell";
+
+        } catch (Exception ignored) {}
         return null;
     }
 
-    private static double calculateATR(JSONArray candles) {
-        double atr = 0;
-        for (int i = 1; i <= ATR_PERIOD; i++) {
-            JSONObject c = candles.getJSONObject(candles.length() - i);
-            double h = c.getDouble("high");
-            double l = c.getDouble("low");
-            atr += (h - l);
-        }
-        return atr / ATR_PERIOD;
+    /* ================= API HELPERS ================= */
+
+    private static JSONArray getCandles(String pair) throws Exception {
+        long to = Instant.now().toEpochMilli();
+        long from = to - TimeUnit.MINUTES.toMillis(LOOKBACK_MINUTES);
+
+        String url = PUBLIC_URL + "/market_data/candlesticks?pair=" + pair +
+                "&resolution=" + CANDLE_MINUTES + "m&from=" + from + "&to=" + to;
+
+        JSONObject res = new JSONObject(httpGet(url));
+        return res.getJSONArray("data");
     }
 
-    /* ===================== API ===================== */
-
-    private static JSONArray fetchCandles(String pair) {
-        try {
-            long to = Instant.now().toEpochMilli();
-            long from = to - TimeUnit.MINUTES.toMillis(LOOKBACK_MINUTES);
-
-            String url = PUBLIC_URL + "/market_data/candlesticks?pair=" + pair +
-                    "&resolution=" + CANDLE_MINUTES + "m&from=" + from + "&to=" + to;
-
-            String res = httpGet(url);
-            JSONObject obj = new JSONObject(res);
-            return obj.getJSONArray("data");
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static double getLTP(String pair) throws Exception {
+    private static double getLastPrice(String pair) throws Exception {
         String res = httpGet(PUBLIC_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
         return new JSONArray(res).getJSONObject(0).getDouble("p");
     }
 
-    private static String placeMarketOrder(String pair, String side, double qty) {
-        try {
-            JSONObject order = new JSONObject();
-            order.put("pair", pair);
-            order.put("side", side);
-            order.put("order_type", "market_order");
-            order.put("total_quantity", qty);
-            order.put("leverage", LEVERAGE);
-            order.put("position_margin_type", "isolated");
-            order.put("margin_currency_short_name", "USDT");
-
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("order", order);
-
-            String res = authPost("/exchange/v1/derivatives/futures/orders/create", body);
-            return new JSONObject(res).getString("id");
-        } catch (Exception e) {
-            return null;
-        }
+    private static double calculateQuantity(double price) {
+        return Math.floor((MAX_MARGIN / price) * 1000.0) / 1000.0;
     }
 
-    private static void setTPSL(String positionId, double tp, double sl) throws Exception {
+    private static JSONObject placeFuturesMarketOrder(
+            String side, String pair, double qty, int leverage,
+            String notification, String marginType, String currency) throws Exception {
+
+        JSONObject order = new JSONObject();
+        order.put("pair", pair);
+        order.put("side", side);
+        order.put("order_type", "market_order");
+        order.put("total_quantity", qty);
+        order.put("leverage", leverage);
+        order.put("position_margin_type", marginType);
+        order.put("margin_currency_short_name", currency);
+        order.put("notification", notification);
+
         JSONObject body = new JSONObject();
         body.put("timestamp", Instant.now().toEpochMilli());
-        body.put("id", positionId);
+        body.put("order", order);
 
+        return new JSONObject(authPost(
+                "/exchange/v1/derivatives/futures/orders/create", body));
+    }
+
+    private static double getEntryPriceFromPosition(String pair) throws Exception {
+        JSONObject pos = findPosition(pair);
+        return pos != null ? pos.optDouble("avg_price", 0) : 0;
+    }
+
+    private static String getPositionId(String pair) throws Exception {
+        JSONObject pos = findPosition(pair);
+        return pos != null ? pos.getString("id") : null;
+    }
+
+    private static JSONObject findPosition(String pair) throws Exception {
+        JSONObject body = new JSONObject().put("timestamp", Instant.now().toEpochMilli());
+        JSONArray arr = new JSONArray(authPost(
+                "/exchange/v1/derivatives/futures/positions", body));
+        for (int i = 0; i < arr.length(); i++)
+            if (arr.getJSONObject(i).getString("pair").equals(pair))
+                return arr.getJSONObject(i);
+        return null;
+    }
+
+    private static void setTakeProfitAndStopLoss(String id, double tp, double sl) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("timestamp", Instant.now().toEpochMilli());
+        body.put("id", id);
         body.put("take_profit", new JSONObject().put("stop_price", tp).put("order_type", "take_profit_market"));
         body.put("stop_loss", new JSONObject().put("stop_price", sl).put("order_type", "stop_market"));
 
         authPost("/exchange/v1/derivatives/futures/positions/create_tpsl", body);
     }
 
-    private static Set<String> fetchActivePositions() {
+    private static Set<String> getActivePositions() {
         Set<String> set = new HashSet<>();
         try {
             JSONObject body = new JSONObject().put("timestamp", Instant.now().toEpochMilli());
-            String res = authPost("/exchange/v1/derivatives/futures/positions", body);
-            JSONArray arr = new JSONArray(res);
-            for (int i = 0; i < arr.length(); i++) {
-                if (arr.getJSONObject(i).getDouble("active_pos") != 0)
+            JSONArray arr = new JSONArray(authPost(
+                    "/exchange/v1/derivatives/futures/positions", body));
+            for (int i = 0; i < arr.length(); i++)
+                if (arr.getJSONObject(i).optDouble("active_pos", 0) != 0)
                     set.add(arr.getJSONObject(i).getString("pair"));
-            }
         } catch (Exception ignored) {}
         return set;
     }
 
-    private static double waitForEntry(String pair) throws Exception {
-        for (int i = 0; i < 5; i++) {
-            TimeUnit.SECONDS.sleep(1);
-            JSONObject p = fetchPosition(pair);
-            if (p != null && p.getDouble("avg_price") > 0) return p.getDouble("avg_price");
-        }
-        return 0;
-    }
-
-    private static JSONObject fetchPosition(String pair) throws Exception {
-        JSONObject body = new JSONObject().put("timestamp", Instant.now().toEpochMilli());
-        JSONArray arr = new JSONArray(authPost("/exchange/v1/derivatives/futures/positions", body));
-        for (int i = 0; i < arr.length(); i++)
-            if (arr.getJSONObject(i).getString("pair").equals(pair)) return arr.getJSONObject(i);
-        return null;
-    }
-
-    private static String fetchPositionId(String pair) throws Exception {
-        JSONObject p = fetchPosition(pair);
-        return p != null ? p.getString("id") : null;
-    }
-
-    /* ===================== HTTP ===================== */
+    /* ================= HTTP ================= */
 
     private static String authPost(String path, JSONObject body) throws Exception {
         String payload = body.toString();
@@ -251,7 +219,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         c.setRequestProperty("X-AUTH-SIGNATURE", sig);
         c.setRequestProperty("Content-Type", "application/json");
         c.setDoOutput(true);
-        c.getOutputStream().write(payload.getBytes());
+        c.getOutputStream().write(payload.getBytes(StandardCharsets.UTF_8));
 
         return new BufferedReader(new InputStreamReader(c.getInputStream()))
                 .lines().collect(Collectors.joining());
@@ -266,15 +234,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String hmac(String msg) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(API_SECRET.getBytes(), "HmacSHA256"));
-        byte[] b = mac.doFinal(msg.getBytes());
+        byte[] b = mac.doFinal(msg.getBytes(StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         for (byte x : b) sb.append(String.format("%02x", x));
         return sb.toString();
     }
 }
-
-
-
 
 
 
