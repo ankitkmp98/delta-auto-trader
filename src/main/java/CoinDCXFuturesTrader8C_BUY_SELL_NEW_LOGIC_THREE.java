@@ -28,7 +28,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     /* Trend (FIXED) */
     private static final int CANDLE_MINUTES = 5;
     private static final int LOOKBACK_MINUTES = 60; // 12 candles
-    private static final double TREND_THRESHOLD = 0.003; // 0.3%
+    private static final double TREND_THRESHOLD = 0.001; // 0.3%
 
     /* Fixed TP / SL */
     private static final double TP_PERCENTAGE = 0.099;
@@ -60,7 +60,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         Set<String> activePairs = getActivePositions();
 
-        for (String pair : COINS_TO_TRADE) {
+for (String symbol : COINS_TO_TRADE) {
+    String pair = toFuturesPair(symbol);
+
 
             try {
 
@@ -117,6 +119,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     /* ================= STRATEGY ================= */
 
     private static String determinePositionSide(String pair) {
+
+        double change = (last - first) / first;
+
+System.out.printf(
+    "%s trend: %.4f%%\n",
+    pair,
+    change * 100
+);
+
+if (change > TREND_THRESHOLD) return "buy";
+if (change < -TREND_THRESHOLD) return "sell";
+
         try {
             JSONArray candles = getCandles(pair);
             if (candles == null || candles.length() < 2) return null;
@@ -251,6 +265,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         for (byte x : b) sb.append(String.format("%02x", x));
         return sb.toString();
     }
+
+    private static String toFuturesPair(String symbol) {
+    return "B-" + symbol + "_USDT";
+}
+
 }
 
 
