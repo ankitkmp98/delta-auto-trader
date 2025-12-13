@@ -33,7 +33,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int TREND_CANDLE_MINUTES = 5;      // 5m candles
     private static final int TREND_CANDLE_COUNT = TREND_LOOKBACK_MINUTES / TREND_CANDLE_MINUTES; // 12 candles
 
-    private static final double TREND_THRESHOLD = 0.03;     // 3%
+    private static final double TREND_THRESHOLD = 0.005;     // 0.5%
 
     private static final double TP_PERCENTAGE = 0.099;     // 9.9%
     private static final double SL_PERCENTAGE = 0.06;      // 6%
