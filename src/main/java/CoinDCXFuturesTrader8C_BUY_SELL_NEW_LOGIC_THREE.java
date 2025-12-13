@@ -118,44 +118,76 @@ for (String symbol : COINS_TO_TRADE) {
 
     /* ================= STRATEGY ================= */
 
+
+
 private static String determinePositionSide(String pair) {
     try {
-        JSONArray candles = getCandles(pair);
-        if (candles == null || candles.length() < 2) return null;
+        // Remove "B-" prefix for public API
+        String apiPair = pair.startsWith("B-") ? pair.substring(2) : pair;
 
-        double firstClose = candles.getJSONArray(0).getDouble(4);
-        double lastClose = candles.getJSONArray(candles.length() - 1).getDouble(4);
+        // Fetch candlestick data for LOOKBACK_PERIOD minutes
+        JSONArray candles = getCandlestickData(apiPair, "60m", LOOKBACK_PERIOD);
 
-        double change = (lastClose - firstClose) / firstClose;
+        if (candles == null || candles.length() < 2) {
+            System.err.println("⚠️ Trend calc failed for " + pair + " - insufficient data");
+            return null; // skip trading if no trend data
+        }
 
-        System.out.printf("%s trend change: %.4f%%%n", pair, change * 100);
+        double firstClose = candles.getJSONObject(0).getDouble("close");
+        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+        double priceChange = (lastClose - firstClose) / firstClose;
 
-        if (change > TREND_THRESHOLD) return "buy";
-        if (change < -TREND_THRESHOLD) return "sell";
+        System.out.println("Trend Analysis for " + pair + ":");
+        System.out.println("First Close: " + firstClose + ", Last Close: " + lastClose + ", Change: " + (priceChange * 100) + "%");
 
+        if (priceChange > TREND_THRESHOLD) {
+            System.out.println("📈 Uptrend detected - Going LONG");
+            return "buy";
+        } else if (priceChange < -TREND_THRESHOLD) {
+            System.out.println("📉 Downtrend detected - Going SHORT");
+            return "sell";
+        } else {
+            System.out.println("➡️ Sideways market - Checking RSI for decision");
+            return determineSideWithRSI(candles);
+        }
     } catch (Exception e) {
-        System.err.println("Trend calc failed for " + pair);
+        System.err.println("❌ Error determining position side for " + pair + ": " + e.getMessage());
+        return null;
+    }
+}
+
+private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+    try {
+        long endTime = Instant.now().toEpochMilli();
+        long startTime = endTime - TimeUnit.MINUTES.toMillis(periods); // FIXED: now in minutes
+
+        String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
+                     "&from=" + startTime + "&to=" + endTime +
+                     "&resolution=" + resolution + "&pcode=#";
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONObject jsonResponse = new JSONObject(response);
+
+            if (jsonResponse.has("data") && jsonResponse.getJSONArray("data").length() > 0) {
+                return jsonResponse.getJSONArray("data");
+            } else {
+                System.err.println("⚠️ No candlestick data returned for " + pair);
+                return null;
+            }
+        } else {
+            System.err.println("❌ HTTP error " + conn.getResponseCode() + " fetching candles for " + pair);
+        }
+    } catch (Exception e) {
+        System.err.println("❌ Error fetching candlestick data for " + pair + ": " + e.getMessage());
     }
     return null;
 }
 
 
-
-    /* ================= API HELPERS ================= */
-
-private static JSONArray getCandles(String pair) throws Exception {
-    long to = Instant.now().getEpochSecond(); // seconds
-    long from = to - TimeUnit.MINUTES.toSeconds(LOOKBACK_MINUTES);
-
-    String url = PUBLIC_URL + "/market_data/candlesticks"
-            + "?pair=" + pair
-            + "&resolution=" + CANDLE_MINUTES + "m"
-            + "&from=" + from
-            + "&to=" + to;
-
-    JSONArray res = new JSONArray(httpGet(url)); // array of arrays
-    return res;
-}
 
 
     private static double getLastPrice(String pair) throws Exception {
