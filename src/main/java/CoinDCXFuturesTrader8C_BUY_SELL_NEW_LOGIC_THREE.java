@@ -64,41 +64,62 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         Set<String> activePositions = fetchActivePositions();
 
-        for (String pair : SYMBOLS) {
+  for (String pair : COINS_TO_TRADE) {
 
-            if (tradesPlaced >= MAX_TRADES_PER_RUN) break;
-            if (dailyLoss >= ACCOUNT_BALANCE_USDT * MAX_DAILY_DRAWDOWN) break;
-            if (activePositions.contains(pair)) continue;
+    try {
 
-            JSONArray candles = fetchCandles(pair);
-            if (candles == null || candles.length() < ATR_PERIOD + 2) continue;
-
-            String side = determineTrend(candles);
-            if (side == null) continue;
-
-            double atr = calculateATR(candles);
-            double ltp = getLTP(pair);
-
-            double slDistance = atr * SL_ATR_MULT;
-            double riskAmount = ACCOUNT_BALANCE_USDT * RISK_PER_TRADE;
-            double quantity = (riskAmount / slDistance) * LEVERAGE;
-
-            if (quantity <= 0) continue;
-
-            String orderId = placeMarketOrder(pair, side, quantity);
-            if (orderId == null) continue;
-
-            double entry = waitForEntry(pair);
-
-            double sl = side.equals("buy") ? entry - slDistance : entry + slDistance;
-            double tp = side.equals("buy") ? entry + atr * TP_ATR_MULT : entry - atr * TP_ATR_MULT;
-
-            String positionId = fetchPositionId(pair);
-            setTPSL(positionId, tp, sl);
-
-            tradesPlaced++;
-            System.out.println("Trade Placed: " + pair + " " + side.toUpperCase());
+        if (activePairs.contains(pair)) {
+            System.out.println("⏩ Skipping " + pair + " - Active position exists");
+            continue;
         }
+
+        String side = determinePositionSide(pair);
+        if (side == null) continue;
+
+        int leverage = 6;
+
+        double currentPrice = getLastPrice(pair);
+        if (currentPrice <= 0) continue;
+
+        double quantity = calculateQuantity(currentPrice, leverage, pair);
+        if (quantity <= 0) continue;
+
+        JSONObject orderResponse = placeFuturesMarketOrder(
+                side, pair, quantity, leverage,
+                "email_notification", "isolated", "INR"
+        );
+
+        if (orderResponse == null || !orderResponse.has("id")) continue;
+
+        String orderId = orderResponse.getString("id");
+
+        double entryPrice = getEntryPriceFromPosition(pair, orderId);
+        if (entryPrice <= 0) continue;
+
+        double tpPrice, slPrice;
+        if ("buy".equalsIgnoreCase(side)) {
+            tpPrice = entryPrice * (1 + TP_PERCENTAGE);
+            slPrice = entryPrice * (1 - SL_PERCENTAGE);
+        } else {
+            tpPrice = entryPrice * (1 - TP_PERCENTAGE);
+            slPrice = entryPrice * (1 + SL_PERCENTAGE);
+        }
+
+        double tickSize = getTickSizeForPair(pair);
+        tpPrice = Math.round(tpPrice / tickSize) * tickSize;
+        slPrice = Math.round(slPrice / tickSize) * tickSize;
+
+        String positionId = getPositionId(pair);
+        if (positionId != null) {
+            setTakeProfitAndStopLoss(positionId, tpPrice, slPrice, side, pair);
+        }
+
+    } catch (Exception e) {
+        System.err.println("❌ Error processing " + pair);
+        e.printStackTrace();
+    }
+}
+
 
         System.out.println("=== Bot Finished ===");
     }
