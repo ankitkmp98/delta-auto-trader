@@ -156,16 +156,20 @@ for (String symbol : COINS_TO_TRADE) {
 
     /* ================= API HELPERS ================= */
 
-    private static JSONArray getCandles(String pair) throws Exception {
-        long to = Instant.now().toEpochMilli();
-        long from = to - TimeUnit.MINUTES.toMillis(LOOKBACK_MINUTES);
+private static JSONArray getCandles(String pair) throws Exception {
+    long to = Instant.now().toEpochMilli();
+    long from = to - TimeUnit.MINUTES.toMillis(LOOKBACK_MINUTES);
 
-        String url = PUBLIC_URL + "/market_data/candlesticks?pair=" + pair +
-                "&resolution=" + CANDLE_MINUTES + "m&from=" + from + "&to=" + to;
+    String url = PUBLIC_URL + "/market_data/candlesticks"
+            + "?pair=" + pair
+            + "&resolution=" + CANDLE_MINUTES
+            + "&from=" + from
+            + "&to=" + to;
 
-        JSONObject res = new JSONObject(httpGet(url));
-        return res.getJSONArray("data");
-    }
+    JSONObject res = new JSONObject(httpGet(url));
+    return res.getJSONArray("data");
+}
+
 
     private static double getLastPrice(String pair) throws Exception {
         String res = httpGet(PUBLIC_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
