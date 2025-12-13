@@ -137,12 +137,8 @@ private static String determinePositionSide(String pair) {
         System.err.println("Trend calc failed for " + pair);
     }
     return null;
-} catch (Exception e) {
-        System.err.println("Trend calc failed for " + pair);
-    }
-
-    return null;
 }
+
 
 
     /* ================= API HELPERS ================= */
