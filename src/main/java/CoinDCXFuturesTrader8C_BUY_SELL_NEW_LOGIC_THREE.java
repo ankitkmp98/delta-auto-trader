@@ -28,7 +28,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 30; // Minutes for trend analysis (changed from hours)
+    private static final int LOOKBACK_PERIOD = 10; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.0015; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.006; // 3% take profit
     private static final double SL_PERCENTAGE = 0.0035; // 5% stop loss
@@ -203,31 +203,25 @@ private static String determinePositionSide(String pair) {
 
         double firstClose = candles.getJSONObject(0).getDouble("close");
         double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+
         double priceChange = (lastClose - firstClose) / firstClose;
 
-        System.out.println("1m Scalp Trend for " + pair);
-        System.out.println("First Close: " + firstClose);
-        System.out.println("Last Close: " + lastClose);
-        System.out.println("Change: " + (priceChange * 100) + "%");
-
-        // ✅ NO MOMENTUM FILTER (MUST BE FIRST)
+        // 🔴 NO-MOMENTUM FILTER (IMPORTANT)
         if (Math.abs(priceChange) < 0.0007) {
             System.out.println("⏸ No momentum – skipping scalp");
             return null;
         }
 
-        // ✅ TREND SCALP
         if (priceChange > TREND_THRESHOLD) {
-            System.out.println("📈 Micro uptrend – BUY scalp");
+            System.out.println("📈 Micro uptrend – BUY");
             return "buy";
         }
 
         if (priceChange < -TREND_THRESHOLD) {
-            System.out.println("📉 Micro downtrend – SELL scalp");
+            System.out.println("📉 Micro downtrend – SELL");
             return "sell";
         }
 
-        // ✅ RSI fallback
         return determineSideWithRSI(candles);
 
     } catch (Exception e) {
@@ -235,6 +229,7 @@ private static String determinePositionSide(String pair) {
         return null;
     }
 }
+
 
 
 private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
