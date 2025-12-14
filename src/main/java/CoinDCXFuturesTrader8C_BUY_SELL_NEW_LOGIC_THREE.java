@@ -126,7 +126,7 @@ private static final boolean FORCE_TRADE_IF_NO_CANDLES = true;
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 6; // Default leverage
+                int leverage = 10; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
