@@ -33,6 +33,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double TP_PERCENTAGE = 0.006; // 3% take profit
     private static final double SL_PERCENTAGE = 0.0035; // 5% stop loss
 
+private static final boolean FORCE_TRADE_IF_NO_CANDLES = true;
+
+     
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
     private static long lastInstrumentUpdateTime = 0;
@@ -196,8 +199,12 @@ private static String determinePositionSide(String pair) {
     try {
         JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
 
-        if (candles == null || candles.length() < 5) {
-            System.out.println("⚠️ Not enough candle data – skipping");
+        // ✅ FORCE MODE
+        if (candles == null || candles.length() < 3) {
+            if (FORCE_TRADE_IF_NO_CANDLES) {
+                System.out.println("⚠️ No candle data – FORCE scalping SELL");
+                return "sell"; // scalping bias short
+            }
             return null;
         }
 
@@ -206,29 +213,25 @@ private static String determinePositionSide(String pair) {
 
         double priceChange = (lastClose - firstClose) / firstClose;
 
-        // 🔴 NO-MOMENTUM FILTER (IMPORTANT)
-        if (Math.abs(priceChange) < 0.0007) {
-            System.out.println("⏸ No momentum – skipping scalp");
+        if (Math.abs(priceChange) < 0.0005) {
+            System.out.println("⏸ Low momentum – skipping");
             return null;
         }
 
-        if (priceChange > TREND_THRESHOLD) {
-            System.out.println("📈 Micro uptrend – BUY");
+        if (priceChange < 0) {
+            System.out.println("📉 SELL scalp");
+            return "sell";
+        } else {
+            System.out.println("📈 BUY scalp");
             return "buy";
         }
 
-        if (priceChange < -TREND_THRESHOLD) {
-            System.out.println("📉 Micro downtrend – SELL");
-            return "sell";
-        }
-
-        return determineSideWithRSI(candles);
-
     } catch (Exception e) {
-        System.err.println("❌ Error determining position side: " + e.getMessage());
-        return null;
+        System.out.println("⚠️ Candle error – FORCE SELL");
+        return "sell";
     }
 }
+
 
 
 
@@ -260,58 +263,7 @@ private static JSONArray getCandlestickData(String pair, String resolution, int 
 
 
     private static String determineSideWithRSI(JSONArray candles) {
-        try {
-            double[] closes = new double[candles.length()];
-            for (int i = 0; i < candles.length(); i++) {
-                closes[i] = candles.getJSONObject(i).getDouble("close");
-            }
-
-            double avgGain = 0;
-            double avgLoss = 0;
-            int rsiPeriod = 9;
-
-            for (int i = 1; i <= rsiPeriod; i++) {
-                double change = closes[i] - closes[i-1];
-                if (change > 0) {
-                    avgGain += change;
-                } else {
-                    avgLoss += Math.abs(change);
-                }
-            }
-
-            avgGain /= rsiPeriod;
-            avgLoss /= rsiPeriod;
-
-            for (int i = rsiPeriod + 1; i < closes.length; i++) {
-                double change = closes[i] - closes[i-1];
-                if (change > 0) {
-                    avgGain = (avgGain * (rsiPeriod - 1) + change) / rsiPeriod;
-                    avgLoss = (avgLoss * (rsiPeriod - 1)) / rsiPeriod;
-                } else {
-                    avgLoss = (avgLoss * (rsiPeriod - 1) + Math.abs(change)) / rsiPeriod;
-                    avgGain = (avgGain * (rsiPeriod - 1)) / rsiPeriod;
-                }
-            }
-
-            double rs = avgGain / avgLoss;
-            double rsi = 100 - (100 / (1 + rs));
-
-            System.out.println("RSI: " + rsi);
-
-            if (rsi < 25) {
-                System.out.println("🔽 Oversold - Going LONG");
-                return "buy";
-            } else if (rsi > 75) {
-                System.out.println("🔼 Overbought - Going SHORT");
-                return "sell";
-            } else {
-                System.out.println("⏸ Neutral RSI - No trade");
-                return null;
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error calculating RSI: " + e.getMessage());
-            return Math.random() > 0.5 ? "buy" : "sell";
-        }
+    
     }
 
     private static void initializeInstrumentDetails() {
