@@ -196,7 +196,7 @@ private static String determinePositionSide(String pair) {
     try {
         JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
 
-        if (candles == null || candles.length() < 15) {
+        if (candles == null || candles.length() < 5) {
             System.out.println("⚠️ Not enough candle data – skipping");
             return null;
         }
@@ -237,32 +237,32 @@ private static String determinePositionSide(String pair) {
 }
 
 
-    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-        try {
-            long endTime = Instant.now().toEpochMilli();
-            // long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
-             long startTime = endTime - TimeUnit.MINUTES.toMillis(periods);
+private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+    try {
+        long endTime = Instant.now().toEpochMilli();
+        long startTime = endTime - TimeUnit.MINUTES.toMillis(periods);
 
+        String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
+                "&from=" + startTime + "&to=" + endTime +
+                "&resolution=" + resolution + "&pcode=#";
 
-            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
-                    "&from=" + startTime + "&to=" + endTime +
-                    "&resolution=" + resolution + "&pcode=#";
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONObject jsonResponse = new JSONObject(response);
 
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readAllLines(conn.getInputStream());
-                JSONObject jsonResponse = new JSONObject(response);
-                if (jsonResponse.getString("s").equals("ok")) {
-                    return jsonResponse.getJSONArray("data");
-                }
+            if ("ok".equalsIgnoreCase(jsonResponse.optString("s"))) {
+                return jsonResponse.getJSONArray("data");
             }
-        } catch (Exception e) {
-            System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
         }
-        return null;
+    } catch (Exception e) {
+        System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
     }
+    return null;
+}
+
 
     private static String determineSideWithRSI(JSONArray candles) {
         try {
