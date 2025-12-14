@@ -192,44 +192,50 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    private static String determinePositionSide(String pair) {
-        try {
-            // Changed resolution from "1h" to "5m" to match 5-minute lookback
-            JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
+private static String determinePositionSide(String pair) {
+    try {
+        JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
 
-            if (candles == null || candles.length() < 2) {
-                System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
-                return Math.random() > 0.5 ? "buy" : "sell";
-            }
-
-            double firstClose = candles.getJSONObject(0).getDouble("close");
-            double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
-            double priceChange = (lastClose - firstClose) / firstClose;
-
-            System.out.println("5-Minute Trend Analysis for " + pair + ":");
-            System.out.println("First Close: " + firstClose);
-            System.out.println("Last Close: " + lastClose);
-            System.out.println("Price Change: " + (priceChange * 100) + "%");
-
-            if (priceChange > TREND_THRESHOLD) {
-                System.out.println("📈 Uptrend detected - Going LONG");
-                return "buy";
-            } else if (priceChange < -TREND_THRESHOLD) {
-                System.out.println("📉 Downtrend detected - Going SHORT");
-                return "sell";
-            } else {
-                System.out.println("➡️ Sideways market - Using RSI for decision");
-                return determineSideWithRSI(candles);
-            }
-             if (Math.abs(priceChange) < 0.0007) {
-    System.out.println("⏸ No momentum – skipping scalp");
-    return null;
-}
-        } catch (Exception e) {
-            System.err.println("❌ Error determining position side: " + e.getMessage());
-            return Math.random() > 0.5 ? "buy" : "sell";
+        if (candles == null || candles.length() < 15) {
+            System.out.println("⚠️ Not enough candle data – skipping");
+            return null;
         }
+
+        double firstClose = candles.getJSONObject(0).getDouble("close");
+        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+        double priceChange = (lastClose - firstClose) / firstClose;
+
+        System.out.println("1m Scalp Trend for " + pair);
+        System.out.println("First Close: " + firstClose);
+        System.out.println("Last Close: " + lastClose);
+        System.out.println("Change: " + (priceChange * 100) + "%");
+
+        // ✅ NO MOMENTUM FILTER (MUST BE FIRST)
+        if (Math.abs(priceChange) < 0.0007) {
+            System.out.println("⏸ No momentum – skipping scalp");
+            return null;
+        }
+
+        // ✅ TREND SCALP
+        if (priceChange > TREND_THRESHOLD) {
+            System.out.println("📈 Micro uptrend – BUY scalp");
+            return "buy";
+        }
+
+        if (priceChange < -TREND_THRESHOLD) {
+            System.out.println("📉 Micro downtrend – SELL scalp");
+            return "sell";
+        }
+
+        // ✅ RSI fallback
+        return determineSideWithRSI(candles);
+
+    } catch (Exception e) {
+        System.err.println("❌ Error determining position side: " + e.getMessage());
+        return null;
     }
+}
+
 
     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
         try {
