@@ -28,10 +28,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 60; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.005; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.02; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.06; // 5% stop loss
+    private static final int LOOKBACK_PERIOD = 30; // Minutes for trend analysis (changed from hours)
+    private static final double TREND_THRESHOLD = 0.0015; // 2% change threshold for trend
+    private static final double TP_PERCENTAGE = 0.006; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.0035; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -123,7 +123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 15; // Default leverage
+                int leverage = 6; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -195,7 +195,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String determinePositionSide(String pair) {
         try {
             // Changed resolution from "1h" to "5m" to match 5-minute lookback
-            JSONArray candles = getCandlestickData(pair, "60m", LOOKBACK_PERIOD);
+            JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
 
             if (candles == null || candles.length() < 2) {
                 System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
@@ -221,6 +221,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.println("➡️ Sideways market - Using RSI for decision");
                 return determineSideWithRSI(candles);
             }
+             if (Math.abs(priceChange) < 0.0007) {
+    System.out.println("⏸ No momentum – skipping scalp");
+    return null;
+}
         } catch (Exception e) {
             System.err.println("❌ Error determining position side: " + e.getMessage());
             return Math.random() > 0.5 ? "buy" : "sell";
@@ -230,7 +234,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
         try {
             long endTime = Instant.now().toEpochMilli();
-            long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
+            // long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
+             long startTime = endTime - TimeUnit.MINUTES.toMillis(periods);
+
 
             String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
                     "&from=" + startTime + "&to=" + endTime +
@@ -261,7 +267,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
             double avgGain = 0;
             double avgLoss = 0;
-            int rsiPeriod = 14;
+            int rsiPeriod = 9;
 
             for (int i = 1; i <= rsiPeriod; i++) {
                 double change = closes[i] - closes[i-1];
@@ -291,10 +297,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
             System.out.println("RSI: " + rsi);
 
-            if (rsi < 30) {
+            if (rsi < 25) {
                 System.out.println("🔽 Oversold - Going LONG");
                 return "buy";
-            } else if (rsi > 70) {
+            } else if (rsi > 75) {
                 System.out.println("🔼 Overbought - Going SHORT");
                 return "sell";
             } else {
