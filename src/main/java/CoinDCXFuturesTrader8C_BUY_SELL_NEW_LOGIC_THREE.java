@@ -261,11 +261,6 @@ private static JSONArray getCandlestickData(String pair, String resolution, int 
     return null;
 }
 
-
-    private static String determineSideWithRSI(JSONArray candles) {
-    
-    }
-
     private static void initializeInstrumentDetails() {
         try {
             long currentTime = System.currentTimeMillis();
