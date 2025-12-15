@@ -28,14 +28,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 10; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.0015; // 2% change threshold for trend
+    private static final int LOOKBACK_PERIOD = 60; // Minutes for trend analysis (changed from hours)
+    private static final double TREND_THRESHOLD = 0.005; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.02; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
+    private static final double SL_PERCENTAGE = 0.06; // 5% stop loss
 
-private static final boolean FORCE_TRADE_IF_NO_CANDLES = true;
-
-     
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
     private static long lastInstrumentUpdateTime = 0;
@@ -126,7 +123,7 @@ private static final boolean FORCE_TRADE_IF_NO_CANDLES = true;
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 10; // Default leverage
+                int leverage = 15; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -195,71 +192,120 @@ private static final boolean FORCE_TRADE_IF_NO_CANDLES = true;
         }
     }
 
-private static String determinePositionSide(String pair) {
-    try {
-        JSONArray candles = getCandlestickData(pair, "1m", LOOKBACK_PERIOD);
+    private static String determinePositionSide(String pair) {
+        try {
+            // Changed resolution from "1h" to "5m" to match 5-minute lookback
+            JSONArray candles = getCandlestickData(pair, "60m", LOOKBACK_PERIOD);
 
-        // ✅ FORCE MODE
-        if (candles == null || candles.length() < 3) {
-            if (FORCE_TRADE_IF_NO_CANDLES) {
-                System.out.println("⚠️ No candle data – FORCE scalping SELL");
-                return "sell"; // scalping bias short
+            if (candles == null || candles.length() < 2) {
+                System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
+                return Math.random() > 0.5 ? "buy" : "sell";
             }
-            return null;
-        }
 
-        double firstClose = candles.getJSONObject(0).getDouble("close");
-        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+            double firstClose = candles.getJSONObject(0).getDouble("close");
+            double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+            double priceChange = (lastClose - firstClose) / firstClose;
 
-        double priceChange = (lastClose - firstClose) / firstClose;
+            System.out.println("5-Minute Trend Analysis for " + pair + ":");
+            System.out.println("First Close: " + firstClose);
+            System.out.println("Last Close: " + lastClose);
+            System.out.println("Price Change: " + (priceChange * 100) + "%");
 
-        if (Math.abs(priceChange) < 0.0005) {
-            System.out.println("⏸ Low momentum – skipping");
-            return null;
-        }
-
-        if (priceChange < 0) {
-            System.out.println("📉 SELL scalp");
-            return "sell";
-        } else {
-            System.out.println("📈 BUY scalp");
-            return "buy";
-        }
-
-    } catch (Exception e) {
-        System.out.println("⚠️ Candle error – FORCE SELL");
-        return "sell";
-    }
-}
-
-
-
-
-private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-    try {
-        long endTime = Instant.now().toEpochMilli();
-        long startTime = endTime - TimeUnit.MINUTES.toMillis(periods);
-
-        String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
-                "&from=" + startTime + "&to=" + endTime +
-                "&resolution=" + resolution + "&pcode=#";
-
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setRequestMethod("GET");
-
-        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-            String response = readAllLines(conn.getInputStream());
-            JSONObject jsonResponse = new JSONObject(response);
-
-            if ("ok".equalsIgnoreCase(jsonResponse.optString("s"))) {
-                return jsonResponse.getJSONArray("data");
+            if (priceChange > TREND_THRESHOLD) {
+                System.out.println("📈 Uptrend detected - Going LONG");
+                return "buy";
+            } else if (priceChange < -TREND_THRESHOLD) {
+                System.out.println("📉 Downtrend detected - Going SHORT");
+                return "sell";
+            } else {
+                System.out.println("➡️ Sideways market - Using RSI for decision");
+                return determineSideWithRSI(candles);
             }
+        } catch (Exception e) {
+            System.err.println("❌ Error determining position side: " + e.getMessage());
+            return Math.random() > 0.5 ? "buy" : "sell";
         }
-    } catch (Exception e) {
-        System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
     }
-    return null;
-}
+
+    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+        try {
+            long endTime = Instant.now().toEpochMilli();
+            long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
+
+            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
+                    "&from=" + startTime + "&to=" + endTime +
+                    "&resolution=" + resolution + "&pcode=#";
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("GET");
+
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                String response = readAllLines(conn.getInputStream());
+                JSONObject jsonResponse = new JSONObject(response);
+                if (jsonResponse.getString("s").equals("ok")) {
+                    return jsonResponse.getJSONArray("data");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private static String determineSideWithRSI(JSONArray candles) {
+        try {
+            double[] closes = new double[candles.length()];
+            for (int i = 0; i < candles.length(); i++) {
+                closes[i] = candles.getJSONObject(i).getDouble("close");
+            }
+
+            double avgGain = 0;
+            double avgLoss = 0;
+            int rsiPeriod = 14;
+
+            for (int i = 1; i <= rsiPeriod; i++) {
+                double change = closes[i] - closes[i-1];
+                if (change > 0) {
+                    avgGain += change;
+                } else {
+                    avgLoss += Math.abs(change);
+                }
+            }
+
+            avgGain /= rsiPeriod;
+            avgLoss /= rsiPeriod;
+
+            for (int i = rsiPeriod + 1; i < closes.length; i++) {
+                double change = closes[i] - closes[i-1];
+                if (change > 0) {
+                    avgGain = (avgGain * (rsiPeriod - 1) + change) / rsiPeriod;
+                    avgLoss = (avgLoss * (rsiPeriod - 1)) / rsiPeriod;
+                } else {
+                    avgLoss = (avgLoss * (rsiPeriod - 1) + Math.abs(change)) / rsiPeriod;
+                    avgGain = (avgGain * (rsiPeriod - 1)) / rsiPeriod;
+                }
+            }
+
+            double rs = avgGain / avgLoss;
+            double rsi = 100 - (100 / (1 + rs));
+
+            System.out.println("RSI: " + rsi);
+
+            if (rsi < 30) {
+                System.out.println("🔽 Oversold - Going LONG");
+                return "buy";
+            } else if (rsi > 70) {
+                System.out.println("🔼 Overbought - Going SHORT");
+                return "sell";
+            } else {
+                System.out.println("⏸ Neutral RSI - No trade");
+                return null;
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error calculating RSI: " + e.getMessage());
+            return Math.random() > 0.5 ? "buy" : "sell";
+        }
+    }
 
     private static void initializeInstrumentDetails() {
         try {
