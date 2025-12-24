@@ -31,7 +31,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.005; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.012; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.082; // 5% stop loss
+    private static final double SL_PERCENTAGE = 0.06; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -195,7 +195,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String determinePositionSide(String pair) {
         try {
             // Changed resolution from "1h" to "5m" to match 5-minute lookback
-            JSONArray candles = getCandlestickData(pair, "60m", LOOKBACK_PERIOD);
+            JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
 
             if (candles == null || candles.length() < 2) {
                 System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
