@@ -28,7 +28,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
+    private static final int LOOKBACK_PERIOD = 15; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.005; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.06; // 3% take profit
     private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
@@ -123,7 +123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 6; // Default leverage
+                int leverage = 10; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -195,7 +195,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String determinePositionSide(String pair) {
         try {
             // Changed resolution from "1h" to "5m" to match 5-minute lookback
-            JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
+            JSONArray candles = getCandlestickData(pair, "15m", LOOKBACK_PERIOD);
 
             if (candles == null || candles.length() < 2) {
                 System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
