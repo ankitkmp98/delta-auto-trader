@@ -29,7 +29,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 30; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.003; // 2% change threshold for trend
+    private static final double TREND_THRESHOLD = 0.0015; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.05; // 3% take profit
     private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
 
@@ -192,12 +192,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    private static String determinePositionSide(String pair) {
+ private static String determinePositionSide(String pair) {
     try {
         JSONArray candles = getCandlestickData(pair, "5m", LOOKBACK_PERIOD);
 
         if (candles == null || candles.length() < 10) {
-            System.out.println("⚠️ Not enough candle data, using simple momentum strategy");
+            System.out.println("⚠️ Candle data insufficient, using momentum fallback");
             return getSimpleMomentumSignal(pair);
         }
 
@@ -205,27 +205,36 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
         double priceChange = (lastClose - firstClose) / firstClose;
 
-        System.out.println("5-Minute Trend Analysis for " + pair + ":");
-        System.out.println("Candles: " + candles.length());
-        System.out.println("First Close: " + firstClose);
-        System.out.println("Last Close: " + lastClose);
-        System.out.println("Price Change: " + String.format("%.2f%%", priceChange * 100));
+        System.out.printf(
+            "Trend %s | %.2f%%\n",
+            pair,
+            priceChange * 100
+        );
 
         if (priceChange > TREND_THRESHOLD) {
-            System.out.println("📈 Uptrend detected - Going LONG");
             return "buy";
-        } else if (priceChange < -TREND_THRESHOLD) {
-            System.out.println("📉 Downtrend detected - Going SHORT");
-            return "sell";
-        } else {
-            System.out.println("➡️ Sideways market - Using RSI for decision");
-            return determineSideWithRSI(candles);
         }
+
+        if (priceChange < -TREND_THRESHOLD) {
+            return "sell";
+        }
+
+        // RSI decision
+        String rsiSide = determineSideWithRSI(candles);
+        if (rsiSide != null) {
+            return rsiSide;
+        }
+
+        // 🔥 FINAL GUARANTEED FALLBACK (NEVER NULL)
+        System.out.println("↔️ Neutral RSI → Using price bias fallback");
+        return lastClose >= firstClose ? "buy" : "sell";
+
     } catch (Exception e) {
-        System.err.println("❌ Error determining position side: " + e.getMessage());
+        System.err.println("❌ Side decision error: " + e.getMessage());
         return getSimpleMomentumSignal(pair);
     }
 }
+
 
 // Add this simple momentum method (keep it within the class)
 private static String getSimpleMomentumSignal(String pair) {
@@ -246,11 +255,8 @@ private static String getSimpleMomentumSignal(String pair) {
                     
                     System.out.println("Simple Momentum: " + String.format("%+.2f%%", change * 100));
                     
-                    if (change > 0.05) { // 0.5% uptrend
-                        return "buy";
-                    } else if (change < -0.05) { // 0.5% downtrend
-                        return "sell";
-                    }
+               if (change > 0.003) return "buy";     // 0.3%
+if (change < -0.003) return "sell";   // 0.3%
                 }
             }
         }
@@ -263,7 +269,7 @@ private static String getSimpleMomentumSignal(String pair) {
     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
         try {
             long endTime = Instant.now().toEpochMilli();
-            long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
+            long startTime = endTime - TimeUnit.MINUTES.toMillis(periods * 5);
 
             String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
                     "&from=" + startTime + "&to=" + endTime +
