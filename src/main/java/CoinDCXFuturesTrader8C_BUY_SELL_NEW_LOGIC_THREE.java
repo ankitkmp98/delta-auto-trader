@@ -27,6 +27,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
+    private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
    // Number of candles to look back for trend analysis
 private static final int LOOKBACK_CANDLES = 12; 
 private static final int CANDLE_RES_MINUTES = 15; // 15-minute candles
@@ -38,20 +39,68 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
     private static long lastInstrumentUpdateTime = 0;
 
-// Replace your COIN_SYMBOLS array with:
-private static final String[] COIN_SYMBOLS = {
-    "BTC", "ETH", "SOL", "XRP"
-};
+    private static final String[] COIN_SYMBOLS = {
 
-// Or if you want to directly specify the pairs for trading:
-private static final String[] COINS_TO_TRADE = {
-    "B-BTC_USDT",
-    "B-ETH_USDT", 
-    "B-SOL_USDT",
-    "B-XRP_USDT"
-};
+          "B-BTC_USDT",
+        "B-ETH_USDT", 
+        "B-SOL_USDT",
+        "B-XRP_USDT"
 
-// Remove the stream mapping for COINS_TO_TRADE since we're defining it directly
+         
+         //   "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3",
+          //  "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE",
+         //   "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI",
+         //   "GALA", "GLM", "GOAT", "GRIFFAIN", "HBAR", "HIVE", "IO", "IOTA", "JASMY",
+         //   "JUP", "KAITO", "LDO", "LISTA", "MANA", "MANTA", "MEME", "MELANIA", "MOODENG",
+          //  "MOVE", "MUBARAK", "NEIRO", "NOT", "ONDO", "OP", "PEOPLE", "PEPE", "PENGU",
+          //  "PI", "PNUT", "POL", "POPCAT", "RARE", "RED", "RSR", "SAGA", "SAND", "SEI",
+          //  "SHIB", "SOLV", "SONIC", "SPX", "STX", "SUN", "SWARMS", "SUSHI", "TST", "TRX",
+          //  "USUAL", "VINE", "VIRTUAL", "WIF", "WLD", "XAI", "XLM", "XRP", "ZK","TAO",
+          //  "TRUMP","PERP","OM","BNB","LINK","GMT","LAYER","AVAX","HIGH","ALPACA","FLM",
+          //  "BSW","FIL","DOT","LTC","ARK","ENJ","RENDER","CRV","BCH","OGN","1000SHIB","AAVE",
+          //  "ORCA","NEAR","T","FUN","VTHO","ALCH","GAS","TIA","MBOX","APT","ORDI","INJ","BEL",
+          //  "PARTI","BIGTIME","ETC","BOME","UNI","TON","1000BONK","ACH","XLM","ATOM","LEVER","S"
+
+
+//  "BTC", "ETH", "VOXEL", "SOL", "NKN", "MAGIC", "XRP", "1000PEPE", "FARTCOIN", "DOGE",
+// "TAO", "SUI", "TRUMP", "PERP", "OM","ADA", "BNB", "LINK", "PEOPLE", "GMT",
+// "FET", "MUBARAK", "WIF", "LAYER", "AVAX", "HIGH", "ALPACA", "FLM", "ENA", "BSW",
+//  "FIL", "DOT", "LTC", "ARK", "ENJ", "EOS", "USUAL", "TRX", "RENDER", "CRV",
+// "BCH", "OGN", "ONDO", "1000SHIB", "BIO", "AAVE", "ORCA", "NEAR", "PNUT", "T",
+//  "POPCAT", "FUN", "VTHO", "WLD", "ALCH", "GAS", "XAI", "GALA", "TIA", "MBOX",
+//  "APT", "ORDI", "HBAR", "OP", "INJ", "BEL", "JASMY", "RED", "KAITO", "PARTI",
+//  "ARB", "BIGTIME", "AI16Z", "1000SATS", "NEIRO", "ETC", "JUP", "BOME", "UNI", "TON",
+//  "1000BONK", "ACH", "XLM", "GOAT", "SAND", "ATOM", "LEVER", "S", "CAKE", "NOT",
+//  "LOKA", "ARC", "VINE", "PENDLE", "LDO", "SEI", "RAYSOL", "APE", "RARE",
+// "WAXP", "GPS", "IP", "COTI", "AVAAI", "KOMA", "HFT", "ARKM", "ANIME", "ACT",
+//  "ALGO", "VIRTUAL", "MAVIA", "ALICE", "MANTA", "ZRO", "AGLD", "STX", "API3", "PIXEL",
+// "MELANIA", "NEO", "IMX", "1000WHY", "MANA", "ACE", "SWARMS", "MKR", "AUCTION", "ICP",
+// "PORTAL", "THETA", "CHESS", "ZEREBRO", "1000FLOKI", "PENGU", "STRK", "CATI", "TRB", "SAGA",
+//  "NIL", "TURBO", "AIXBT", "W", "PYTH", "LISTA", "CHILLGUY", "GRIFFAIN", "REZ", "IO",
+//  "UXLINK", "SHELL", "BTCDOM", "POL", "GRT", "BRETT", "DYDX", "JTO", "MOODENG", "ETHFI",
+// "OMNI", "DOGS", "EIGEN", "ENS", "XMR", "D", "SOLV", "VET", "RUNE", "MEW",
+//  "AXS", "XCN", "SXP", "MASK", "BMT", "BANANA", "NFP", "XTZ", "FORTH", "ALPHA",
+// "REI", "AR", "YGG", "PAXG", "SPX", "TRU", "ID", "GTC", "CHZ", "BLUR",
+// "GRASS", "KAVA", "SPELL", "RSR", "FIDA", "MORPHO", "VANA", "RPL", "ANKR", "TLM",
+// "CFX", "HIPPO", "TST", "ZEN", "ME", "AI", "MOVR", "GLM", "ZIL", "1000RATS",
+// "HOOK", "ALT", "ZK", "COW", "SUSHI", "MLN", "SANTOS", "1MBABYDOGE", "SNX",
+//  "STORJ", "BEAMX", "WOO", "B3", "AEVO", "CTSI", "1000LUNC", "OXT", "ILV", "IOTA",
+// "QTUM", "EPIC", "NEIROETH", "THE", "EDU", "ZEC", "AERO", "SKL", "ARPA", "BAN",
+//  "COMP", "CHR", "NMR", "ZETA", "LUMIA", "COOKIE", "PHB", "MINA", "1000CHEEMS", "1000CAT",
+// "GHST", "KAS", "SUPER", "ROSE", "IOTX", "DYM", "EGLD", "SONIC", "RDNT", "LPT",
+// "LUNA2", "PLUME", "XVG", "MYRO", "LQTY", "USTC", "C98", "SCR", "BB", "STEEM",
+//  "ONE", "FLOW", "QNT", "SSV", "POWR", "DEXE", "CGPT", "VANRY", "POLYX", "ZRX",
+//  "YFI", "TNSR", "GMX", "SYS", "1INCH", "CELO", "METIS", "1000X", "HEI", "ONT",
+//  "KSM", "KDA", "IOST", "BAT", "CETUS", "DF", "LRC", "HIVE", "DEGEN",
+// "MTL", "SAFE", "CELR", "AVA", "CKB", "RIF", "FIO", "1000000MOG", "KNC", "ICX",
+// "CYBER", "RONIN", "ONG", "VVV", "FXS", "MAV", "DEGO", "DASH", "ASTR", "PHA",
+// "AXL", "BICO", "BAND", "SCRT", "HOT", "TOKEN", "STG", "PONKE", "DODOX", "DUSK",
+// "SYN", "RVN", "UMA", "PIPPIN", "DENT", "PROM", "FLUX", "VELODROME", "SWELL", "MOCA",
+// "ATA", "KAIA", "ATH", "XVS", "G", "LSK", "SUN", "NTRN", "RLC", "JOE",
+// "1000XEC", "VIC", "SFP", "TWT", "QUICK", "BSV", "DIA", "BNT", "ACX", "COS",
+// "ETHW", "DRIFT", "AKT", "KMNO", "SLERF", "DEFI", "USDC"
+
+    };
 
     private static final Set<String> INTEGER_QUANTITY_PAIRS = Stream.of(COIN_SYMBOLS)
             .flatMap(symbol -> Stream.of("B-" + symbol + "_USDT", symbol + "_USDT"))
@@ -62,45 +111,6 @@ private static final String[] COINS_TO_TRADE = {
             .toArray(String[]::new);
 
     public static void main(String[] args) {
-
-         public static void main(String[] args) {
-    // First test the API endpoints
-    testAllAPIs();
-    
-    // Then continue with your existing code...
-    initializeInstrumentDetails();
-    Set<String> activePairs = getActivePositions();
-    // ... rest of your code
-}
-
-private static void testAllAPIs() {
-    System.out.println("🚀 Testing API endpoints...\n");
-    
-    String[] testPairs = {"B-BTC_USDT", "BTC_USDT"};
-    
-    for (String pair : testPairs) {
-        System.out.println("\n" + "=".repeat(50));
-        System.out.println("Testing pair: " + pair);
-        
-        // Test 1: Get last price
-        System.out.println("\n1. Testing getLastPrice...");
-        double price = getLastPrice(pair);
-        System.out.println("Last price: " + price);
-        
-        // Test 2: Get candlestick data
-        System.out.println("\n2. Testing getCandlestickData...");
-        JSONArray candles = getCandlestickData(pair, "15m", 10);
-        System.out.println("Candles received: " + (candles != null ? candles.length() : 0));
-        
-        // Test 3: Check if pair exists in active instruments
-        System.out.println("\n3. Testing instrument details...");
-        double tickSize = getTickSizeForPair(pair);
-        System.out.println("Tick size: " + tickSize);
-        
-        System.out.println("=".repeat(50));
-    }
-}
-         
         initializeInstrumentDetails();
         Set<String> activePairs = getActivePositions();
         System.out.println("\nActive Positions: " + activePairs);
