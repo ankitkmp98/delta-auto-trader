@@ -267,29 +267,40 @@ if (change < -0.003) return "sell";   // 0.3%
 }
 
     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-        try {
-            long endTime = Instant.now().toEpochMilli();
-            long startTime = endTime - TimeUnit.MINUTES.toMillis(periods * 5);
+    try {
+        // 🔥 Convert futures pair to spot pair
+        String spotPair = pair.replace("B-", "");
 
-            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
-                    "&from=" + startTime + "&to=" + endTime +
-                    "&resolution=" + resolution + "&pcode=#";
+        long endTime = Instant.now().toEpochMilli();
+        long startTime = endTime - TimeUnit.MINUTES.toMillis(periods * 5);
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
+        String url = PUBLIC_API_URL + "/market_data/candlesticks"
+                + "?pair=" + spotPair
+                + "&from=" + startTime
+                + "&to=" + endTime
+                + "&resolution=" + resolution
+                + "&pcode=#";
 
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readAllLines(conn.getInputStream());
-                JSONObject jsonResponse = new JSONObject(response);
-                if (jsonResponse.getString("s").equals("ok")) {
-                    return jsonResponse.getJSONArray("data");
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONObject json = new JSONObject(response);
+
+            if ("ok".equalsIgnoreCase(json.optString("s"))) {
+                JSONArray data = json.getJSONArray("data");
+                if (data.length() > 0) {
+                    return data;
                 }
             }
-        } catch (Exception e) {
-            System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
         }
-        return null;
+    } catch (Exception e) {
+        System.err.println("❌ Candle fetch error: " + e.getMessage());
     }
+    return null;
+}
+
 
     private static String determineSideWithRSI(JSONArray candles) {
     try {
