@@ -28,10 +28,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.02; // 2% change threshold for trend
+    // private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
+    private static final double TREND_THRESHOLD = 0.04; // 2% change threshold for trend
     private static final double TP_PERCENTAGE = 0.012; // 3% take profit
     private static final double SL_PERCENTAGE = 0.008; // 5% stop loss
+
+     private static final String CANDLE_RESOLUTION = "15m";
+private static final int LOOKBACK_PERIOD = 16; // 4 hours
+
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -195,18 +199,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String determinePositionSide(String pair) {
         try {
           // Using 30-minute candles for trend analysis
-            JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
+JSONArray candles = getCandlestickData(pair, CANDLE_RESOLUTION, LOOKBACK_PERIOD);
 
-            if (candles == null || candles.length() < 2) {
-                System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
-                return null;
-            }
+
+       if (candles == null || candles.length() < 15) {
+    System.out.println("⚠️ Not enough candles: " +
+        (candles == null ? 0 : candles.length()));
+    return null;
+}
+
 
             double firstClose = candles.getJSONObject(0).getDouble("close");
             double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
             double priceChange = (lastClose - firstClose) / firstClose;
 
-            System.out.println("5-Minute Trend Analysis for " + pair + ":");
+          System.out.println("15-Minute Trend Analysis for " + pair);
             System.out.println("First Close: " + firstClose);
             System.out.println("Last Close: " + lastClose);
             System.out.println("Price Change: " + (priceChange * 100) + "%");
@@ -227,30 +234,43 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-        try {
-            long endTime = Instant.now().toEpochMilli();
-            long startTime = endTime - TimeUnit.MINUTES.toMillis(30L * periods);
+private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+    try {
+        long endTime = Instant.now().toEpochMilli();
 
-            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
-                    "&from=" + startTime + "&to=" + endTime +
-                    "&resolution=" + resolution + "&pcode=#";
-
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
-
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readAllLines(conn.getInputStream());
-                JSONObject jsonResponse = new JSONObject(response);
-                if (jsonResponse.getString("s").equals("ok")) {
-                    return jsonResponse.getJSONArray("data");
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
+        long candleMillis;
+        switch (resolution) {
+            case "5m":  candleMillis = TimeUnit.MINUTES.toMillis(5); break;
+            case "15m": candleMillis = TimeUnit.MINUTES.toMillis(15); break;
+            case "30m": candleMillis = TimeUnit.MINUTES.toMillis(30); break;
+            case "1h":  candleMillis = TimeUnit.HOURS.toMillis(1); break;
+            default:    candleMillis = TimeUnit.MINUTES.toMillis(30);
         }
-        return null;
+
+        long startTime = endTime - (periods * candleMillis);
+
+        String url = PUBLIC_API_URL + "/market_data/candlesticks"
+                + "?pair=" + pair
+                + "&from=" + startTime
+                + "&to=" + endTime
+                + "&resolution=" + resolution
+                + "&pcode=#";
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+
+        if (conn.getResponseCode() == 200) {
+            JSONObject response = new JSONObject(readAllLines(conn.getInputStream()));
+            if ("ok".equals(response.optString("s"))) {
+                return response.getJSONArray("data");
+            }
+        }
+    } catch (Exception e) {
+        System.err.println("Candle fetch failed for " + pair);
     }
+    return null;
+}
+
 
     private static String determineSideWithRSI(JSONArray candles) {
         try {
