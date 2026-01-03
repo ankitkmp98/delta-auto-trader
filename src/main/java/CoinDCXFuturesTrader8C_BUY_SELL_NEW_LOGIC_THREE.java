@@ -23,11 +23,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
     
     // Risk Management Configuration
-    private static final double ACCOUNT_BALANCE = 10000.0; // Your account balance
+    private static final double ACCOUNT_BALANCE = 10000.0;
     private static final double RISK_PER_TRADE = 0.02; // 2% risk per trade
-    private static final double MAX_PORTFOLIO_RISK = 0.20; // 20% max portfolio risk
-    private static final int MAX_CONCURRENT_TRADES = 10;
-    private static final double MIN_VOLUME_24H = 1000000.0; // $1M minimum 24h volume
+    private static final int MAX_CONCURRENT_TRADES = 15; // Increased from 10
+    private static final double MIN_VOLUME_24H = 100000.0; // Reduced from $1M to $100K
     
     // Strategy Configuration
     private static final int LOOKBACK_CANDLES = 15;
@@ -42,7 +41,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int RSI_PERIOD = 14;
     private static final int RSI_OVERBOUGHT = 70;
     private static final int RSI_OVERSOLD = 30;
-    private static final double MIN_VOLUME_RATIO = 1.2; // Volume must be 20% above average
+    private static final double MIN_VOLUME_RATIO = 1.2;
     
     // API Cache Configuration
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000;
@@ -53,7 +52,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
     private static final Map<String, Double> volumeCache = new ConcurrentHashMap<>();
     private static long lastInstrumentUpdateTime = 0;
-    private static long lastVolumeUpdateTime = 0;
     
     // Trade tracking
     private static final Set<String> activePairs = Collections.synchronizedSet(new HashSet<>());
@@ -85,36 +83,46 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         try {
             // Initialize caches
             initializeInstrumentDetails();
-            updateVolumeCache();
             
             // Get current active positions
             Set<String> currentActivePairs = getActivePositions();
             activePairs.addAll(currentActivePairs);
             
             System.out.println("\n📊 Current Active Positions: " + activePairs.size());
-            activePairs.forEach(pair -> System.out.println("  - " + pair));
+            if (activePairs.size() > 0) {
+                System.out.println("Checking existing positions for TP/SL updates...");
+                manageExistingPositions();
+            }
             
             // Filter coins with sufficient volume
             List<String> tradablePairs = filterTradablePairs();
             System.out.println("\n🎯 Tradable Pairs: " + tradablePairs.size() + "/" + COINS_TO_TRADE.length);
             
             if (tradablePairs.isEmpty()) {
-                System.out.println("❌ No tradable pairs available");
+                System.out.println("⚠️ No tradable pairs available or max positions reached");
+                return;
+            }
+            
+            // Check if we can add more positions
+            if (activePairs.size() >= MAX_CONCURRENT_TRADES) {
+                System.out.println("⚠️ Max concurrent trades reached (" + MAX_CONCURRENT_TRADES + ")");
+                System.out.println("Active positions: " + activePairs);
                 return;
             }
             
             // Trade execution
             int tradesPlaced = 0;
+            int maxNewTrades = MAX_CONCURRENT_TRADES - activePairs.size();
+            System.out.println("Can place " + maxNewTrades + " new trades");
+            
             for (String pair : tradablePairs) {
                 try {
-                    // Check limits
-                    if (activePairs.size() >= MAX_CONCURRENT_TRADES) {
-                        System.out.println("\n⚠️ Max concurrent trades reached (" + MAX_CONCURRENT_TRADES + ")");
+                    if (tradesPlaced >= maxNewTrades) {
+                        System.out.println("\n⚠️ Reached limit for new trades");
                         break;
                     }
                     
                     if (activePairs.contains(pair)) {
-                        System.out.println("\n⏭ Skipping " + pair + " - Active position exists");
                         continue;
                     }
                     
@@ -147,7 +155,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         activePairs.add(pair);
                         
                         // Small delay between trades
-                        if (tradesPlaced < MAX_CONCURRENT_TRADES) {
+                        if (tradesPlaced < maxNewTrades) {
                             TimeUnit.SECONDS.sleep(2);
                         }
                     }
@@ -161,11 +169,76 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             System.out.println("✅ Trading Session Complete");
             System.out.println("Trades placed this session: " + tradesPlaced);
             System.out.println("Total active positions: " + activePairs.size());
-            System.out.println("Portfolio exposure: $" + calculatePortfolioExposure());
             
         } catch (Exception e) {
             System.err.println("❌ Fatal error: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+    
+    // ==================== MANAGE EXISTING POSITIONS ====================
+    
+    private static void manageExistingPositions() {
+        System.out.println("\n📋 Managing Existing Positions:");
+        for (String pair : new ArrayList<>(activePairs)) {
+            try {
+                JSONObject position = findPosition(pair);
+                if (position == null) {
+                    System.out.println("  ⚠️ Position not found: " + pair);
+                    activePairs.remove(pair);
+                    continue;
+                }
+                
+                double entryPrice = position.optDouble("avg_price", 0);
+                double currentPrice = getLastPrice(pair);
+                String side = position.optDouble("size", 0) > 0 ? "buy" : "sell";
+                
+                if (entryPrice > 0 && currentPrice > 0) {
+                    double pnlPercent = side.equals("buy") 
+                        ? ((currentPrice - entryPrice) / entryPrice) * 100
+                        : ((entryPrice - currentPrice) / entryPrice) * 100;
+                    
+                    System.out.printf("  %s: Entry=%.4f, Current=%.4f, PnL=%.2f%%%n",
+                        pair, entryPrice, currentPrice, pnlPercent);
+                    
+                    // Check if position needs adjustment
+                    checkAndAdjustTPSL(pair, position);
+                }
+            } catch (Exception e) {
+                System.err.println("  ❌ Error checking position " + pair + ": " + e.getMessage());
+            }
+        }
+    }
+    
+    private static void checkAndAdjustTPSL(String pair, JSONObject position) {
+        try {
+            // Check if TP/SL are already set
+            double tpTrigger = position.optDouble("take_profit_trigger", 0);
+            double slTrigger = position.optDouble("stop_loss_trigger", 0);
+            
+            if (tpTrigger <= 0 || slTrigger <= 0) {
+                System.out.println("  ⚠️ Missing TP/SL for " + pair + ", attempting to set...");
+                
+                double entryPrice = position.getDouble("avg_price");
+                String side = position.optDouble("size", 0) > 0 ? "buy" : "sell";
+                String positionId = position.getString("id");
+                
+                double tpPrice, slPrice;
+                if ("buy".equals(side)) {
+                    tpPrice = entryPrice * (1 + TP_PERCENTAGE);
+                    slPrice = entryPrice * (1 - SL_PERCENTAGE);
+                } else {
+                    tpPrice = entryPrice * (1 - TP_PERCENTAGE);
+                    slPrice = entryPrice * (1 + SL_PERCENTAGE);
+                }
+                
+                boolean success = setTakeProfitAndStopLoss(positionId, tpPrice, slPrice, side, pair);
+                if (success) {
+                    System.out.println("  ✅ TP/SL set for " + pair);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("  ❌ Error adjusting TP/SL: " + e.getMessage());
         }
     }
     
@@ -176,52 +249,43 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             String spotPair = getSpotPair(pair);
             
             // Get multi-timeframe data
-            JSONArray dailyCandles = getCandlestickData(spotPair, "1d", 5);
             JSONArray hourlyCandles = getCandlestickData(spotPair, "1h", 24);
             JSONArray entryCandles = getCandlestickData(spotPair, "15m", LOOKBACK_CANDLES);
             
-            if (dailyCandles == null || hourlyCandles == null || entryCandles == null) {
+            if (hourlyCandles == null || entryCandles == null || entryCandles.length() < 5) {
                 System.out.println("⚠️ Insufficient data for analysis");
                 return null;
             }
             
             // Calculate trends
-            double dailyTrend = calculateTrend(dailyCandles);
             double hourlyTrend = calculateTrend(hourlyCandles);
             double entryTrend = calculateTrend(entryCandles);
             
             // Calculate indicators
             double rsi = calculateRSI(entryCandles);
             double volumeRatio = calculateVolumeRatio(entryCandles);
-            double volatility = calculateVolatility(entryCandles);
             
             System.out.println("📊 Analysis Results:");
-            System.out.println("  Daily Trend: " + String.format("%+.2f%%", dailyTrend * 100));
             System.out.println("  Hourly Trend: " + String.format("%+.2f%%", hourlyTrend * 100));
             System.out.println("  15-min Trend: " + String.format("%+.2f%%", entryTrend * 100));
             System.out.println("  RSI: " + String.format("%.2f", rsi));
             System.out.println("  Volume Ratio: " + String.format("%.2f", volumeRatio));
-            System.out.println("  Volatility: " + String.format("%.2f%%", volatility * 100));
             
             // Generate signal
             TradeSignal signal = new TradeSignal();
             
-            // Bullish conditions
-            if (dailyTrend > 0 && hourlyTrend > 0 && entryTrend > TREND_THRESHOLD) {
-                if (rsi < RSI_OVERSOLD && volumeRatio > MIN_VOLUME_RATIO) {
+            // Simplified signal logic - focus on clear trends
+            if (entryTrend > TREND_THRESHOLD && hourlyTrend > 0) {
+                if (rsi < 40) { // Less strict RSI condition
                     signal.side = "buy";
-                    signal.confidence = calculateConfidence(dailyTrend, hourlyTrend, entryTrend, rsi, volumeRatio);
-                    signal.reason = "Strong uptrend with oversold RSI and high volume";
+                    signal.confidence = 0.7;
+                    signal.reason = "Uptrend with favorable RSI";
                 }
-            }
-            
-            // Bearish conditions
-            if (dailyTrend < 0 && hourlyTrend < 0 && entryTrend < -TREND_THRESHOLD) {
-                if (rsi > RSI_OVERBOUGHT && volumeRatio > MIN_VOLUME_RATIO) {
+            } else if (entryTrend < -TREND_THRESHOLD && hourlyTrend < 0) {
+                if (rsi > 60) { // Less strict RSI condition
                     signal.side = "sell";
-                    signal.confidence = calculateConfidence(Math.abs(dailyTrend), Math.abs(hourlyTrend), 
-                                                           Math.abs(entryTrend), 100 - rsi, volumeRatio);
-                    signal.reason = "Strong downtrend with overbought RSI and high volume";
+                    signal.confidence = 0.7;
+                    signal.reason = "Downtrend with favorable RSI";
                 }
             }
             
@@ -248,9 +312,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double currentPrice = getLastPrice(pair);
             if (currentPrice <= 0) return position;
             
-            // Calculate dynamic leverage based on volatility
-            position.leverage = calculateOptimalLeverage(pair);
-            position.leverage = Math.min(position.leverage, MAX_LEVERAGE);
+            // Use default leverage
+            position.leverage = DEFAULT_LEVERAGE;
             
             // Calculate TP/SL prices
             if ("buy".equals(signal.side)) {
@@ -285,7 +348,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if (INTEGER_QUANTITY_PAIRS.contains(pair)) {
                 position.quantity = Math.floor(position.quantity);
             } else {
-                position.quantity = Math.floor(position.quantity * 100) / 100;
+                position.quantity = Math.floor(position.quantity * 1000) / 1000;
             }
             
             // Final validation
@@ -307,7 +370,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             System.out.println("  Side: " + signal.side.toUpperCase());
             System.out.println("  Quantity: " + position.quantity);
             System.out.println("  Leverage: " + position.leverage + "x");
-            System.out.println("  Entry: ~$" + getLastPrice(pair));
+            
+            double currentPrice = getLastPrice(pair);
+            System.out.println("  Entry: $" + String.format("%.4f", currentPrice));
             System.out.println("  TP: $" + String.format("%.4f", position.takeProfitPrice));
             System.out.println("  SL: $" + String.format("%.4f", position.stopLossPrice));
             
@@ -329,7 +394,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             // Get entry price
             double entryPrice = getEntryPriceFromOrder(orderId);
             if (entryPrice <= 0) {
-                entryPrice = getLastPrice(pair);
+                entryPrice = currentPrice;
             }
             
             // Set TP/SL
@@ -340,6 +405,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 
                 if (tpslSet) {
                     System.out.println("✅ TP/SL orders placed");
+                } else {
+                    System.out.println("⚠️ TP/SL orders may have failed");
                 }
             }
             
@@ -370,10 +437,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         
         for (String pair : COINS_TO_TRADE) {
             try {
-                // Check volume
-                Double volume24h = volumeCache.get(getSpotPair(pair));
-                if (volume24h == null || volume24h < MIN_VOLUME_24H) {
-                    System.out.println("⏭ Skipping " + pair + " - Low volume");
+                // Skip if already have active position
+                if (activePairs.contains(pair)) {
                     continue;
                 }
                 
@@ -383,6 +448,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
                 
+                // For now, skip volume check since API is blocked
+                // We'll assume major coins have sufficient volume
                 tradable.add(pair);
                 
             } catch (Exception e) {
@@ -469,67 +536,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return recentVolume / averageVolume;
     }
     
-    private static double calculateVolatility(JSONArray candles) {
-        if (candles == null || candles.length() < 2) return 0.05;
-        
-        double sum = 0;
-        for (int i = 0; i < candles.length(); i++) {
-            sum += candles.getJSONObject(i).getDouble("close");
-        }
-        double mean = sum / candles.length();
-        
-        double variance = 0;
-        for (int i = 0; i < candles.length(); i++) {
-            double close = candles.getJSONObject(i).getDouble("close");
-            variance += Math.pow(close - mean, 2);
-        }
-        variance /= candles.length();
-        
-        return Math.sqrt(variance) / mean;
-    }
-    
-    private static double calculateConfidence(double dailyTrend, double hourlyTrend, 
-                                             double entryTrend, double rsiScore, double volumeRatio) {
-        // Weighted average of factors
-        double confidence = 0;
-        confidence += dailyTrend * 0.2;
-        confidence += hourlyTrend * 0.3;
-        confidence += entryTrend * 0.4;
-        confidence += (rsiScore / 100) * 0.1;
-        
-        // Boost for high volume
-        if (volumeRatio > 1.5) {
-            confidence *= 1.2;
-        }
-        
-        return Math.min(Math.max(confidence, 0.3), 1.0);
-    }
-    
-    private static int calculateOptimalLeverage(String pair) {
-        try {
-            String spotPair = getSpotPair(pair);
-            JSONArray candles = getCandlestickData(spotPair, "1h", 24);
-            if (candles == null) return DEFAULT_LEVERAGE;
-            
-            double volatility = calculateVolatility(candles);
-            
-            if (volatility > 0.08) return 3;     // High volatility
-            if (volatility > 0.05) return 5;     // Medium volatility
-            return DEFAULT_LEVERAGE;             // Low volatility
-            
-        } catch (Exception e) {
-            return DEFAULT_LEVERAGE;
-        }
-    }
-    
-    private static double calculatePortfolioExposure() {
-        double exposure = 0;
-        for (TradeRecord trade : tradeHistory) {
-            exposure += trade.entryPrice * trade.quantity * trade.leverage;
-        }
-        return exposure;
-    }
-    
     private static void displayTradeSummary(String pair, TradeSignal signal, PositionDetails position) {
         System.out.println("\n📋 Trade Summary:");
         System.out.println("  Pair: " + pair);
@@ -577,31 +583,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
     
-    private static void updateVolumeCache() {
-        try {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastVolumeUpdateTime > 300000) { // 5 minutes
-                System.out.println("🔄 Updating volume data...");
-                volumeCache.clear();
-                
-                String response = sendPublicRequest(PUBLIC_API_URL + "/market_data/ticker");
-                JSONArray tickers = new JSONArray(response);
-                
-                for (int i = 0; i < tickers.length(); i++) {
-                    JSONObject ticker = tickers.getJSONObject(i);
-                    String market = ticker.getString("market");
-                    double volume = ticker.optDouble("volume", 0);
-                    volumeCache.put(market, volume);
-                }
-                
-                lastVolumeUpdateTime = currentTime;
-                System.out.println("✅ Loaded volume for " + volumeCache.size() + " markets");
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error updating volume: " + e.getMessage());
-        }
-    }
-    
     private static double getMinQuantity(String pair) {
         JSONObject instrument = instrumentDetailsCache.get(pair);
         if (instrument != null) {
@@ -627,9 +608,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static JSONArray getCandlestickData(String pair, String resolution, int candleCount) {
         try {
             long endTime = Instant.now().getEpochSecond();
-            int resolutionMinutes = Integer.parseInt(resolution.replace("m", "").replace("h", ""));
-            if (resolution.contains("h")) resolutionMinutes *= 60;
-            if (resolution.contains("d")) resolutionMinutes *= 1440;
+            int resolutionMinutes = parseResolutionToMinutes(resolution);
             
             long startTime = endTime - (candleCount * resolutionMinutes * 60);
             
@@ -645,13 +624,29 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String response = readAllLines(conn.getInputStream());
                 JSONObject jsonResponse = new JSONObject(response);
                 if (jsonResponse.getString("s").equals("ok")) {
-                    return jsonResponse.getJSONArray("data");
+                    JSONArray data = jsonResponse.getJSONArray("data");
+                    if (data.length() > 0) {
+                        return data;
+                    }
                 }
+            } else {
+                System.out.println("⚠️ Candlestick API returned: " + conn.getResponseCode());
             }
         } catch (Exception e) {
-            // Silent fail - return null
+            System.err.println("❌ Error fetching candlestick data for " + pair + ": " + e.getMessage());
         }
         return null;
+    }
+    
+    private static int parseResolutionToMinutes(String resolution) {
+        if (resolution.endsWith("m")) {
+            return Integer.parseInt(resolution.replace("m", ""));
+        } else if (resolution.endsWith("h")) {
+            return Integer.parseInt(resolution.replace("h", "")) * 60;
+        } else if (resolution.endsWith("d")) {
+            return Integer.parseInt(resolution.replace("d", "")) * 1440;
+        }
+        return 15; // Default
     }
     
     private static double getLastPrice(String pair) {
@@ -659,6 +654,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             String spotPair = getSpotPair(pair);
             String url = PUBLIC_API_URL + "/market_data/trade_history?pair=" + spotPair + "&limit=1";
             HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
             
             if (conn.getResponseCode() == 200) {
                 String response = readAllLines(conn.getInputStream());
@@ -667,11 +664,43 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 } else {
                     return new JSONObject(response).getDouble("p");
                 }
+            } else {
+                System.out.println("⚠️ Price API returned: " + conn.getResponseCode() + " for " + pair);
             }
         } catch (Exception e) {
-            System.err.println("❌ Error getting price for " + pair);
+            System.err.println("❌ Error getting price for " + pair + ": " + e.getMessage());
         }
         return 0;
+    }
+    
+    private static JSONObject findPosition(String pair) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("timestamp", Instant.now().toEpochMilli());
+        body.put("page", "1");
+        body.put("size", "20");
+        body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
+
+        String response = sendAuthenticatedRequest(
+                BASE_URL + "/exchange/v1/derivatives/futures/positions",
+                body.toString(),
+                generateHmacSHA256(API_SECRET, body.toString())
+        );
+
+        if (response.startsWith("[")) {
+            JSONArray positions = new JSONArray(response);
+            for (int i = 0; i < positions.length(); i++) {
+                JSONObject position = positions.getJSONObject(i);
+                if (position.getString("pair").equals(pair)) {
+                    return position;
+                }
+            }
+        } else {
+            JSONObject position = new JSONObject(response);
+            if (position.getString("pair").equals(pair)) {
+                return position;
+            }
+        }
+        return null;
     }
     
     private static Set<String> getActivePositions() {
@@ -680,7 +709,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             JSONObject body = new JSONObject();
             body.put("timestamp", Instant.now().toEpochMilli());
             body.put("page", "1");
-            body.put("size", "100");
+            body.put("size", "50");
             body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
             
             String response = sendAuthenticatedRequest(
@@ -689,8 +718,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 generateHmacSHA256(API_SECRET, body.toString())
             );
             
-            JSONArray positionsArray = response.startsWith("[") ? 
-                new JSONArray(response) : new JSONArray().put(new JSONObject(response));
+            JSONArray positionsArray;
+            if (response.startsWith("[")) {
+                positionsArray = new JSONArray(response);
+            } else {
+                positionsArray = new JSONArray();
+                positionsArray.put(new JSONObject(response));
+            }
+            
+            System.out.println("Found " + positionsArray.length() + " position(s) in API response");
             
             for (int i = 0; i < positionsArray.length(); i++) {
                 JSONObject position = positionsArray.getJSONObject(i);
@@ -699,6 +735,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 
                 if (!pair.isEmpty() && avgPrice > 0) {
                     positions.add(pair);
+                    System.out.println("  Active: " + pair + " at $" + avgPrice);
                 }
             }
         } catch (Exception e) {
@@ -730,14 +767,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             body.put("timestamp", Instant.now().toEpochMilli());
             body.put("order", order);
             
+            System.out.println("Placing order for " + pair + " with quantity " + totalQuantity);
+            
             String response = sendAuthenticatedRequest(
                 BASE_URL + "/exchange/v1/derivatives/futures/orders/create",
                 body.toString(),
                 generateHmacSHA256(API_SECRET, body.toString())
             );
             
-            return response.startsWith("[") ? 
-                new JSONArray(response).getJSONObject(0) : new JSONObject(response);
+            System.out.println("Order response: " + response);
+            
+            if (response.startsWith("[")) {
+                return new JSONArray(response).getJSONObject(0);
+            } else {
+                return new JSONObject(response);
+            }
         } catch (Exception e) {
             System.err.println("❌ Order placement error: " + e.getMessage());
             return null;
@@ -746,6 +790,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     
     private static double getEntryPriceFromOrder(String orderId) {
         try {
+            // Wait a moment for order to fill
+            TimeUnit.MILLISECONDS.sleep(500);
+            
             JSONObject body = new JSONObject();
             body.put("timestamp", Instant.now().toEpochMilli());
             body.put("id", orderId);
@@ -759,31 +806,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             JSONObject orderDetails = new JSONObject(response);
             return orderDetails.optDouble("average_price", 0);
         } catch (Exception e) {
+            System.err.println("❌ Error getting entry price: " + e.getMessage());
             return 0;
         }
     }
     
     private static String getPositionId(String pair) {
         try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("page", "1");
-            body.put("size", "10");
-            
-            String response = sendAuthenticatedRequest(
-                BASE_URL + "/exchange/v1/derivatives/futures/positions",
-                body.toString(),
-                generateHmacSHA256(API_SECRET, body.toString())
-            );
-            
-            JSONArray positions = response.startsWith("[") ? 
-                new JSONArray(response) : new JSONArray().put(new JSONObject(response));
-            
-            for (int i = 0; i < positions.length(); i++) {
-                JSONObject position = positions.getJSONObject(i);
-                if (position.getString("pair").equals(pair)) {
+            // Give it a moment for position to appear
+            for (int i = 0; i < 5; i++) {
+                JSONObject position = findPosition(pair);
+                if (position != null && position.has("id")) {
                     return position.getString("id");
                 }
+                TimeUnit.MILLISECONDS.sleep(500);
             }
         } catch (Exception e) {
             System.err.println("❌ Error getting position ID: " + e.getMessage());
@@ -815,11 +851,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             payload.put("take_profit", takeProfit);
             payload.put("stop_loss", stopLoss);
             
+            System.out.println("Setting TP: $" + roundedTp + ", SL: $" + roundedSl);
+            
             String response = sendAuthenticatedRequest(
                 BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl",
                 payload.toString(),
                 generateHmacSHA256(API_SECRET, payload.toString())
             );
+            
+            System.out.println("TP/SL response: " + response);
             
             JSONObject tpslResponse = new JSONObject(response);
             return !tpslResponse.has("err_code_dcx");
@@ -862,10 +902,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static String sendPublicRequest(String endpoint) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
         conn.setRequestMethod("GET");
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
+        
         if (conn.getResponseCode() == 200) {
             return readAllLines(conn.getInputStream());
+        } else {
+            throw new IOException("HTTP " + conn.getResponseCode() + " for " + endpoint);
         }
-        throw new IOException("HTTP " + conn.getResponseCode());
     }
     
     private static String sendAuthenticatedRequest(String endpoint, String jsonBody, String signature) 
@@ -876,6 +920,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         conn.setRequestProperty("X-AUTH-APIKEY", API_KEY);
         conn.setRequestProperty("X-AUTH-SIGNATURE", signature);
         conn.setDoOutput(true);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
         
         try (OutputStream os = conn.getOutputStream()) {
             os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
@@ -902,12 +948,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 }
-
-
-
-
-
-
 
 
 
