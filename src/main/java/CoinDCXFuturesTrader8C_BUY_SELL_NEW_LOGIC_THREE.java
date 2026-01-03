@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int LOOKBACK_PERIOD = 15; // Minutes for trend analysis (changed from hours)
    // Number of candles to look back for trend analysis
 private static final int LOOKBACK_CANDLES = 15; 
-private static final int CANDLE_RES_MINUTES = 15; // 15-minute candles
+private static final int CANDLE_RES_MINUTES = 5; // 15-minute candles
 private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
     private static final double TP_PERCENTAGE = 0.05; // 3% take profit
     private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
@@ -476,7 +476,7 @@ private static void debugCandleAPI(String pair) {
 
             double avgGain = 0;
             double avgLoss = 0;
-            int rsiPeriod = 7;
+            int rsiPeriod = 9;
 
             for (int i = 1; i <= rsiPeriod; i++) {
                 double change = closes[i] - closes[i-1];
