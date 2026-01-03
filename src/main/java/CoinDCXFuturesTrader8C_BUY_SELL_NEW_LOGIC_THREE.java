@@ -33,7 +33,7 @@ private static final int LOOKBACK_CANDLES = 12;
 private static final int CANDLE_RES_MINUTES = 15; // 15-minute candles
 private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
     private static final double TP_PERCENTAGE = 0.01; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.008; // 5% stop loss
+    private static final double SL_PERCENTAGE = 0.006; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
