@@ -23,17 +23,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-    private static final double MAX_MARGIN = 600.0;
+    private static final double MAX_MARGIN = 1200.0;
     private static final int MAX_ORDER_STATUS_CHECKS = 10;
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
-    private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
+    private static final int LOOKBACK_PERIOD = 15; // Minutes for trend analysis (changed from hours)
    // Number of candles to look back for trend analysis
-private static final int LOOKBACK_CANDLES = 12; 
-private static final int CANDLE_RES_MINUTES = 30; // 15-minute candles
+private static final int LOOKBACK_CANDLES = 15; 
+private static final int CANDLE_RES_MINUTES = 15; // 15-minute candles
 private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
-    private static final double TP_PERCENTAGE = 0.03; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.01; // 5% stop loss
+    private static final double TP_PERCENTAGE = 0.05; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.03; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
