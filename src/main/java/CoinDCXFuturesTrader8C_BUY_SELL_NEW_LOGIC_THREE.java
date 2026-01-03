@@ -199,13 +199,8 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
 // ----------------------------
 
 
-
+     
      private static String determineSideWithRSIOnly(String pair) {
-
-          double firstClose = candles.getJSONObject(0).getDouble("close");
-double lastClose  = candles.getJSONObject(candles.length() - 1).getDouble("close");
-
-          
     try {
         // Get price data for RSI calculation
         double lastPrice = getLastPrice(pair);
@@ -257,34 +252,18 @@ double lastClose  = candles.getJSONObject(candles.length() - 1).getDouble("close
             double rsi = 100 - (100 / (1 + rs));
             
             System.out.println("RSI for " + pair + ": " + rsi);
-
-
-             
-             // Strong RSI signals
-if (rsi <= 35) {
+            
+   if (rsi <= 35) {
     System.out.println("🔽 RSI " + rsi + " → LONG");
     return "buy";
-}
-
-if (rsi >= 65) {
+} else if (rsi >= 65) {
     System.out.println("🔼 RSI " + rsi + " → SHORT");
     return "sell";
-}
-
-// Fallback only if price actually moved
-double priceChange = (lastClose - firstClose) / firstClose;
-
-if (Math.abs(priceChange) < 0.002) { // < 0.2% movement
-    System.out.println("⏸ Flat market → Skipping trade");
+} else {
+    System.out.println("⏸ RSI " + rsi + " → Neutral, follow trend");
     return null;
 }
 
-System.out.println("⚠️ RSI neutral → Using price bias");
-return lastClose > firstClose ? "buy" : "sell";
-
-
-
-             
         }
     } catch (Exception e) {
         System.err.println("❌ Error in RSI-only calculation: " + e.getMessage());
