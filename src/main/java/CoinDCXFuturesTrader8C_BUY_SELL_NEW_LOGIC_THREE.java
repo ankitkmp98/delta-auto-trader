@@ -127,7 +127,7 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 10; // Default leverage
+                int leverage = 20; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
