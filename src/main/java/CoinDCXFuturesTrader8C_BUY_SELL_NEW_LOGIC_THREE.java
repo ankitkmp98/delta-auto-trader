@@ -29,7 +29,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int ORDER_CHECK_DELAY_MS = 1000;
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
-    private static final double TREND_THRESHOLD = 0.01; // 2% change threshold for trend
+   // Number of candles to look back for trend analysis
+private static final int LOOKBACK_CANDLES = 12; 
+private static final int CANDLE_RES_MINUTES = 15; // 15-minute candles
+private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
     private static final double TP_PERCENTAGE = 0.01; // 3% take profit
     private static final double SL_PERCENTAGE = 0.008; // 5% stop loss
 
@@ -192,64 +195,80 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    private static String determinePositionSide(String pair) {
-        try {
-            JSONArray candles = getCandlestickData(pair, "15m", LOOKBACK_PERIOD);
+// ----------------------------
 
-            if (candles == null || candles.length() < 2) {
-                System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
-                return null;
-            }
+private static String determinePositionSide(String pair) {
+    try {
+        JSONArray candles = getCandlestickData(pair, CANDLE_RES_MINUTES + "m", LOOKBACK_CANDLES);
 
-            double firstClose = candles.getJSONObject(0).getDouble("close");
-            double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
-            double priceChange = (lastClose - firstClose) / firstClose;
-
-            System.out.println("5-Minute Trend Analysis for " + pair + ":");
-            System.out.println("First Close: " + firstClose);
-            System.out.println("Last Close: " + lastClose);
-            System.out.println("Price Change: " + (priceChange * 100) + "%");
-
-            if (priceChange > TREND_THRESHOLD) {
-                System.out.println("📈 Uptrend detected - Going LONG");
-                return "buy";
-            } else if (priceChange < -TREND_THRESHOLD) {
-                System.out.println("📉 Downtrend detected - Going SHORT");
-                return "sell";
-            } else {
-                System.out.println("➡️ Sideways market - Using RSI for decision");
-                return determineSideWithRSI(candles);
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error determining position side: " + e.getMessage());
+        if (candles == null || candles.length() < 2) {
+            System.out.println("⚠️ Not enough data for trend analysis, using default strategy");
             return null;
         }
-    }
 
-    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
-        try {
-            long endTime = Instant.now().toEpochMilli();
-            long startTime = endTime - TimeUnit.HOURS.toMillis(periods);
+        double firstClose = candles.getJSONObject(0).getDouble("close");
+        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+        double priceChange = (lastClose - firstClose) / firstClose;
 
-            String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
-                    "&from=" + startTime + "&to=" + endTime +
-                    "&resolution=" + resolution + "&pcode=#";
+        System.out.println("📊 Trend Analysis for " + pair + ":");
+        System.out.println("First Close: " + firstClose);
+        System.out.println("Last Close: " + lastClose);
+        System.out.println("Price Change: " + (priceChange * 100) + "%");
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("GET");
-
-            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                String response = readAllLines(conn.getInputStream());
-                JSONObject jsonResponse = new JSONObject(response);
-                if (jsonResponse.getString("s").equals("ok")) {
-                    return jsonResponse.getJSONArray("data");
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
+        if (priceChange > TREND_THRESHOLD) {
+            System.out.println("📈 Uptrend detected - Going LONG");
+            return "buy";
+        } else if (priceChange < -TREND_THRESHOLD) {
+            System.out.println("📉 Downtrend detected - Going SHORT");
+            return "sell";
+        } else {
+            System.out.println("➡️ Sideways market - Using RSI for decision");
+            return determineSideWithRSI(candles);
         }
+    } catch (Exception e) {
+        System.err.println("❌ Error determining position side: " + e.getMessage());
         return null;
     }
+}
+
+// ----------------------------
+
+private static JSONArray getCandlestickData(String pair, String resolution, int candleCount) {
+    try {
+        // Current timestamp in seconds
+        long endTime = Instant.now().getEpochSecond();
+        long startTime = endTime - candleCount * Integer.parseInt(resolution.replace("m","")) * 60;
+
+        String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
+                "&from=" + startTime + "&to=" + endTime +
+                "&resolution=" + resolution;
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONObject jsonResponse = new JSONObject(response);
+            if (jsonResponse.getString("s").equals("ok")) {
+                JSONArray data = jsonResponse.getJSONArray("data");
+                // CoinDCX sometimes returns empty array
+                if (data.length() == 0) {
+                    System.out.println("⚠️ No candle data returned for " + pair);
+                    return null;
+                }
+                return data;
+            } else {
+                System.out.println("⚠️ API returned error status for " + pair + ": " + jsonResponse);
+            }
+        } else {
+            System.out.println("⚠️ Failed to fetch candles, HTTP code: " + conn.getResponseCode());
+        }
+    } catch (Exception e) {
+        System.err.println("❌ Error fetching candlestick data: " + e.getMessage());
+    }
+    return null;
+}
+
 
     private static String determineSideWithRSI(JSONArray candles) {
         try {
