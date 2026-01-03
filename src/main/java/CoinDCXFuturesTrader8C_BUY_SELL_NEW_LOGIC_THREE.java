@@ -34,8 +34,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Tighter trend threshold for quick scalps
     private static final double TREND_THRESHOLD = 0.003; // 0.3% change threshold
     // Scalping TP/SL: small, frequent wins
-    private static final double TP_PERCENTAGE = 0.007; // ~0.7% take profit
-    private static final double SL_PERCENTAGE = 0.004; // ~0.4% stop loss
+    private static final double TP_PERCENTAGE = 0.009; // ~0.7% take profit
+    private static final double SL_PERCENTAGE = 0.006; // ~0.4% stop loss
     // === INTRADAY / SCALPING TUNING END ===
 
     // Cache for instrument details with timestamp
@@ -182,42 +182,74 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    private static String determinePositionSide(String pair) {
-        try {
-            // 30m still used, but with intraday‑tuned lookback and RSI
-            JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
-
-            if (candles == null || candles.length() < 20) { // need enough for RSI
-                System.out.println("⚠️ Not enough data for intraday scalping analysis, using default side: SELL");
-                return "sell"; // default to short scalp on lack of info
-            }
-
-            double firstClose = candles.getJSONObject(0).getDouble("close");
-            double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
-            double priceChange = (lastClose - firstClose) / firstClose;
-
-            System.out.println("Intraday Trend Analysis for " + pair + ":");
-            System.out.println("First Close: " + firstClose);
-            System.out.println("Last Close: " + lastClose);
-            System.out.println("Price Change: " + (priceChange * 100) + "%");
-
-            // For scalping, fade short‑term extremes:
-            // sharp up‑move → look for short, sharp down‑move → look for long
-            if (priceChange > TREND_THRESHOLD) {
-                System.out.println("📈 Quick up‑move detected – prefer SHORT scalp if RSI allows");
-                return determineSideWithRSI(candles, "sell");
-            } else if (priceChange < -TREND_THRESHOLD) {
-                System.out.println("📉 Quick down‑move detected – prefer LONG scalp if RSI allows");
-                return determineSideWithRSI(candles, "buy");
-            } else {
-                System.out.println("➡️ Mild move – RSI decides direction for scalp");
-                return determineSideWithRSI(candles, null);
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error determining position side: " + e.getMessage());
-            return "sell"; // default to short if something fails
+    private static String determineSideWithRSI(JSONArray candles, boolean uptrend) {
+    try {
+        double[] closes = new double[candles.length()];
+        for (int i = 0; i < candles.length(); i++) {
+            closes[i] = candles.getJSONObject(i).getDouble("close");
         }
-    }
+
+        // ✅ PROVEN SCALPING RSI(9)
+        int rsiPeriod = 9;
+        double avgGain = 0, avgLoss = 0;
+        for (int i = 1; i <= rsiPeriod && i < closes.length; i++) {
+            double change = closes[i] - closes[i-1];
+            avgGain += change > 0 ? change : 0;
+            avgLoss += change < 0 ? -change : 0;
+        }
+        avgGain /= rsiPeriod; avgLoss /= rsiPeriod;
+        
+        double rs = avgLoss == 0 ? 100 : avgGain / avgLoss;
+        double rsi = 100 - (100 / (1 + rs));
+
+        System.out.println("RSI(9): " + String.format("%.1f", rsi));
+
+        // ✅ STANDARD SCALPING: Fade extremes
+        if (rsi < 28) return "buy";      // Oversold → Long
+        if (rsi > 72) return "sell";     // Overbought → Short
+        
+        // Neutral: Slight short bias (current market)
+        return Math.random() < 0.6 ? "sell" : "buy";
+        
+    } catch (Exception e) { return null; }
+}
+
+    // private static String determinePositionSide(String pair) {
+    //     try {
+    //         // 30m still used, but with intraday‑tuned lookback and RSI
+    //         JSONArray candles = getCandlestickData(pair, "30m", LOOKBACK_PERIOD);
+
+    //         if (candles == null || candles.length() < 20) { // need enough for RSI
+    //             System.out.println("⚠️ Not enough data for intraday scalping analysis, using default side: SELL");
+    //             return "sell"; // default to short scalp on lack of info
+    //         }
+
+    //         double firstClose = candles.getJSONObject(0).getDouble("close");
+    //         double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+    //         double priceChange = (lastClose - firstClose) / firstClose;
+
+    //         System.out.println("Intraday Trend Analysis for " + pair + ":");
+    //         System.out.println("First Close: " + firstClose);
+    //         System.out.println("Last Close: " + lastClose);
+    //         System.out.println("Price Change: " + (priceChange * 100) + "%");
+
+    //         // For scalping, fade short‑term extremes:
+    //         // sharp up‑move → look for short, sharp down‑move → look for long
+    //         if (priceChange > TREND_THRESHOLD) {
+    //             System.out.println("📈 Quick up‑move detected – prefer SHORT scalp if RSI allows");
+    //             return determineSideWithRSI(candles, "sell");
+    //         } else if (priceChange < -TREND_THRESHOLD) {
+    //             System.out.println("📉 Quick down‑move detected – prefer LONG scalp if RSI allows");
+    //             return determineSideWithRSI(candles, "buy");
+    //         } else {
+    //             System.out.println("➡️ Mild move – RSI decides direction for scalp");
+    //             return determineSideWithRSI(candles, null);
+    //         }
+    //     } catch (Exception e) {
+    //         System.err.println("❌ Error determining position side: " + e.getMessage());
+    //         return "sell"; // default to short if something fails
+    //     }
+    // }
 
     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
         try {
