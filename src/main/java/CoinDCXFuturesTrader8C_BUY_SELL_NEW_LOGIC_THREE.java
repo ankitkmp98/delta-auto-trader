@@ -241,42 +241,57 @@ private static String determinePositionSide(String pair) {
 
      
 
-private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+
+private static JSONArray getCandlestickData(String pair, String interval, int limit) {
     try {
-        long endTime = Instant.now().toEpochMilli();
+        String candleSymbol = normalizeSymbolForCandleAPI(pair);
 
-        long candleMillis;
-        switch (resolution) {
-            case "5m":  candleMillis = TimeUnit.MINUTES.toMillis(5); break;
-            case "15m": candleMillis = TimeUnit.MINUTES.toMillis(15); break;
-            case "30m": candleMillis = TimeUnit.MINUTES.toMillis(30); break;
-            case "1h":  candleMillis = TimeUnit.HOURS.toMillis(1); break;
-            default:    candleMillis = TimeUnit.MINUTES.toMillis(30);
-        }
-
-        long startTime = endTime - (periods * candleMillis);
-
-        String url = PUBLIC_API_URL + "/market_data/candlesticks"
-                + "?pair=" + pair
-                + "&from=" + startTime
-                + "&to=" + endTime
-                + "&resolution=" + resolution
-                + "&pcode=#";
+        String url = BASE_URL + "/market_data/candles"
+                + "?pair=" + candleSymbol
+                + "&interval=" + interval
+                + "&limit=" + limit;
 
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setRequestMethod("GET");
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(5000);
 
-        if (conn.getResponseCode() == 200) {
-            JSONObject response = new JSONObject(readAllLines(conn.getInputStream()));
-            if ("ok".equals(response.optString("s"))) {
-                return response.getJSONArray("data");
-            }
+        if (conn.getResponseCode() != 200) {
+            System.out.println("❌ Candle API failed for " + candleSymbol);
+            return null;
         }
+
+        String response = new BufferedReader(
+                new InputStreamReader(conn.getInputStream()))
+                .lines()
+                .collect(Collectors.joining());
+
+        JSONArray candles = new JSONArray(response);
+
+        if (candles.length() == 0) {
+            System.out.println("⚠️ No candles returned for " + candleSymbol);
+        }
+
+        return candles;
+
     } catch (Exception e) {
-        System.err.println("Candle fetch failed for " + pair);
+        System.err.println("❌ Candle fetch error for " + pair + ": " + e.getMessage());
+        return null;
     }
-    return null;
 }
+
+     
+
+     private static String normalizeSymbolForCandleAPI(String symbol) {
+    // Remove B- prefix
+    if (symbol.startsWith("B-")) {
+        symbol = symbol.substring(2);
+    }
+
+    // Convert BTC_USDT → BTCUSDT
+    return symbol.replace("_", "");
+}
+
 
 private static String determineSideWithRSI(JSONArray candles) {
     try {
