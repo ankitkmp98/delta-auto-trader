@@ -127,7 +127,7 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 8; // Default leverage
+                int leverage = 10; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
@@ -253,16 +253,36 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
             
             System.out.println("RSI for " + pair + ": " + rsi);
             
-            if (rsi < 30) {
-                System.out.println("🔽 Oversold - Going LONG");
-                return "buy";
-            } else if (rsi > 70) {
-                System.out.println("🔼 Overbought - Going SHORT");
-                return "sell";
-            } else {
-                System.out.println("⏸ Neutral RSI - No trade");
-                return null;
-            }
+            // if (rsi < 30) {
+            //     System.out.println("🔽 Oversold - Going LONG");
+            //     return "buy";
+            // } else if (rsi > 70) {
+            //     System.out.println("🔼 Overbought - Going SHORT");
+            //     return "sell";
+            // } else {
+            //     System.out.println("⏸ Neutral RSI - No trade");
+            //     return null;
+            // }
+
+//              if (rsi <= 35) {
+//     System.out.println("🔽 RSI " + rsi + " → LONG");
+//     return "buy";
+// } else if (rsi >= 65) {
+//     System.out.println("🔼 RSI " + rsi + " → SHORT");
+//     return "sell";
+// } else {
+//     System.out.println("⏸ RSI " + rsi + " → Neutral, follow trend");
+//     return null;
+// }
+
+             if (rsi <= 35) return "buy";
+if (rsi >= 65) return "sell";
+
+// fallback bias
+return lastClose > firstClose ? "buy" : "sell";
+
+
+             
         }
     } catch (Exception e) {
         System.err.println("❌ Error in RSI-only calculation: " + e.getMessage());
