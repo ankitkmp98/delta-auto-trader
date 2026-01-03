@@ -19,7 +19,6 @@ import java.util.stream.Stream;
 
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
-
      private static final String API_KEY = System.getenv("DELTA_API_KEY");
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL = "https://api.coindcx.com";
@@ -41,6 +40,13 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
     private static long lastInstrumentUpdateTime = 0;
 
     private static final String[] COIN_SYMBOLS = {
+
+          "B-BTC_USDT",
+        "B-ETH_USDT", 
+        "B-SOL_USDT",
+        "B-XRP_USDT"
+
+         
          //   "1000SATS", "1000X", "ACT", "ADA", "AIXBT", "AI16Z", "ALGO", "ALT", "API3",
           //  "ARB", "ARC", "AVAAI", "BAKE", "BB", "BIO", "BLUR", "BMT", "BONK", "COOKIE",
          //   "DOGE", "DOGS", "DYDX", "EIGEN", "ENA", "EOS", "ETHFI", "FARTCOIN", "FLOKI",
@@ -56,43 +62,43 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
           //  "PARTI","BIGTIME","ETC","BOME","UNI","TON","1000BONK","ACH","XLM","ATOM","LEVER","S"
 
 
- "BTC", "ETH", "VOXEL", "SOL", "NKN", "MAGIC", "XRP", "1000PEPE", "FARTCOIN", "DOGE",
-"TAO", "SUI", "TRUMP", "PERP", "OM","ADA", "BNB", "LINK", "PEOPLE", "GMT",
-"FET", "MUBARAK", "WIF", "LAYER", "AVAX", "HIGH", "ALPACA", "FLM", "ENA", "BSW",
- "FIL", "DOT", "LTC", "ARK", "ENJ", "EOS", "USUAL", "TRX", "RENDER", "CRV",
-"BCH", "OGN", "ONDO", "1000SHIB", "BIO", "AAVE", "ORCA", "NEAR", "PNUT", "T",
- "POPCAT", "FUN", "VTHO", "WLD", "ALCH", "GAS", "XAI", "GALA", "TIA", "MBOX",
- "APT", "ORDI", "HBAR", "OP", "INJ", "BEL", "JASMY", "RED", "KAITO", "PARTI",
- "ARB", "BIGTIME", "AI16Z", "1000SATS", "NEIRO", "ETC", "JUP", "BOME", "UNI", "TON",
- "1000BONK", "ACH", "XLM", "GOAT", "SAND", "ATOM", "LEVER", "S", "CAKE", "NOT",
- "LOKA", "ARC", "VINE", "PENDLE", "LDO", "SEI", "RAYSOL", "APE", "RARE",
-"WAXP", "GPS", "IP", "COTI", "AVAAI", "KOMA", "HFT", "ARKM", "ANIME", "ACT",
- "ALGO", "VIRTUAL", "MAVIA", "ALICE", "MANTA", "ZRO", "AGLD", "STX", "API3", "PIXEL",
-"MELANIA", "NEO", "IMX", "1000WHY", "MANA", "ACE", "SWARMS", "MKR", "AUCTION", "ICP",
-"PORTAL", "THETA", "CHESS", "ZEREBRO", "1000FLOKI", "PENGU", "STRK", "CATI", "TRB", "SAGA",
- "NIL", "TURBO", "AIXBT", "W", "PYTH", "LISTA", "CHILLGUY", "GRIFFAIN", "REZ", "IO",
- "UXLINK", "SHELL", "BTCDOM", "POL", "GRT", "BRETT", "DYDX", "JTO", "MOODENG", "ETHFI",
-"OMNI", "DOGS", "EIGEN", "ENS", "XMR", "D", "SOLV", "VET", "RUNE", "MEW",
- "AXS", "XCN", "SXP", "MASK", "BMT", "BANANA", "NFP", "XTZ", "FORTH", "ALPHA",
-"REI", "AR", "YGG", "PAXG", "SPX", "TRU", "ID", "GTC", "CHZ", "BLUR",
-"GRASS", "KAVA", "SPELL", "RSR", "FIDA", "MORPHO", "VANA", "RPL", "ANKR", "TLM",
-"CFX", "HIPPO", "TST", "ZEN", "ME", "AI", "MOVR", "GLM", "ZIL", "1000RATS",
-"HOOK", "ALT", "ZK", "COW", "SUSHI", "MLN", "SANTOS", "1MBABYDOGE", "SNX",
- "STORJ", "BEAMX", "WOO", "B3", "AEVO", "CTSI", "1000LUNC", "OXT", "ILV", "IOTA",
-"QTUM", "EPIC", "NEIROETH", "THE", "EDU", "ZEC", "AERO", "SKL", "ARPA", "BAN",
- "COMP", "CHR", "NMR", "ZETA", "LUMIA", "COOKIE", "PHB", "MINA", "1000CHEEMS", "1000CAT",
-"GHST", "KAS", "SUPER", "ROSE", "IOTX", "DYM", "EGLD", "SONIC", "RDNT", "LPT",
-"LUNA2", "PLUME", "XVG", "MYRO", "LQTY", "USTC", "C98", "SCR", "BB", "STEEM",
- "ONE", "FLOW", "QNT", "SSV", "POWR", "DEXE", "CGPT", "VANRY", "POLYX", "ZRX",
- "YFI", "TNSR", "GMX", "SYS", "1INCH", "CELO", "METIS", "1000X", "HEI", "ONT",
- "KSM", "KDA", "IOST", "BAT", "CETUS", "DF", "LRC", "HIVE", "DEGEN",
-"MTL", "SAFE", "CELR", "AVA", "CKB", "RIF", "FIO", "1000000MOG", "KNC", "ICX",
-"CYBER", "RONIN", "ONG", "VVV", "FXS", "MAV", "DEGO", "DASH", "ASTR", "PHA",
-"AXL", "BICO", "BAND", "SCRT", "HOT", "TOKEN", "STG", "PONKE", "DODOX", "DUSK",
-"SYN", "RVN", "UMA", "PIPPIN", "DENT", "PROM", "FLUX", "VELODROME", "SWELL", "MOCA",
-"ATA", "KAIA", "ATH", "XVS", "G", "LSK", "SUN", "NTRN", "RLC", "JOE",
-"1000XEC", "VIC", "SFP", "TWT", "QUICK", "BSV", "DIA", "BNT", "ACX", "COS",
-"ETHW", "DRIFT", "AKT", "KMNO", "SLERF", "DEFI", "USDC"
+//  "BTC", "ETH", "VOXEL", "SOL", "NKN", "MAGIC", "XRP", "1000PEPE", "FARTCOIN", "DOGE",
+// "TAO", "SUI", "TRUMP", "PERP", "OM","ADA", "BNB", "LINK", "PEOPLE", "GMT",
+// "FET", "MUBARAK", "WIF", "LAYER", "AVAX", "HIGH", "ALPACA", "FLM", "ENA", "BSW",
+//  "FIL", "DOT", "LTC", "ARK", "ENJ", "EOS", "USUAL", "TRX", "RENDER", "CRV",
+// "BCH", "OGN", "ONDO", "1000SHIB", "BIO", "AAVE", "ORCA", "NEAR", "PNUT", "T",
+//  "POPCAT", "FUN", "VTHO", "WLD", "ALCH", "GAS", "XAI", "GALA", "TIA", "MBOX",
+//  "APT", "ORDI", "HBAR", "OP", "INJ", "BEL", "JASMY", "RED", "KAITO", "PARTI",
+//  "ARB", "BIGTIME", "AI16Z", "1000SATS", "NEIRO", "ETC", "JUP", "BOME", "UNI", "TON",
+//  "1000BONK", "ACH", "XLM", "GOAT", "SAND", "ATOM", "LEVER", "S", "CAKE", "NOT",
+//  "LOKA", "ARC", "VINE", "PENDLE", "LDO", "SEI", "RAYSOL", "APE", "RARE",
+// "WAXP", "GPS", "IP", "COTI", "AVAAI", "KOMA", "HFT", "ARKM", "ANIME", "ACT",
+//  "ALGO", "VIRTUAL", "MAVIA", "ALICE", "MANTA", "ZRO", "AGLD", "STX", "API3", "PIXEL",
+// "MELANIA", "NEO", "IMX", "1000WHY", "MANA", "ACE", "SWARMS", "MKR", "AUCTION", "ICP",
+// "PORTAL", "THETA", "CHESS", "ZEREBRO", "1000FLOKI", "PENGU", "STRK", "CATI", "TRB", "SAGA",
+//  "NIL", "TURBO", "AIXBT", "W", "PYTH", "LISTA", "CHILLGUY", "GRIFFAIN", "REZ", "IO",
+//  "UXLINK", "SHELL", "BTCDOM", "POL", "GRT", "BRETT", "DYDX", "JTO", "MOODENG", "ETHFI",
+// "OMNI", "DOGS", "EIGEN", "ENS", "XMR", "D", "SOLV", "VET", "RUNE", "MEW",
+//  "AXS", "XCN", "SXP", "MASK", "BMT", "BANANA", "NFP", "XTZ", "FORTH", "ALPHA",
+// "REI", "AR", "YGG", "PAXG", "SPX", "TRU", "ID", "GTC", "CHZ", "BLUR",
+// "GRASS", "KAVA", "SPELL", "RSR", "FIDA", "MORPHO", "VANA", "RPL", "ANKR", "TLM",
+// "CFX", "HIPPO", "TST", "ZEN", "ME", "AI", "MOVR", "GLM", "ZIL", "1000RATS",
+// "HOOK", "ALT", "ZK", "COW", "SUSHI", "MLN", "SANTOS", "1MBABYDOGE", "SNX",
+//  "STORJ", "BEAMX", "WOO", "B3", "AEVO", "CTSI", "1000LUNC", "OXT", "ILV", "IOTA",
+// "QTUM", "EPIC", "NEIROETH", "THE", "EDU", "ZEC", "AERO", "SKL", "ARPA", "BAN",
+//  "COMP", "CHR", "NMR", "ZETA", "LUMIA", "COOKIE", "PHB", "MINA", "1000CHEEMS", "1000CAT",
+// "GHST", "KAS", "SUPER", "ROSE", "IOTX", "DYM", "EGLD", "SONIC", "RDNT", "LPT",
+// "LUNA2", "PLUME", "XVG", "MYRO", "LQTY", "USTC", "C98", "SCR", "BB", "STEEM",
+//  "ONE", "FLOW", "QNT", "SSV", "POWR", "DEXE", "CGPT", "VANRY", "POLYX", "ZRX",
+//  "YFI", "TNSR", "GMX", "SYS", "1INCH", "CELO", "METIS", "1000X", "HEI", "ONT",
+//  "KSM", "KDA", "IOST", "BAT", "CETUS", "DF", "LRC", "HIVE", "DEGEN",
+// "MTL", "SAFE", "CELR", "AVA", "CKB", "RIF", "FIO", "1000000MOG", "KNC", "ICX",
+// "CYBER", "RONIN", "ONG", "VVV", "FXS", "MAV", "DEGO", "DASH", "ASTR", "PHA",
+// "AXL", "BICO", "BAND", "SCRT", "HOT", "TOKEN", "STG", "PONKE", "DODOX", "DUSK",
+// "SYN", "RVN", "UMA", "PIPPIN", "DENT", "PROM", "FLUX", "VELODROME", "SWELL", "MOCA",
+// "ATA", "KAIA", "ATH", "XVS", "G", "LSK", "SUN", "NTRN", "RLC", "JOE",
+// "1000XEC", "VIC", "SFP", "TWT", "QUICK", "BSV", "DIA", "BNT", "ACX", "COS",
+// "ETHW", "DRIFT", "AKT", "KMNO", "SLERF", "DEFI", "USDC"
 
     };
 
@@ -197,46 +203,7 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
 
 // ----------------------------
 
-private static String determinePositionSide(String pair) {
-    try {
-        JSONArray candles = getCandlestickData(pair, "15m", LOOKBACK_PERIOD);
 
-        if (candles == null || candles.length() < 2) {
-            System.out.println("⚠️ Not enough data for trend analysis, trying 5m timeframe...");
-            
-            // Try with 5m timeframe as fallback
-            candles = getCandlestickData(pair, "5m", LOOKBACK_PERIOD * 3); // More periods for shorter timeframe
-            
-            if (candles == null || candles.length() < 2) {
-                System.out.println("⚠️ Still not enough data, trying with RSI only...");
-                return determineSideWithRSIOnly(pair);
-            }
-        }
-
-        double firstClose = candles.getJSONObject(0).getDouble("close");
-        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
-        double priceChange = (lastClose - firstClose) / firstClose;
-
-        System.out.println("Trend Analysis for " + pair + ":");
-        System.out.println("First Close: " + firstClose);
-        System.out.println("Last Close: " + lastClose);
-        System.out.println("Price Change: " + (priceChange * 100) + "%");
-
-        if (priceChange > TREND_THRESHOLD) {
-            System.out.println("📈 Uptrend detected - Going LONG");
-            return "buy";
-        } else if (priceChange < -TREND_THRESHOLD) {
-            System.out.println("📉 Downtrend detected - Going SHORT");
-            return "sell";
-        } else {
-            System.out.println("➡️ Sideways market - Using RSI for decision");
-            return determineSideWithRSI(candles);
-        }
-    } catch (Exception e) {
-        System.err.println("❌ Error determining position side: " + e.getMessage());
-        return null;
-    }
-}
 
      private static String determineSideWithRSIOnly(String pair) {
     try {
@@ -308,82 +275,175 @@ private static String determinePositionSide(String pair) {
     return null;
 }
 
+     private static String determinePositionSide(String pair) {
+    try {
+        System.out.println("\n📊 Analyzing " + pair + "...");
+        
+        JSONArray candles = getCandlestickData(pair, CANDLE_RES_MINUTES + "m", LOOKBACK_CANDLES);
+
+        if (candles == null || candles.length() < 2) {
+            System.out.println("⚠️ Not enough data for trend analysis, trying alternative methods...");
+            
+            // Try 5m candles as fallback
+            candles = getCandlestickData(pair, "5m", LOOKBACK_CANDLES * 3);
+            
+            if (candles == null || candles.length() < 2) {
+                System.out.println("⚠️ Still no candle data, checking last price movement...");
+                return determineSideFromPriceMovement(pair);
+            }
+        }
+
+        // Ensure we have enough data for analysis
+        int requiredCandles = Math.min(LOOKBACK_CANDLES, candles.length());
+        double firstClose = candles.getJSONObject(0).getDouble("close");
+        double lastClose = candles.getJSONObject(requiredCandles - 1).getDouble("close");
+        double priceChange = (lastClose - firstClose) / firstClose;
+
+        System.out.println("Trend Analysis for " + pair + ":");
+        System.out.println("Candles analyzed: " + requiredCandles);
+        System.out.println("First Close: " + firstClose);
+        System.out.println("Last Close: " + lastClose);
+        System.out.println("Price Change: " + String.format("%.2f%%", priceChange * 100));
+
+        if (priceChange > TREND_THRESHOLD) {
+            System.out.println("📈 Uptrend detected - Going LONG");
+            return "buy";
+        } else if (priceChange < -TREND_THRESHOLD) {
+            System.out.println("📉 Downtrend detected - Going SHORT");
+            return "sell";
+        } else {
+            System.out.println("➡️ Sideways market - Using RSI for decision");
+            return determineSideWithRSI(candles);
+        }
+    } catch (Exception e) {
+        System.err.println("❌ Error determining position side: " + e.getMessage());
+        // Fallback to random or skip
+        return null;
+    }
+}
+
+
+     private static String determineSideFromPriceMovement(String pair) {
+    try {
+        // Get recent trades as fallback
+        String tradesUrl = PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=50";
+        HttpURLConnection conn = (HttpURLConnection) new URL(tradesUrl).openConnection();
+        conn.setRequestMethod("GET");
+        
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONArray trades = new JSONArray(response);
+            
+            if (trades.length() >= 10) {
+                // Analyze last 10 trades
+                double oldestPrice = trades.getJSONObject(0).getDouble("p");
+                double newestPrice = trades.getJSONObject(trades.length() - 1).getDouble("p");
+                double change = (newestPrice - oldestPrice) / oldestPrice;
+                
+                System.out.println("Price movement analysis for " + pair + ":");
+                System.out.println("Oldest price: " + oldestPrice);
+                System.out.println("Newest price: " + newestPrice);
+                System.out.println("Change: " + String.format("%.2f%%", change * 100));
+                
+                if (change > TREND_THRESHOLD) {
+                    System.out.println("📈 Price uptrend - Going LONG");
+                    return "buy";
+                } else if (change < -TREND_THRESHOLD) {
+                    System.out.println("📉 Price downtrend - Going SHORT");
+                    return "sell";
+                }
+            }
+        }
+        
+        System.out.println("⚠️ Not enough data for any analysis - Skipping");
+        return null;
+        
+    } catch (Exception e) {
+        System.err.println("❌ Error in price movement analysis: " + e.getMessage());
+        return null;
+    }
+}
+
+     
 // ----------------------------
 
 
-     private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+private static JSONArray getCandlestickData(String pair, String resolution, int candleCount) {
     try {
-        // Calculate start time based on resolution
-        long endTime = Instant.now().toEpochMilli();
-        long startTime;
+        // Current timestamp in seconds
+        long endTime = Instant.now().getEpochSecond();
         
-        // Convert resolution to appropriate time units
-        switch (resolution) {
-            case "15m":
-                startTime = endTime - TimeUnit.MINUTES.toMillis(15 * periods);
-                break;
-            case "5m":
-                startTime = endTime - TimeUnit.MINUTES.toMillis(5 * periods);
-                break;
-            case "1h":
-                startTime = endTime - TimeUnit.HOURS.toMillis(periods);
-                break;
-            default:
-                startTime = endTime - TimeUnit.MINUTES.toMillis(15 * periods);
-        }
+        // Parse resolution (e.g., "15m" -> 15)
+        String resolutionStr = resolution.replace("m", "");
+        int resolutionMinutes = Integer.parseInt(resolutionStr);
         
-        // Use the correct API endpoint for derivatives/futures
+        long startTime = endTime - (candleCount * resolutionMinutes * 60);
+        
         String url = PUBLIC_API_URL + "/market_data/candlesticks?pair=" + pair +
                 "&from=" + startTime + "&to=" + endTime +
                 "&resolution=" + resolution;
         
-        System.out.println("Fetching candles for " + pair + " from: " + new Date(startTime) + " to: " + new Date(endTime));
+        System.out.println("🔍 Fetching candles for " + pair + " from URL: " + url);
         
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setRequestMethod("GET");
-        conn.setConnectTimeout(5000);
-        conn.setReadTimeout(5000);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
         
         int responseCode = conn.getResponseCode();
+        System.out.println("📡 Response Code: " + responseCode);
+        
         if (responseCode == HttpURLConnection.HTTP_OK) {
             String response = readAllLines(conn.getInputStream());
             
             if (response == null || response.trim().isEmpty()) {
-                System.err.println("❌ Empty response for " + pair);
+                System.out.println("⚠️ Empty response for " + pair);
                 return null;
             }
+            
+            System.out.println("📄 Raw Response (first 500 chars): " + 
+                (response.length() > 500 ? response.substring(0, 500) + "..." : response));
             
             try {
                 JSONObject jsonResponse = new JSONObject(response);
                 if (jsonResponse.has("s") && jsonResponse.getString("s").equals("ok")) {
                     if (jsonResponse.has("data")) {
                         JSONArray data = jsonResponse.getJSONArray("data");
-                        System.out.println("Received " + data.length() + " candles for " + pair);
+                        System.out.println("✅ Received " + data.length() + " candles for " + pair);
+                        if (data.length() > 0) {
+                            // Log first and last candle
+                            System.out.println("First candle: " + data.getJSONObject(0));
+                            System.out.println("Last candle: " + data.getJSONObject(data.length()-1));
+                        }
                         return data;
                     }
-                } else if (jsonResponse.has("error")) {
-                    System.err.println("❌ API error for " + pair + ": " + jsonResponse.getString("error"));
+                } else {
+                    System.out.println("⚠️ API error status for " + pair + ": " + jsonResponse);
+                    if (jsonResponse.has("error")) {
+                        System.out.println("Error message: " + jsonResponse.getString("error"));
+                    }
                 }
             } catch (Exception e) {
-                System.err.println("❌ JSON parsing error for " + pair + ": " + e.getMessage());
+                System.err.println("❌ JSON parsing error: " + e.getMessage());
                 System.err.println("Response: " + response);
             }
         } else {
-            System.err.println("❌ HTTP error for " + pair + ": " + responseCode);
-            if (responseCode >= 400) {
-                try {
-                    String errorResponse = readAllLines(conn.getErrorStream());
-                    System.err.println("Error response: " + errorResponse);
-                } catch (Exception e) {
-                    // Ignore
-                }
+            System.out.println("❌ HTTP error: " + responseCode);
+            try {
+                String errorResponse = readAllLines(conn.getErrorStream());
+                System.err.println("Error response: " + errorResponse);
+            } catch (Exception e) {
+                // Ignore
             }
         }
     } catch (Exception e) {
-        System.err.println("❌ Error fetching candlestick data for " + pair + ": " + e.getMessage());
+        System.err.println("❌ Exception in getCandlestickData for " + pair + ": " + e.getMessage());
+        e.printStackTrace();
     }
     return null;
 }
+
+     
 
      // Add this temporary debug method
 private static void debugCandleAPI(String pair) {
