@@ -201,8 +201,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return getSimpleMomentumSignal(pair);
         }
 
-        double firstClose = candles.getJSONObject(0).getDouble("close");
-        double lastClose = candles.getJSONObject(candles.length() - 1).getDouble("close");
+double firstClose = candles.getJSONArray(0).getDouble(4); // close
+double lastClose  = candles.getJSONArray(candles.length() - 1).getDouble(4);
+
         double priceChange = (lastClose - firstClose) / firstClose;
 
         System.out.printf(
@@ -266,33 +267,29 @@ if (change < -0.003) return "sell";   // 0.3%
     return null;
 }
 
-    private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
+private static JSONArray getCandlestickData(String pair, String resolution, int periods) {
     try {
-        // 🔥 Convert futures pair to spot pair
         String spotPair = pair.replace("B-", "");
 
-        long endTime = Instant.now().toEpochMilli();
-        long startTime = endTime - TimeUnit.MINUTES.toMillis(periods * 5);
+        long end = Instant.now().toEpochMilli();
+        long start = end - TimeUnit.MINUTES.toMillis(periods * 5);
 
         String url = PUBLIC_API_URL + "/market_data/candlesticks"
                 + "?pair=" + spotPair
-                + "&from=" + startTime
-                + "&to=" + endTime
                 + "&resolution=" + resolution
-                + "&pcode=#";
+                + "&from=" + start
+                + "&to=" + end;
 
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setRequestMethod("GET");
 
         if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
             String response = readAllLines(conn.getInputStream());
-            JSONObject json = new JSONObject(response);
 
-            if ("ok".equalsIgnoreCase(json.optString("s"))) {
-                JSONArray data = json.getJSONArray("data");
-                if (data.length() > 0) {
-                    return data;
-                }
+            // 🔥 CoinDCX returns RAW ARRAY
+            if (response.startsWith("[")) {
+                JSONArray candles = new JSONArray(response);
+                return candles.length() > 0 ? candles : null;
             }
         }
     } catch (Exception e) {
@@ -302,6 +299,7 @@ if (change < -0.003) return "sell";   // 0.3%
 }
 
 
+
     private static String determineSideWithRSI(JSONArray candles) {
     try {
         if (candles.length() < 9) {
@@ -309,10 +307,11 @@ if (change < -0.003) return "sell";   // 0.3%
             return null;
         }
         
-        double[] closes = new double[candles.length()];
-        for (int i = 0; i < candles.length(); i++) {
-            closes[i] = candles.getJSONObject(i).getDouble("close");
-        }
+ double[] closes = new double[candles.length()];
+for (int i = 0; i < candles.length(); i++) {
+    closes[i] = candles.getJSONArray(i).getDouble(4); // close
+}
+
 
         double avgGain = 0;
         double avgLoss = 0;
