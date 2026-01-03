@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CoinDCXIntradayTrader_FINAL {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ✅ API KEYS (FIX: Use COINDCX not DELTA)
     private static final String API_KEY = System.getenv("COINDCX_API_KEY");
