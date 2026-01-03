@@ -223,7 +223,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         } catch (Exception e) {
             System.err.println("❌ Error determining position side: " + e.getMessage());
-            return Math.random() > 0.5 ? "buy" : "sell";
+            return null;
         }
     }
 
@@ -263,14 +263,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double avgLoss = 0;
             int rsiPeriod = 14;
 
-            for (int i = 1; i <= rsiPeriod; i++) {
-              if (candles.length() <= rsiPeriod) return null;
-                if (change > 0) {
-                    avgGain += change;
-                } else {
-                    avgLoss += Math.abs(change);
-                }
-            }
+        if (candles.length() <= rsiPeriod) return null;
+
+for (int i = 1; i <= rsiPeriod; i++) {
+    double change = closes[i] - closes[i - 1];
+    if (change > 0) avgGain += change;
+    else avgLoss += Math.abs(change);
+}
+
 
             avgGain /= rsiPeriod;
             avgLoss /= rsiPeriod;
