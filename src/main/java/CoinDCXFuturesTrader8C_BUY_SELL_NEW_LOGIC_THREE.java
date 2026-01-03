@@ -200,83 +200,96 @@ private static final double TREND_THRESHOLD = 0.01; // 1% price change threshold
 
 
 
-private static String determineSideWithRSIOnly(String pair) {
+     private static String determineSideWithRSIOnly(String pair) {
+
+          double firstClose = candles.getJSONObject(0).getDouble("close");
+double lastClose  = candles.getJSONObject(candles.length() - 1).getDouble("close");
+
+          
     try {
-        // Fetch recent trades (used as price series)
-        String tradesUrl = PUBLIC_API_URL
-                + "/market_data/trade_history?pair=" + pair + "&limit=20";
-
-        HttpURLConnection conn =
-                (HttpURLConnection) new URL(tradesUrl).openConnection();
-
-        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            System.out.println("⚠️ Failed to fetch trade data for " + pair);
-            return null;
-        }
-
-        String response = readAllLines(conn.getInputStream());
-        JSONArray trades = new JSONArray(response);
-
-        if (trades.length() < 15) {
-            System.out.println("⚠️ Not enough trade data for RSI calculation");
-            return null;
-        }
-
-        // Extract prices
-        double[] prices = new double[trades.length()];
-        for (int i = 0; i < trades.length(); i++) {
-            prices[i] = trades.getJSONObject(i).getDouble("p");
-        }
-
-        // RSI calculation (14-period)
-        int period = 14;
-        double gain = 0;
-        double loss = 0;
-
-        for (int i = 1; i <= period; i++) {
-            double diff = prices[i] - prices[i - 1];
-            if (diff > 0) {
-                gain += diff;
-            } else {
-                loss += Math.abs(diff);
+        // Get price data for RSI calculation
+        double lastPrice = getLastPrice(pair);
+        
+        // Get recent trades for price movement
+        String tradesUrl = PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=20";
+        HttpURLConnection conn = (HttpURLConnection) new URL(tradesUrl).openConnection();
+        
+        if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            String response = readAllLines(conn.getInputStream());
+            JSONArray trades = new JSONArray(response);
+            
+            if (trades.length() < 14) {
+                System.out.println("⚠️ Not enough trade data for RSI calculation");
+                return null;
             }
+            
+            double[] prices = new double[trades.length()];
+            for (int i = 0; i < trades.length(); i++) {
+                prices[i] = trades.getJSONObject(i).getDouble("p");
+            }
+            
+            // Calculate RSI
+            double[] changes = new double[prices.length - 1];
+            for (int i = 1; i < prices.length; i++) {
+                changes[i - 1] = prices[i] - prices[i - 1];
+            }
+            
+            double avgGain = 0;
+            double avgLoss = 0;
+            int period = 14;
+            
+            for (int i = 0; i < period; i++) {
+                if (changes[i] > 0) {
+                    avgGain += changes[i];
+                } else {
+                    avgLoss += Math.abs(changes[i]);
+                }
+            }
+            
+            avgGain /= period;
+            avgLoss /= period;
+            
+            if (avgLoss == 0) {
+                return "sell"; // If only gains, market might be overbought
+            }
+            
+            double rs = avgGain / avgLoss;
+            double rsi = 100 - (100 / (1 + rs));
+            
+            System.out.println("RSI for " + pair + ": " + rsi);
+
+
+             
+             // Strong RSI signals
+if (rsi <= 35) {
+    System.out.println("🔽 RSI " + rsi + " → LONG");
+    return "buy";
+}
+
+if (rsi >= 65) {
+    System.out.println("🔼 RSI " + rsi + " → SHORT");
+    return "sell";
+}
+
+// Fallback only if price actually moved
+double priceChange = (lastClose - firstClose) / firstClose;
+
+if (Math.abs(priceChange) < 0.002) { // < 0.2% movement
+    System.out.println("⏸ Flat market → Skipping trade");
+    return null;
+}
+
+System.out.println("⚠️ RSI neutral → Using price bias");
+return lastClose > firstClose ? "buy" : "sell";
+
+
+
+             
         }
-
-        double avgGain = gain / period;
-        double avgLoss = loss / period;
-
-        if (avgLoss == 0) {
-            System.out.println("⚠️ RSI extreme (no losses) → SELL bias");
-            return "sell";
-        }
-
-        double rs = avgGain / avgLoss;
-        double rsi = 100 - (100 / (1 + rs));
-
-        System.out.println("📊 RSI for " + pair + ": " + rsi);
-
-        // ✅ Primary RSI logic
-        if (rsi <= 35) {
-            System.out.println("🔽 Oversold → BUY");
-            return "buy";
-        }
-
-        if (rsi >= 65) {
-            System.out.println("🔼 Overbought → SELL");
-            return "sell";
-        }
-
-        // ✅ Fallback trend bias (FIXED)
-        double firstClose = prices[0];
-        double lastClose = prices[prices.length - 1];
-
-        System.out.println("↔️ Neutral RSI → Trend bias applied");
-        return lastClose > firstClose ? "buy" : "sell";
-
     } catch (Exception e) {
         System.err.println("❌ Error in RSI-only calculation: " + e.getMessage());
-        return null;
     }
+    return null;
 }
 
 
