@@ -228,10 +228,10 @@ private static String determinePositionSide(String pair) {
             System.out.println("⚠️ Limited data for " + pair + " - Using simple momentum");
             double firstClose = candles.length() > 0 ? candles.getJSONObject(0).getDouble("close") : 0;
             double lastClose = candles.length() > 1 ? candles.getJSONObject(candles.length() - 1).getDouble("close") : firstClose;
-            double priceChange = (lastClose - firstClose) / firstClose;
+            double priceChange = firstClose > 0 ? (lastClose - firstClose) / firstClose : 0;
             
-            if (priceChange > 0.002) return "buy";  // Slight up = buy
-            else return "sell";  // Default to sell (safer in futures)
+            if (priceChange > 0.002) return "buy";  
+            else return "sell";  
         }
 
         double firstClose = candles.getJSONObject(0).getDouble("close");
@@ -248,8 +248,7 @@ private static String determinePositionSide(String pair) {
             return "sell";
         } else {
             System.out.println("➡️ Sideways - Using RSI");
-            String rsiSide = determineSideWithRSI(candles);
-            // FIXED: Never return null - always trade
+            String rsiSide = determineSideWithRSI(pair, candles);  // FIXED: Pass pair
             if (rsiSide == null) {
                 System.out.println("RSI neutral - using trend direction");
                 return priceChange >= 0 ? "buy" : "sell";
@@ -257,32 +256,24 @@ private static String determinePositionSide(String pair) {
             return rsiSide;
         }
     } catch (Exception e) {
-        // FIXED: No random fallback - always trade based on recent price
         System.err.println("❌ Error for " + pair + ": " + e.getMessage());
-        System.out.println("🔄 Using last price momentum as fallback");
-        try {
-            double currentPrice = getLastPrice(pair);
-            double prevPrice = getLastPrice(pair); // You'd ideally fetch 2nd last here
-            // Simplified: always trade but prefer sell in error cases
-            return "sell";  // Conservative default
-        } catch (Exception ex) {
-            return "sell";  // Absolute last resort
-        }
+        System.out.println("🔄 Using conservative SELL as fallback");
+        return "sell";  // Conservative default
     }
 }
 
-private static String determineSideWithRSI(JSONArray candles) {
+private static String determineSideWithRSI(String pair, JSONArray candles) {  // FIXED: Added pair parameter
     try {
         double[] closes = new double[candles.length()];
         for (int i = 0; i < candles.length(); i++) {
             closes[i] = candles.getJSONObject(i).getDouble("close");
         }
 
-        int rsiPeriod = Math.min(14, closes.length - 1);  // FIXED: Handle short data
+        int rsiPeriod = Math.min(14, closes.length - 1);
         
         if (rsiPeriod < 2) {
-            System.out.println("Short data - using simple momentum");
-            double momentum = (closes[closes.length - 1] - closes[0]) / closes[0];
+            System.out.println("Short data for " + pair + " - using simple momentum");
+            double momentum = closes.length > 1 ? (closes[closes.length - 1] - closes[0]) / closes[0] : 0;
             return momentum > 0 ? "buy" : "sell";
         }
 
@@ -314,27 +305,27 @@ private static String determineSideWithRSI(JSONArray candles) {
             }
         }
 
-        double rs = avgGain / (avgLoss == 0 ? 0.0001 : avgLoss);  // FIXED: Avoid div by zero
+        double rs = avgGain / (avgLoss == 0 ? 0.0001 : avgLoss);
         double rsi = 100 - (100 / (1 + rs));
 
         System.out.println("RSI(" + pair + "): " + String.format("%.1f", rsi));
 
-        if (rsi < 35) {  // FIXED: Slightly wider bands
+        if (rsi < 35) {
             System.out.println("🔽 Oversold - BUY");
             return "buy";
-        } else if (rsi > 65) {  // FIXED: Slightly wider bands
+        } else if (rsi > 65) {
             System.out.println("🔼 Overbought - SELL");
             return "sell";
         } else {
-            // FIXED: No null return - trade based on recent candle
-            double recentMomentum = (closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2];
-            System.out.println("Neutral RSI - using candle momentum: " + (recentMomentum * 100) + "%");
+            // Use recent candle momentum
+            double recentMomentum = closes.length > 1 ? 
+                (closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2] : 0;
+            System.out.println("Neutral RSI(" + pair + ") - candle momentum: " + (recentMomentum * 100) + "%");
             return recentMomentum >= 0 ? "buy" : "sell";
         }
     } catch (Exception e) {
-        // FIXED: No random fallback - always return a side
-        System.err.println("❌ RSI calc failed: " + e.getMessage());
-        System.out.println("🔄 RSI fallback: recent candle direction");
+        System.err.println("❌ RSI calc failed for " + pair + ": " + e.getMessage());
+        System.out.println("🔄 RSI fallback for " + pair + ": recent candle direction");
         try {
             JSONArray freshCandles = getCandlestickData(pair, "15m", 3);
             if (freshCandles != null && freshCandles.length() >= 2) {
@@ -348,6 +339,9 @@ private static String determineSideWithRSI(JSONArray candles) {
         return "sell";  // Conservative default for futures
     }
 }
+
+
+
 
 
     private static void initializeInstrumentDetails() {
