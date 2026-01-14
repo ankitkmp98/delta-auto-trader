@@ -123,7 +123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 12; // Default leverage
+                int leverage = 8; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
