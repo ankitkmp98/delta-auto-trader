@@ -30,8 +30,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TICK_SIZE_CACHE_TTL_MS = 3600000; // 1 hour cache
     private static final int LOOKBACK_PERIOD = 12; // Minutes for trend analysis (changed from hours)
     private static final double TREND_THRESHOLD = 0.01; // 2% change threshold for trend
-    private static final double TP_PERCENTAGE = 0.09; // 3% take profit
-    private static final double SL_PERCENTAGE = 0.06; // 5% stop loss
+    private static final double TP_PERCENTAGE = 0.08; // 3% take profit
+    private static final double SL_PERCENTAGE = 0.04; // 5% stop loss
 
     // Cache for instrument details with timestamp
     private static final Map<String, JSONObject> instrumentDetailsCache = new ConcurrentHashMap<>();
@@ -123,7 +123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 //-----------------------line number 120,121,122 is added intentionally to skip long or buy position order----------------
 
-                int leverage = 9; // Default leverage
+                int leverage = 20; // Default leverage
 
                 double currentPrice = getLastPrice(pair);
                 System.out.println("\nCurrent price for " + pair + ": " + currentPrice + " USDT");
