@@ -206,7 +206,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double atr = calcATR(h15, l15, c15, ATR_PERIOD);
                 System.out.printf("[ATR(14)] %.6f%n", atr);
 
-                int    leverage     = 8;
+                int    leverage     = 20;
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) { System.out.println("❌ Invalid price — skip"); continue; }
 
