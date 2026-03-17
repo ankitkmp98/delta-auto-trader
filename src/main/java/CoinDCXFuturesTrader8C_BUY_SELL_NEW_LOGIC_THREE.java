@@ -222,7 +222,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = trendUp ? "buy" : "sell";
                 System.out.println("🎯 ENTRY SIGNAL → " + side.toUpperCase() + " " + pair);
 
-                int    leverage     = 8;
+                int    leverage     = 6;
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) { System.out.println("❌ Bad price — skip"); continue; }
                 double quantity = calcQuantity(currentPrice, pair);
