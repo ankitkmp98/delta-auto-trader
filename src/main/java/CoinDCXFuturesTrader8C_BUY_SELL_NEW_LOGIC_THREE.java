@@ -740,23 +740,23 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return 0;
     }
 
-    private static JSONObject findPosition(String pair) throws Exception {
-        JSONObject body = new JSONObject();
-        body.put("timestamp", Instant.now().toEpochMilli());
-        body.put("page", "1");
-        body.put("size", "20");
-        body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
-        String resp = authPost(
-                BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
-        JSONArray arr = resp.startsWith("[")
-                ? new JSONArray(resp)
-                : new JSONArray().put(new JSONObject(resp));
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject p = arr.getJSONObject(i);
-            if (pair.equals(p.optString("pair"))) return p;
-        }
-        return null;
+private static JSONObject findPosition(String pair) throws Exception {
+    JSONObject body = new JSONObject();
+    body.put("timestamp", Instant.now().toEpochMilli());
+    body.put("page", "1");
+    body.put("size", "20");
+    body.put("margin_currency_short_name", new JSONArray(Arrays.asList("INR", "USDT")));
+    String resp = authPost(
+            BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+    JSONArray arr = resp.startsWith("[")
+            ? new JSONArray(resp)
+            : new JSONArray().put(new JSONObject(resp));
+    for (int i = 0; i < arr.length(); i++) {
+        JSONObject p = arr.getJSONObject(i);
+        if (pair.equals(p.optString("pair"))) return p;
     }
+    return null;
+}
 
     private static double calcQuantity(double price, String pair) {
         double qty = MAX_MARGIN / (price * 93);
@@ -854,6 +854,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         } catch (Exception e) {
             System.err.println("setTpSl: " + e.getMessage());
         }
-    } **...**
+    }
 
 _This response is too long to display in full._
