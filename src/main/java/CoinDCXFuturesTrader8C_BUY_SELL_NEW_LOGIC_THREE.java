@@ -856,4 +856,103 @@ private static JSONObject findPosition(String pair) throws Exception {
         }
     }
 
-_This response is too long to display in full._
+    public static String getPositionId(String pair) {
+        try {
+            JSONObject p = findPosition(pair);
+            return p != null ? p.getString("id") : null;
+        } catch (Exception e) {
+            System.err.println("getPositionId: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static List<JSONObject> getActivePositionsFull() {
+        List<JSONObject> result = new ArrayList<>();
+        try {
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("page", "1");
+            body.put("size", "100");
+            body.put("margin_currency_short_name", new JSONArray(Arrays.asList("INR", "USDT")));
+            String resp = authPost(
+                    BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+            JSONArray arr = resp.startsWith("[")
+                    ? new JSONArray(resp)
+                    : new JSONArray().put(new JSONObject(resp));
+            System.out.println("=== Open Positions (" + arr.length() + ") ===");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject p   = arr.getJSONObject(i);
+                String    pair = p.optString("pair", "");
+                boolean isActive = p.optDouble("active_pos", 0) != 0
+                        || p.optDouble("locked_margin", 0) > 0;
+                if (isActive) {
+                    System.out.printf("  %s | qty=%.4f | entry=%.6f | SL=%.4f | TP=%.4f%n",
+                            pair,
+                            p.optDouble("active_pos", 0),
+                            p.optDouble("avg_price", 0),
+                            p.optDouble("stop_loss_trigger", 0),
+                            p.optDouble("take_profit_trigger", 0));
+                    result.add(p);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("getActivePositionsFull: " + e.getMessage());
+        }
+        return result;
+    }
+
+    private static HttpURLConnection openGet(String url) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("GET");
+        c.setConnectTimeout(10_000);
+        c.setReadTimeout(10_000);
+        return c;
+    }
+
+    private static String publicGet(String url) throws IOException {
+        HttpURLConnection c = openGet(url);
+        if (c.getResponseCode() == 200) return readStream(c.getInputStream());
+        throw new IOException("HTTP " + c.getResponseCode() + " — " + url);
+    }
+
+    private static String authPost(String url, String json) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("POST");
+        c.setRequestProperty("Content-Type",     "application/json");
+        c.setRequestProperty("X-AUTH-APIKEY",    API_KEY);
+        c.setRequestProperty("X-AUTH-SIGNATURE", sign(json));
+        c.setConnectTimeout(10_000);
+        c.setReadTimeout(10_000);
+        c.setDoOutput(true);
+        try (OutputStream os = c.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+        InputStream is = c.getResponseCode() >= 400
+                ? c.getErrorStream()
+                : c.getInputStream();
+        return readStream(is);
+    }
+
+    private static String readStream(InputStream is) throws IOException {
+        return new BufferedReader(new InputStreamReader(is))
+                .lines().collect(Collectors.joining("\n"));
+    }
+
+    private static String sign(String payload) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(
+                    API_SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] b = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte x : b) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("HMAC sign failed", e);
+        }
+    }
+
+    public static String generateHmacSHA256(String secret, String payload) {
+        return sign(payload);
+    }
+}
