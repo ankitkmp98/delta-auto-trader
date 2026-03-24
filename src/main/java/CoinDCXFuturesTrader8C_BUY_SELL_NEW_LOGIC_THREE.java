@@ -864,7 +864,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static double getLastPrice(String pair) {
         try {
             HttpURLConnection conn = openGet(
-                    PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1"); **...**             } catch (Exception e) {
+                    PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
+        } catch (Exception e) {
                 System.err.println("authPost error: " + e.getMessage());
                 throw new IOException(e.getMessage());
             }
