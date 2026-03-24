@@ -48,7 +48,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 60.0;
 
     // Pullback zone: price must be within this many ATRs of EMA21 to enter
-    private static final double PULLBACK_ATR_BAND = 2.0;
+    private static final double PULLBACK_ATR_BAND = 5.0;
 
     // SL / TP
     private static final double SL_SWING_BUFFER = 0.5;
@@ -67,9 +67,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Daily loss limit in INR — bot stops opening new trades if breached
     private static final double MAX_DAILY_LOSS_INR = -3600.0;
 
-    // Volume filter — current candle volume must be VOL_MIN_RATIO x the 20-candle average
+    // Volume filter — last COMPLETED candle volume must be VOL_MIN_RATIO x the 20-candle average
     private static final int    VOL_LOOKBACK  = 20;
-    private static final double VOL_MIN_RATIO = 1.2;
+    private static final double VOL_MIN_RATIO = 1.0;
 
     // Regime filter — ATR lookback to determine trending vs ranging
     private static final int REGIME_LOOKBACK = 20;
@@ -280,8 +280,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (trendUp   && !macdBull)   { System.out.println("  H3 FAIL — MACD bearish — skip"); continue; }
                 if (trendDown && !macdBear)   { System.out.println("  H3 FAIL — MACD bullish — skip"); continue; }
-                if (!histGrowing)             { System.out.println("  H3 FAIL — histogram shrinking — skip"); continue; }
-                System.out.println("  H3 OK — MACD aligned + momentum growing");
+                // Histogram growing is logged but NOT required — direction of MACD is sufficient
+                System.out.println("  H3 OK — MACD aligned | hist " + (histGrowing ? "growing" : "shrinking"));
 
                 // ── H4: Pullback Zone ─────────────────────────────────────────
                 // Prevents entering at the top/bottom of an extended move.
@@ -534,15 +534,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
      * VOL_MIN_RATIO=1.2 means current candle must have 20% above-average volume.
      */
     private static boolean isVolumeConfirmed(double[] volumes) {
-        if (volumes.length < VOL_LOOKBACK + 1) return true;
-        double current = volumes[volumes.length - 1];
+        if (volumes.length < VOL_LOOKBACK + 2) return true;
+        // Use the last COMPLETED candle (index -2) because the current candle
+        // (index -1) is still forming and has partial volume — comparing it
+        // to complete candles would almost always fail the ratio check.
+        double completed = volumes[volumes.length - 2];
         double sum = 0;
-        int start = volumes.length - 1 - VOL_LOOKBACK;
-        for (int i = start; i < volumes.length - 1; i++) sum += volumes[i];
+        int start = volumes.length - 2 - VOL_LOOKBACK;
+        for (int i = start; i < volumes.length - 2; i++) sum += volumes[i];
         double avg = sum / VOL_LOOKBACK;
-        System.out.printf("  [VOL] Current=%.2f Avg=%.2f Ratio=%.2fx (need %.1fx)%n",
-                current, avg, avg > 0 ? current / avg : 0, VOL_MIN_RATIO);
-        return avg > 0 && current >= avg * VOL_MIN_RATIO;
+        System.out.printf("  [VOL] LastCompleted=%.2f Avg=%.2f Ratio=%.2fx (need %.1fx)%n",
+                completed, avg, avg > 0 ? completed / avg : 0, VOL_MIN_RATIO);
+        return avg > 0 && completed >= avg * VOL_MIN_RATIO;
     }
 
     // =========================================================================
@@ -580,9 +583,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (count == 0) return true;
         double avgATR = atrSum / count;
 
-        System.out.printf("  [REGIME] CurrentATR=%.6f AvgATR=%.6f -> %s%n",
-                currentATR, avgATR, currentATR > avgATR ? "TRENDING" : "RANGING");
-        return currentATR > avgATR;
+        // Allow currentATR to be up to 15% below average (0.85x) before rejecting —
+        // strict equality (currentATR > avgATR) blocks too many valid setups in choppy markets.
+        boolean trending = currentATR > avgATR * 0.85;
+        System.out.printf("  [REGIME] CurrentATR=%.6f AvgATR=%.6f (threshold=%.6f) -> %s%n",
+                currentATR, avgATR, avgATR * 0.85, trending ? "TRENDING" : "RANGING");
+        return trending;
     }
 
     // =========================================================================
