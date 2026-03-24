@@ -51,13 +51,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double PULLBACK_ATR_BAND = 5.0;
 
     // SL / TP
+    // Wider SL gives the trade breathing room past normal market noise.
+    // SL_MIN_ATR raised 2.0 → 3.0 : stops the SL sitting inside normal ATR swings
+    // SL_MAX_ATR raised 4.0 → 6.0 : allows structural levels further from entry
     private static final double SL_SWING_BUFFER = 0.5;
-    private static final double SL_MIN_ATR      = 2.0;
-    private static final double SL_MAX_ATR      = 4.0;
+    private static final double SL_MIN_ATR      = 3.0;
+    private static final double SL_MAX_ATR      = 6.0;
     private static final double RR              = 3.0;
 
     // Trailing SL thresholds
-    private static final double TRAIL_BREAKEVEN_R = 1.0;
+    // TRAIL_BREAKEVEN_R lowered 1.0 → 0.5 : SL moves to entry after only HALF the
+    // initial risk is earned, so the trade becomes zero-loss much sooner.
+    // TRAIL_LOCK_R stays at 2.0 : trail kicks in at +2R (full lock-in of profit).
+    private static final double TRAIL_BREAKEVEN_R = 0.5;
     private static final double TRAIL_LOCK_R      = 2.0;
     private static final double TRAIL_ATR_DIST    = 1.5;
 
