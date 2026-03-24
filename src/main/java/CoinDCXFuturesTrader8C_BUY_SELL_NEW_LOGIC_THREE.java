@@ -864,4 +864,36 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static double getLastPrice(String pair) {
         try {
             HttpURLConnection conn = openGet(
-                    PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1"); **...**
+                    PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1"); **...**             } catch (Exception e) {
+                System.err.println("authPost error: " + e.getMessage());
+                throw new IOException(e.getMessage());
+            }
+        }
+
+        private static String readStream(InputStream is) throws IOException {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line).append("\n");
+                return sb.toString();
+            }
+        }
+
+        private static String sign(String payload) {
+            try {
+                Mac mac = Mac.getInstance("HmacSHA256");
+                mac.init(new SecretKeySpec(
+                        API_SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+                byte[] b = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                for (byte x : b) sb.append(String.format("%02x", x));
+                return sb.toString();
+            } catch (Exception e) {
+                throw new RuntimeException("HMAC sign failed", e);
+            }
+        }
+
+        public static String generateHmacSHA256(String secret, String payload) {
+            return sign(payload);
+        }
+    }
