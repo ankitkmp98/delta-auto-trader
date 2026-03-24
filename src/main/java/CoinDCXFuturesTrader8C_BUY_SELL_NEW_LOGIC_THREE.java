@@ -246,24 +246,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  [H2] 15m EMA9=%.6f EMA21=%.6f -> Local %s (info only)%n",
                         ema9, ema21, ema9 > ema21 ? "UP" : "DOWN");
 
-                // ── MACD direction must agree with H1 ────────────────────────
-                // MACD line vs signal line — more responsive than slow EMA cross.
-                // Prevents entering a long when 15m momentum is actively falling.
+                // ── MACD (info only — not a hard block) ──────────────────────
+                // Logged for diagnostics. Does NOT block entry.
+                // Direction conflicts between MACD and H1 happen often in trending
+                // markets (MACD lags) and were causing all trades to be skipped.
                 double[] mv = calcMACD(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
                 double macdLine = mv[0], macdSig = mv[1];
-                boolean macdBull = macdLine > macdSig;
-                boolean macdBear = macdLine < macdSig;
-                System.out.printf("  [MACD] Line=%.6f Sig=%.6f -> %s%n",
-                        macdLine, macdSig, macdBull ? "BULL" : "BEAR");
-                if (trendUp   && !macdBull) { System.out.println("  MACD FAIL — bearish momentum on bull setup — skip"); continue; }
-                if (trendDown && !macdBear) { System.out.println("  MACD FAIL — bullish momentum on bear setup — skip"); continue; }
-                System.out.println("  MACD OK — momentum agrees with macro trend");
+                System.out.printf("  [MACD] Line=%.6f Sig=%.6f -> %s (info only)%n",
+                        macdLine, macdSig, macdLine > macdSig ? "BULL" : "BEAR");
 
-                // ── RSI extreme guard ─────────────────────────────────────────
-                // Only blocks at true extremes (>75 overbought, <25 oversold).
+                // ── RSI extreme guard — ONLY hard filter after H1 ────────────
+                // Blocks entry only at true extremes: overbought (>75) or oversold (<25).
+                // A narrow RSI band would block too many valid entries.
                 double rsi = calcRSI(cl15, RSI_PERIOD);
-                if (trendUp   && rsi > 75) { System.out.printf("  RSI=%.1f — overbought extreme — skip%n", rsi); continue; }
-                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f — oversold extreme — skip%n", rsi);  continue; }
+                if (trendUp   && rsi > 75) { System.out.printf("  RSI=%.1f — overbought, skip%n", rsi); continue; }
+                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f — oversold, skip%n",   rsi); continue; }
                 System.out.printf("  RSI=%.1f — OK%n", rsi);
 
                 // ── All filters passed — place order ──────────────────────────
