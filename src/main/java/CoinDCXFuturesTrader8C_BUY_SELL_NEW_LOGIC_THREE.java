@@ -122,6 +122,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     };
 
     private static final Set<String> INTEGER_QTY_PAIRS = Stream.of(COIN_SYMBOLS)
+            .filter(s -> s.startsWith("1000") || s.startsWith("1MBABY") || s.startsWith("1000000"))
             .flatMap(s -> Stream.of("B-" + s + "_USDT", s + "_USDT"))
             .collect(Collectors.toCollection(HashSet::new));
 
@@ -869,12 +870,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     private static double calcQuantity(double price, String pair) {
-        double qty = MAX_MARGIN / (price * 93);
-        return Math.max(
-                INTEGER_QTY_PAIRS.contains(pair)
-                        ? Math.floor(qty)
-                        : Math.floor(qty * 100) / 100,
-                0);
+        if (price <= 0) return 0;
+        double notionalUsdt = (MAX_MARGIN * LEVERAGE) / 93.0;
+        double qty = notionalUsdt / price;
+        if (INTEGER_QTY_PAIRS.contains(pair)) {
+            return Math.max(Math.floor(qty), 0);
+        } else {
+            return Math.max(Math.floor(qty * 100.0) / 100.0, 0);
+        }
     }
 
     public static double getLastPrice(String pair) {
