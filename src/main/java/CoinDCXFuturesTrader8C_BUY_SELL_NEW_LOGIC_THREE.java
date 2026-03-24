@@ -221,33 +221,37 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  Price=%.6f  ATR=%.6f  Tick=%.8f%n", lastClose, atr, tickSize);
 
                 // ── H1: 1H Macro Trend ────────────────────────────────────────
+                // Determines overall direction using the 50 EMA on the 1-hour chart.
                 double  ema1h     = calcEMA(cl1h, EMA_MACRO);
                 boolean macroUp   = lastClose > ema1h;
                 boolean macroDown = lastClose < ema1h;
                 System.out.printf("  [H1] 1H EMA50=%.6f | Price %s EMA -> %s%n",
                         ema1h, macroUp ? ">" : "<", macroUp ? "BULL" : "BEAR");
 
-                // ── H2: 15m Local Trend ───────────────────────────────────────
+                // ── H2: 15m Local Trend must align with H1 ───────────────────
+                // EMA9 > EMA21 on 15m confirms local momentum matches macro bias.
                 double  ema9      = calcEMA(cl15, EMA_FAST);
                 double  ema21     = calcEMA(cl15, EMA_MID);
                 boolean localUp   = ema9 > ema21;
                 boolean localDown = ema9 < ema21;
-                System.out.printf("  [H2] EMA9=%.6f EMA21=%.6f -> %s%n",
-                        ema9, ema21, localUp ? "UP" : localDown ? "DOWN" : "flat");
+                System.out.printf("  [H2] EMA9=%.6f EMA21=%.6f -> Local %s%n",
+                        ema9, ema21, localUp ? "UP" : localDown ? "DOWN" : "FLAT");
 
                 boolean trendUp   = macroUp   && localUp;
                 boolean trendDown = macroDown && localDown;
                 if (!trendUp && !trendDown) {
-                    System.out.println("  SIGNAL FAIL — macro/local misaligned — skip");
+                    System.out.println("  SIGNAL FAIL — macro and local trend not aligned — skip");
                     continue;
                 }
-                System.out.println("  SIGNAL OK — " + (trendUp ? "LONG" : "SHORT"));
+                System.out.println("  SIGNAL OK — " + (trendUp ? "LONG" : "SHORT") + " setup confirmed");
 
-                // ── RSI Guard: avoid extreme overbought/oversold ──────────────
+                // ── RSI extreme guard ─────────────────────────────────────────
+                // Only skip when RSI is at extreme overbought (>75) or oversold (<25).
+                // Does NOT require RSI in a narrow band — just avoids chasing extremes.
                 double rsi = calcRSI(cl15, RSI_PERIOD);
-                if (trendUp  && rsi > 75) { System.out.printf("  RSI=%.1f overbought — skip%n", rsi);  continue; }
-                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f oversold — skip%n", rsi); continue; }
-                System.out.printf("  RSI=%.1f OK%n", rsi);
+                if (trendUp   && rsi > 75) { System.out.printf("  RSI=%.1f — overbought extreme — skip%n", rsi); continue; }
+                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f — oversold extreme — skip%n", rsi);  continue; }
+                System.out.printf("  RSI=%.1f — OK%n", rsi);
 
                 // ── All filters passed — place order ──────────────────────────
                 String side = trendUp ? "buy" : "sell";
