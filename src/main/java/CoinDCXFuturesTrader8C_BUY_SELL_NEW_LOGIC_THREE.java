@@ -55,7 +55,7 @@ import java.util.stream.Stream;
  *   Initial TP : entry ± 3.0 * risk (3:1 RR)
  *   Trailing SL: updated every 10-min run via create_tpsl API
  */
-public class CoinDCXFuturesTrader_V2_IMPROVED {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Configuration
