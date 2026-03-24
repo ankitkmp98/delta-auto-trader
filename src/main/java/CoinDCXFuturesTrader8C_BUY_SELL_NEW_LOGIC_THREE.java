@@ -220,37 +220,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 System.out.printf("  Price=%.6f  ATR=%.6f  Tick=%.8f%n", lastClose, atr, tickSize);
 
-                // ── REGIME FILTER: trending vs ranging ────────────────────────
-                // Only trade when ATR is expanding (trending market).
-                // Avoids EMA crossover false signals in sideways/compressing markets.
-                if (!isTrending(hi15, lo15, cl15)) {
-                    System.out.println("  REGIME FAIL — market ranging/compressing — skip");
-                    continue;
-                }
-                System.out.println("  REGIME OK — market trending");
-
-                // ── VOLUME FILTER: current candle volume vs average ────────────
-                // Current candle must have at least 1.2x the 20-candle average volume.
-                // Removes low-liquidity fake moves.
-                if (!isVolumeConfirmed(vol15)) {
-                    System.out.printf("  VOLUME FAIL — current vol=%.2f below 1.2x average — skip%n",
-                            vol15[vol15.length - 1]);
-                    continue;
-                }
-                System.out.printf("  VOLUME OK — current vol=%.2f confirmed%n", vol15[vol15.length - 1]);
-
                 // ── H1: 1H Macro Trend ────────────────────────────────────────
                 double  ema1h     = calcEMA(cl1h, EMA_MACRO);
                 boolean macroUp   = lastClose > ema1h;
                 boolean macroDown = lastClose < ema1h;
                 System.out.printf("  [H1] 1H EMA50=%.6f | Price %s EMA -> %s%n",
                         ema1h, macroUp ? ">" : "<", macroUp ? "BULL" : "BEAR");
-                if (!macroUp && !macroDown) {
-                    System.out.println("  H1 FAIL — skip");
-                    continue;
-                }
 
-                // ── H2: 15m Local Trend aligned with macro ────────────────────
+                // ── H2: 15m Local Trend ───────────────────────────────────────
                 double  ema9      = calcEMA(cl15, EMA_FAST);
                 double  ema21     = calcEMA(cl15, EMA_MID);
                 boolean localUp   = ema9 > ema21;
@@ -261,66 +238,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 boolean trendUp   = macroUp   && localUp;
                 boolean trendDown = macroDown && localDown;
                 if (!trendUp && !trendDown) {
-                    System.out.println("  H2 FAIL — macro/local misaligned — skip");
+                    System.out.println("  SIGNAL FAIL — macro/local misaligned — skip");
                     continue;
                 }
-                System.out.println("  H2 OK — " + (trendUp ? "BULLISH" : "BEARISH"));
+                System.out.println("  SIGNAL OK — " + (trendUp ? "LONG" : "SHORT"));
 
-                // ── H3: MACD aligned + histogram growing ──────────────────────
-                double[] mv           = calcMACD(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
-                double[] mvPrev       = calcMACDPrev(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
-                double   macdLine     = mv[0], macdSigV = mv[1], macdHist = mv[2];
-                double   macdHistPrev = mvPrev[2];
-                System.out.printf("  [H3] MACD=%.6f Sig=%.6f Hist=%.6f prevHist=%.6f%n",
-                        macdLine, macdSigV, macdHist, macdHistPrev);
-
-                boolean macdBull    = macdLine > macdSigV;
-                boolean macdBear    = macdLine < macdSigV;
-                boolean histGrowing = Math.abs(macdHist) > Math.abs(macdHistPrev);
-
-                if (trendUp   && !macdBull)   { System.out.println("  H3 FAIL — MACD bearish — skip"); continue; }
-                if (trendDown && !macdBear)   { System.out.println("  H3 FAIL — MACD bullish — skip"); continue; }
-                // Histogram growing is logged but NOT required — direction of MACD is sufficient
-                System.out.println("  H3 OK — MACD aligned | hist " + (histGrowing ? "growing" : "shrinking"));
-
-                // ── H4: Pullback Zone ─────────────────────────────────────────
-                // Prevents entering at the top/bottom of an extended move.
-                // Long:  EMA21 <= price <= EMA21 + 2*ATR
-                // Short: EMA21 - 2*ATR <= price <= EMA21
-                double  pullbackBand     = PULLBACK_ATR_BAND * atr;
-                boolean inPullbackLong   = trendUp   && lastClose >= ema21 && lastClose <= (ema21 + pullbackBand);
-                boolean inPullbackShort  = trendDown && lastClose <= ema21 && lastClose >= (ema21 - pullbackBand);
-                boolean inPullbackZone   = inPullbackLong || inPullbackShort;
-
-                if (trendUp) {
-                    System.out.printf("  [H4] Long zone: [%.6f , %.6f] | Price=%.6f -> %s%n",
-                            ema21, ema21 + pullbackBand, lastClose, inPullbackLong ? "PASS" : "FAIL");
-                } else {
-                    System.out.printf("  [H4] Short zone: [%.6f , %.6f] | Price=%.6f -> %s%n",
-                            ema21 - pullbackBand, ema21, lastClose, inPullbackShort ? "PASS" : "FAIL");
-                }
-                if (!inPullbackZone) { System.out.println("  H4 FAIL — price not in pullback zone — skip"); continue; }
-                System.out.println("  H4 OK — price in pullback zone near EMA21");
-
-                // ── SOFT FILTERS: at least 1 of 2 must pass ──────────────────
-                double  rsi        = calcRSI(cl15, RSI_PERIOD);
-                boolean rsiOkLong  = trendUp   && rsi >= RSI_LONG_MIN  && rsi <= RSI_LONG_MAX;
-                boolean rsiOkShort = trendDown && rsi >= RSI_SHORT_MIN && rsi <= RSI_SHORT_MAX;
-                boolean softRsi    = rsiOkLong || rsiOkShort;
-                System.out.printf("  [S1] RSI=%.2f -> %s%n", rsi, softRsi ? "PASS" : "fail");
-
-                boolean prevBull   = prevClose > prevOpen;
-                boolean prevBear   = prevClose < prevOpen;
-                boolean softCandle = (trendUp && prevBull) || (trendDown && prevBear);
-                System.out.printf("  [S2] Prev candle %s -> %s%n",
-                        prevBull ? "BULL" : prevBear ? "BEAR" : "DOJI",
-                        softCandle ? "PASS" : "fail");
-
-                if (!softRsi && !softCandle) {
-                    System.out.println("  SOFT FAIL — neither RSI nor candle confirms — skip");
-                    continue;
-                }
-                System.out.println("  SOFT OK — " + (softRsi ? "RSI " : "") + (softCandle ? "Candle" : "") + " confirmed");
+                // ── RSI Guard: avoid extreme overbought/oversold ──────────────
+                double rsi = calcRSI(cl15, RSI_PERIOD);
+                if (trendUp  && rsi > 75) { System.out.printf("  RSI=%.1f overbought — skip%n", rsi);  continue; }
+                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f oversold — skip%n", rsi); continue; }
+                System.out.printf("  RSI=%.1f OK%n", rsi);
 
                 // ── All filters passed — place order ──────────────────────────
                 String side = trendUp ? "buy" : "sell";
