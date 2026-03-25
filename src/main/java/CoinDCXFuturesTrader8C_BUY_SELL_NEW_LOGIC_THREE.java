@@ -61,9 +61,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double TRAIL_LOCK_R      = 2.0;
     private static final double TRAIL_ATR_DIST    = 1.5;
 
-    // Daily loss limit in INR — bot stops opening new trades if breached
-    private static final double MAX_DAILY_LOSS_INR = -3600.0;
-
     // Volume filter — last COMPLETED candle volume must be VOL_MIN_RATIO x the 20-candle average
     private static final int    VOL_LOOKBACK  = 20;
     private static final double VOL_MIN_RATIO = 1.0;
@@ -81,8 +78,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static long lastCacheUpdate = 0;
 
     // State
-    private static double      dailyPnlINR = 0.0;
-    private static PrintWriter logWriter   = null;
+    private static PrintWriter logWriter = null;
 
     // =========================================================================
     // Coin list
@@ -139,8 +135,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         List<JSONObject> activePositions = getActivePositionsFull();
         log("Active positions found: " + activePositions.size());
 
-        updateDailyPnl(activePositions);
-
         for (JSONObject pos : activePositions) {
             try {
                 updateTrailingStopLoss(pos);
@@ -155,14 +149,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         Set<String> activeSet = new HashSet<>();
         for (JSONObject pos : activePositions) activeSet.add(pos.optString("pair"));
         log("Active pairs (will skip): " + activeSet);
-
-        // Daily loss limit
-        if (dailyPnlINR <= MAX_DAILY_LOSS_INR) {
-            log("DAILY LOSS LIMIT HIT (" + String.format("%.2f", dailyPnlINR)
-                    + " INR) — no new trades today");
-            closeLogger();
-            return;
-        }
 
         for (String pair : COINS_TO_TRADE) {
             try {
@@ -477,6 +463,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
 
+        // ── Stale TP guard ───────────────────────────────────────────────────
+        // For large winners (e.g. +19R on CFX), the original TP may be far below
+        // the current price (original TP was set at entry+3R when entry was 0.06).
+        // Passing a TP that is already below current price confuses the create_tpsl
+        // endpoint and leaves the position with no meaningful TP.
+        // Reconstruct a fresh forward-looking TP from the trail SL level.
+        if (isLong && effectiveTP < livePrice) {
+            double riskFromTrailSl = livePrice - newSL;
+            effectiveTP = roundToTick(livePrice + RR * riskFromTrailSl, tickSize);
+            log("[TRAIL] TP stale (below current price) — forward TP reconstructed: "
+                    + String.format("%.6f", effectiveTP));
+        } else if (!isLong && effectiveTP > livePrice) {
+            double riskFromTrailSl = newSL - livePrice;
+            effectiveTP = roundToTick(livePrice - RR * riskFromTrailSl, tickSize);
+            log("[TRAIL] TP stale (above current price) — forward TP reconstructed: "
+                    + String.format("%.6f", effectiveTP));
+        }
+
         // Always pass effectiveTP so it gets re-created after the cancel step inside setTpSl
         setTpSl(posId, effectiveTP, newSL, pair);
     }
@@ -558,37 +562,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.printf("  [REGIME] CurrentATR=%.6f AvgATR=%.6f (threshold=%.6f) -> %s%n",
                 currentATR, avgATR, avgATR * 0.85, trending ? "TRENDING" : "RANGING");
         return trending;
-    }
-
-    // =========================================================================
-    // DAILY P&L TRACKING
-    // =========================================================================
-
-    /**
-     * Estimates total unrealised PnL across all active positions.
-     * Called once at startup. Stops new entries if total loss exceeds MAX_DAILY_LOSS_INR.
-     *
-     * Uses live price vs avg_price from the position. Converts USDT PnL to INR
-     * using an approximate rate (83 INR per USDT).
-     */
-    private static void updateDailyPnl(List<JSONObject> positions) {
-        double totalPnlUsdt = 0;
-        for (JSONObject pos : positions) {
-            double activeQty = pos.optDouble("active_pos", 0);
-            double avgPrice  = pos.optDouble("avg_price", 0);
-            if (activeQty == 0 || avgPrice == 0) continue;
-
-            String pair = pos.optString("pair", "");
-            double livePrice = getLastPrice(pair);
-            if (livePrice <= 0) continue;
-
-            boolean isLong  = activeQty > 0;
-            double  diff    = isLong ? (livePrice - avgPrice) : (avgPrice - livePrice);
-            totalPnlUsdt   += diff * Math.abs(activeQty);
-        }
-        dailyPnlINR = totalPnlUsdt * 83.0;
-        log("Daily PnL estimate: " + String.format("%.2f", dailyPnlINR)
-                + " INR (limit: " + MAX_DAILY_LOSS_INR + " INR)");
     }
 
     // =========================================================================
@@ -964,9 +937,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             int dec = tickDecimals(tick);
             String fmtSl = String.format("%." + dec + "f", rsl);
 
+            // stop_trigger_instruction: "last_price" forces the exchange to compare the
+            // trigger against the LAST TRADED price, not the mark price. Without this,
+            // a small premium/discount between last price and mark price can cause the
+            // API to reject with "Trigger price should be less than the current price"
+            // even when the SL is correctly below the last traded price.
             JSONObject slObj = new JSONObject();
-            slObj.put("stop_price", fmtSl);
-            slObj.put("order_type", "stop_market");
+            slObj.put("stop_price",              fmtSl);
+            slObj.put("order_type",              "stop_market");
+            slObj.put("stop_trigger_instruction","last_price");
 
             JSONObject payload = new JSONObject();
             payload.put("timestamp", String.valueOf(Instant.now().toEpochMilli()));
@@ -977,8 +956,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double rtp    = roundToTick(tp, tick);
                 String fmtTp  = String.format("%." + dec + "f", rtp);
                 JSONObject tpObj = new JSONObject();
-                tpObj.put("stop_price", fmtTp);
-                tpObj.put("order_type", "take_profit_market");
+                tpObj.put("stop_price",              fmtTp);
+                tpObj.put("order_type",              "take_profit_market");
+                tpObj.put("stop_trigger_instruction","last_price");
                 payload.put("take_profit", tpObj);
                 log("TP/SL setting: tick=" + tick + " dec=" + dec
                         + " SL=" + fmtSl + " TP=" + fmtTp);
