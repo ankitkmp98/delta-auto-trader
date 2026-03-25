@@ -105,15 +105,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TRADE_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
     // H0a — Volatility gate
-    private static final double ATR_MIN_PCT = 0.003;  // 0.3%
-    private static final double ATR_MAX_PCT = 0.05;   // 5.0%
+    private static final double ATR_MIN_PCT = 0.0015;  // 0.3%
+    private static final double ATR_MAX_PCT = 0.08;   // 5.0%
 
     // H0b — Volume spike filter
-    private static final double VOLUME_SPIKE_MULT = 1.2;
+    private static final double VOLUME_SPIKE_MULT = 0.9;
     private static final int    VOLUME_AVG_BARS   = 20;
 
     // H4 — Pullback zone
-    private static final double PULLBACK_ATR_BAND = 1.5;
+    private static final double PULLBACK_ATR_BAND = 2.5;
     private static final int    PULLBACK_TOUCH_BARS    = 5;
     private static final double PULLBACK_TOUCH_ATR_TOL = 2;
 
@@ -270,7 +270,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double currentVol = vol15[vol15.length - 2];
                 double avgVol     = calcAvgVolume(vol15, VOLUME_AVG_BARS);
-                boolean volumeOk  = avgVol > 0 && currentVol > VOLUME_SPIKE_MULT * avgVol;
+                boolean volumeOk = avgVol > 0 && currentVol >= 0.9 * avgVol;
                 System.out.printf("  [H0b] Volume: current=%.2f | avg(last%d)=%.2f | threshold=%.2f -> %s%n",
                         currentVol, VOLUME_AVG_BARS, avgVol, VOLUME_SPIKE_MULT * avgVol,
                         volumeOk ? "PASS" : "FAIL");
@@ -309,8 +309,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
-                boolean macroUp   = macro4hUp && macro1hUp;
-                boolean macroDown = macro4hDown && macro1hDown;
+boolean macroUp = macro1hUp;     // primary
+boolean macroDown = macro1hDown;
 
                 if (!(macroUp || macroDown)) {
                     System.out.println("  H1/H1b FAIL — 4H and 1H not aligned — skip");
@@ -394,7 +394,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 boolean macdLineOk = trendUp ? (macdLine > macdSigV) : (macdLine < macdSigV);
                 boolean histSignOk = trendUp ? (macdHist > 0)       : (macdHist < 0);
-                boolean histGrowing2 = true;
+                boolean histGrowing2 = trendUp
+        ? (macdHist > macdHistPrev && macdHistPrev > macdHistPrev2)
+        : (macdHist < macdHistPrev && macdHistPrev < macdHistPrev2);
 
                 System.out.printf("  [H3] LineOk=%s HistSign=%s HistGrowing2bars=%s%n",
                         macdLineOk, histSignOk, histGrowing2);
@@ -443,10 +445,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.printf("  [H4b] EMA21 touch check (last %d bars, tol=%.6f) -> %s%n",
                         PULLBACK_TOUCH_BARS, touchTolerance, recentTouch ? "PASS" : "FAIL");
-                if (!recentTouch) {
-                    System.out.println("  H4b FAIL — no recent candle touched EMA21 (price just hovering) — skip");
-                    System.out.println("❌ FAILED AT: H0b Volume");continue;
-                }
+              
                 System.out.println("  H4 OK — genuine pullback to EMA21 confirmed");
 
                 double  rsi        = calcRSI(cl15, RSI_PERIOD);
@@ -478,7 +477,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  [S3] 5m candles unavailable — skipping soft filter");
                 }
 
-                if (!softRsi && !softCandle && !soft5m) {
+                int softScore = 0;
+if (softRsi) softScore++;
+if (softCandle) softScore++;
+if (soft5m) softScore++;
+
+if (softScore < 1)  // keep 1 but allow flexibility {
                     System.out.println("  SOFT FAIL — no soft filter confirms (RSI / Candle / 5m EMA) — skip");
                     System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
