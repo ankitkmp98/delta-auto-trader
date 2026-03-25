@@ -270,7 +270,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double currentVol = vol15[vol15.length - 2];
                 double avgVol     = calcAvgVolume(vol15, VOLUME_AVG_BARS);
-                boolean volumeOk = avgVol > 0 && currentVol >= 0.9 * avgVol;
+                boolean volumeOk = avgVol > 0; // make it optional
                 System.out.printf("  [H0b] Volume: current=%.2f | avg(last%d)=%.2f | threshold=%.2f -> %s%n",
                         currentVol, VOLUME_AVG_BARS, avgVol, VOLUME_SPIKE_MULT * avgVol,
                         volumeOk ? "PASS" : "FAIL");
@@ -289,10 +289,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     macro4hDown = lastClose < ema4h50;
                     System.out.printf("  [H1] 4H EMA50=%.6f | Price %s EMA -> %s%n",
                             ema4h50, macro4hUp ? ">" : "<", macro4hUp ? "BULL" : "BEAR");
-                    if (!macro4hUp && !macro4hDown) {
-                        System.out.println("  H1 FAIL (4H) — skip");
-                        continue;
-                    }
                 } else {
                     System.out.println("  [H1] 4H candles unavailable — skipping 4H filter");
                     macro4hUp   = true;
@@ -322,8 +318,10 @@ boolean macroDown = macro1hDown;
                 double ema21    = calcEMA(cl15, EMA_MID);
                 double ema50_15 = calcEMA(cl15, EMA_MACRO);
 
-                boolean structBull = ema9 > ema21 && ema21 > ema50_15;
-                boolean structBear = ema9 < ema21 && ema21 < ema50_15;
+                // boolean structBull = ema9 > ema21 && ema21 > ema50_15;
+                // boolean structBear = ema9 < ema21 && ema21 < ema50_15;
+                boolean structBull = ema9 > ema21;
+boolean structBear = ema9 < ema21;
 
                 System.out.printf("  [H2] 15m EMA9=%.6f EMA21=%.6f EMA50=%.6f -> %s%n",
                         ema9, ema21, ema50_15,
@@ -347,10 +345,7 @@ boolean macroDown = macro1hDown;
                         ema21, ema21Prev,
                         ema21Rising ? "RISING" : ema21Falling ? "FALLING" : "FLAT");
 
-                if (trendUp && !ema21Rising) {
-                    System.out.println("  H2b FAIL — EMA21 not rising (flat/ranging market) — skip");
-                    continue;
-                }
+                
                 if (trendDown && !ema21Falling) {
                     System.out.println("  H2b FAIL — EMA21 not falling (flat/ranging market) — skip");
                     continue;
