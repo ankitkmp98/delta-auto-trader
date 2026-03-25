@@ -36,12 +36,6 @@ import java.util.stream.Stream;
  *    TP = 3 x risk. Profitable at only 26% win rate (was 34%).
  *    Winners now far outweigh losers even if SL hits more often.
  *
- * 5. SOFTWARE TRAILING STOP LOSS (runs every 10-min cycle):
- *    Before scanning new coins, all active positions are checked:
- *      +1R profit → SL moved to entry (breakeven — no loss possible)
- *      +2R profit → SL trailed at current price ± 1.5*ATR (locks profit)
- *    Uses the same create_tpsl API, just called again with the updated SL.
- *
  * ENTRY LOGIC (all HARD + at least 1 SOFT must pass):
  *   H1. 1H EMA50 macro trend (price above = bull, below = bear)
  *   H2. 15m EMA9 vs EMA21 aligned with macro
@@ -52,8 +46,7 @@ import java.util.stream.Stream;
  *
  * EXIT LOGIC:
  *   Initial SL : structural swing ± 0.5*ATR, clamped to 2.0–4.0*ATR from entry
- *   Initial TP : entry ± 3.0 * risk (3:1 RR)
- *   Trailing SL: updated every 10-min run via create_tpsl API
+ *   Initial TP : entry ± RR * risk
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
@@ -66,7 +59,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 1200.0;
-    private static final int    LEVERAGE               = 20;
+    private static final int    LEVERAGE               = 15;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -96,13 +89,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SL / TP parameters
     private static final double SL_SWING_BUFFER = 0.5;  // ATR buffer beyond swing low/high
     private static final double SL_MIN_ATR      = 3.0;  // minimum SL distance from entry
-    private static final double SL_MAX_ATR      = 4.0;  // maximum SL distance from entry
-    private static final double RR              = 1.6;  // TP = entry ± RR * risk
-
-    // Trailing SL thresholds
-    private static final double TRAIL_BREAKEVEN_R = 1.0;  // +1R → move SL to entry (breakeven)
-    private static final double TRAIL_LOCK_R      = 2.0;  // +2R → trail SL with ATR
-    private static final double TRAIL_ATR_DIST    = 1.5;  // trail distance = 1.5 * ATR
+    private static final double SL_MAX_ATR      = 5.0;  // maximum SL distance from entry
+    private static final double RR              = 0.6;  // TP = entry ± RR * risk
 
     private static final int CANDLE_15M = 120;
     private static final int CANDLE_1H  = 70;
@@ -158,24 +146,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static void main(String[] args) {
         initInstrumentCache();
 
-        // ── PHASE 1: Trailing SL update for all active positions ──────────────
-        // Always runs FIRST so that existing profits are locked before new trades open
-        System.out.println("\n=== PHASE 1: Trailing SL Update for Active Positions ===");
-        List<JSONObject> activePositions = getActivePositionsFull();
-        System.out.println("Active positions found: " + activePositions.size());
+        // ── Scan for new entry signals ────────────────────────────────────────
+        System.out.println("\n=== Scanning for New Entry Opportunities ===");
 
-        for (JSONObject pos : activePositions) {
-            try {
-                updateTrailingStopLoss(pos);
-            } catch (Exception e) {
-                System.err.println("Trail SL error for " + pos.optString("pair") + ": " + e.getMessage());
-            }
-        }
-
-        // ── PHASE 2: Scan for new entry signals ───────────────────────────────
-        System.out.println("\n=== PHASE 2: Scanning for New Entry Opportunities ===");
+        // Collect active pairs to skip
         Set<String> activeSet = new HashSet<>();
-        for (JSONObject pos : activePositions) activeSet.add(pos.optString("pair"));
+        try {
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("page", "1");
+            body.put("size", "100");
+            body.put("margin_currency_short_name", new JSONArray(Arrays.asList("INR", "USDT")));
+            String resp = authPost(
+                    BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+            JSONArray arr = resp.startsWith("[")
+                    ? new JSONArray(resp)
+                    : new JSONArray().put(new JSONObject(resp));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject p = arr.getJSONObject(i);
+                boolean isActive = p.optDouble("active_pos", 0) != 0
+                        || p.optDouble("locked_margin", 0) > 0;
+                if (isActive) activeSet.add(p.optString("pair"));
+            }
+        } catch (Exception e) {
+            System.err.println("Error fetching active positions: " + e.getMessage());
+        }
         System.out.println("Active pairs (will skip): " + activeSet);
 
         for (String pair : COINS_TO_TRADE) {
@@ -362,7 +357,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 //   minSL = entry - 2.0*ATR             (never CLOSER than this — breathing room)
                 //   maxSL = entry - 4.0*ATR             (never FARTHER than this — risk cap)
                 //   final = clamp(rawSL, maxSL, minSL)
-                //   TP    = entry + 3.0 * (entry - final SL)
+                //   TP    = entry + RR * (entry - final SL)
                 //
                 // SHORT: exact mirror
                 //
@@ -406,129 +401,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         }
         System.out.println("\n=== Scan complete ===");
-    }
-
-    // =========================================================================
-    // TRAILING STOP LOSS
-    // =========================================================================
-
-    /**
-     * Called every 10-min scan for each active position.
-     *
-     * Logic:
-     *   profit >= +1R (TRAIL_BREAKEVEN_R) → move SL to entry price (guaranteed breakeven)
-     *   profit >= +2R (TRAIL_LOCK_R)      → trail SL at current price ± 1.5*ATR
-     *
-     * SL is only moved in the favourable direction, never worsened.
-     * The existing TP is kept unchanged; only SL is updated via create_tpsl API.
-     */
-    private static void updateTrailingStopLoss(JSONObject pos) {
-        String pair = pos.optString("pair");
-        if (pair.isEmpty()) return;
-
-        double entry   = pos.optDouble("avg_price", 0);
-        double activeQ = pos.optDouble("active_pos", 0);
-        if (entry <= 0 || activeQ == 0) return;
-
-        boolean isLong    = activeQ > 0;
-        double  currentSL = pos.optDouble("stop_loss_trigger", 0);
-        double  currentTP = pos.optDouble("take_profit_trigger", 0);
-        String  posId     = pos.optString("id");
-        double  tickSize  = getTickSize(pair);
-
-        System.out.printf("\n  [TRAIL] %s %s | entry=%.6f | currentSL=%.6f | currentTP=%.6f%n",
-                isLong ? "LONG" : "SHORT", pair, entry, currentSL, currentTP);
-
-        if (currentSL <= 0 || posId.isEmpty()) {
-            System.out.println("  [TRAIL] No SL or position ID — skip");
-            return;
-        }
-
-        // Get live price
-        double livePrice = getLastPrice(pair);
-        if (livePrice <= 0) {
-            System.out.println("  [TRAIL] Cannot get live price — skip");
-            return;
-        }
-
-        // Get current ATR from recent 15m candles
-        JSONArray raw15m = getCandlestickData(pair, "15", 30);
-        if (raw15m == null || raw15m.length() < ATR_PERIOD + 1) {
-            System.out.println("  [TRAIL] Cannot get candles for ATR — skip");
-            return;
-        }
-        double atr = calcATR(extractHighs(raw15m), extractLows(raw15m), extractCloses(raw15m), ATR_PERIOD);
-        if (atr <= 0) {
-            System.out.println("  [TRAIL] ATR is 0 — skip");
-            return;
-        }
-
-        // Initial risk: distance from entry to original SL
-        double initialRisk = isLong ? (entry - currentSL) : (currentSL - entry);
-        if (initialRisk <= 0) {
-            // SL already at or past breakeven — use ATR-based fallback for further trailing
-            initialRisk = SL_MIN_ATR * atr;
-        }
-
-        double profit    = isLong ? (livePrice - entry) : (entry - livePrice);
-        double rMultiple = (initialRisk > 0) ? profit / initialRisk : 0;
-
-        System.out.printf("  [TRAIL] Live=%.6f | ATR=%.6f | InitRisk=%.6f | Profit=%.6f (%.2fR)%n",
-                livePrice, atr, initialRisk, profit, rMultiple);
-
-        double newSL = currentSL;
-
-        if (rMultiple >= TRAIL_LOCK_R) {
-            // +2R or better: trail SL at live price ± 1.5*ATR
-            double trailSL = isLong
-                    ? livePrice - TRAIL_ATR_DIST * atr
-                    : livePrice + TRAIL_ATR_DIST * atr;
-
-            boolean improved = isLong ? (trailSL > currentSL) : (trailSL < currentSL);
-            if (improved) {
-                newSL = trailSL;
-                System.out.printf("  [TRAIL] +%.2fR → Trail SL: %.6f -> %.6f%n",
-                        rMultiple, currentSL, newSL);
-            } else {
-                System.out.printf("  [TRAIL] +%.2fR → Trail SL %.6f already better than %.6f — no change%n",
-                        rMultiple, currentSL, trailSL);
-                return;
-            }
-
-        } else if (rMultiple >= TRAIL_BREAKEVEN_R) {
-            // +1R: move SL to entry (breakeven — no loss possible on this trade)
-            boolean needsMove = isLong ? (currentSL < entry) : (currentSL > entry);
-            if (needsMove) {
-                newSL = entry;
-                System.out.printf("  [TRAIL] +%.2fR → Move SL to breakeven: %.6f -> %.6f%n",
-                        rMultiple, currentSL, newSL);
-            } else {
-                System.out.printf("  [TRAIL] +%.2fR → SL already at or past breakeven — no change%n",
-                        rMultiple);
-                return;
-            }
-
-        } else {
-            System.out.printf("  [TRAIL] Profit=%.2fR — need +%.1fR for breakeven — no action%n",
-                    rMultiple, TRAIL_BREAKEVEN_R);
-            return;
-        }
-
-        newSL = roundToTick(newSL, tickSize);
-
-        // Skip API call if SL is unchanged after tick rounding
-        if (Math.abs(newSL - currentSL) < tickSize * 0.5) {
-            System.out.println("  [TRAIL] SL unchanged after rounding — skip API call");
-            return;
-        }
-
-        // Update SL via API — keep existing TP, only change SL
-        if (currentTP > 0) {
-            setTpSl(posId, currentTP, newSL, pair);
-            System.out.printf("  [TRAIL] SL updated to %.6f (TP kept at %.6f)%n", newSL, currentTP);
-        } else {
-            System.out.println("  [TRAIL] No existing TP value — skipping API call to avoid clearing TP");
-        }
     }
 
     // =========================================================================
@@ -816,9 +688,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     /**
-     * Sets or updates TP and SL on an existing position.
+     * Sets TP and SL on an existing position.
      * Calling this again OVERWRITES the previous TP/SL values.
-     * Used both at entry and by the trailing SL logic every cycle.
      */
     public static void setTpSl(String posId, double tp, double sl, String pair) {
         try {
@@ -864,41 +735,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             System.err.println("getPositionId: " + e.getMessage());
             return null;
         }
-    }
-
-    private static List<JSONObject> getActivePositionsFull() {
-        List<JSONObject> result = new ArrayList<>();
-        try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("page", "1");
-            body.put("size", "100");
-            body.put("margin_currency_short_name", new JSONArray(Arrays.asList("INR", "USDT")));
-            String resp = authPost(
-                    BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
-            JSONArray arr = resp.startsWith("[")
-                    ? new JSONArray(resp)
-                    : new JSONArray().put(new JSONObject(resp));
-            System.out.println("=== Open Positions (" + arr.length() + ") ===");
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject p   = arr.getJSONObject(i);
-                String    pair = p.optString("pair", "");
-                boolean isActive = p.optDouble("active_pos", 0) != 0
-                        || p.optDouble("locked_margin", 0) > 0;
-                if (isActive) {
-                    System.out.printf("  %s | qty=%.4f | entry=%.6f | SL=%.4f | TP=%.4f%n",
-                            pair,
-                            p.optDouble("active_pos", 0),
-                            p.optDouble("avg_price", 0),
-                            p.optDouble("stop_loss_trigger", 0),
-                            p.optDouble("take_profit_trigger", 0));
-                    result.add(p);
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("getActivePositionsFull: " + e.getMessage());
-        }
-        return result;
     }
 
     private static HttpURLConnection openGet(String url) throws IOException {
