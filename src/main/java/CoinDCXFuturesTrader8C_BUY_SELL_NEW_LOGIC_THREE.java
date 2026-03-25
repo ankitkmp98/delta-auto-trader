@@ -15,21 +15,21 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * CoinDCX Futures Trader â€” V4 FINAL STRATEGY
+ * CoinDCX Futures Trader Ã¢â‚¬â€ V4 FINAL STRATEGY
  *
- * FULL FILTER STACK (HARD filters â€” ALL must pass):
+ * FULL FILTER STACK (HARD filters Ã¢â‚¬â€ ALL must pass):
  *
  *   H0a. VOLATILITY GATE:
- *        ATR must be 0.3%â€“5.0% of price.
+ *        ATR must be 0.3%Ã¢â‚¬â€œ5.0% of price.
  *        Skips dead flat markets and chaotic spike events.
  *
- *   H0b. VOLUME SPIKE (NEW â€” MUST DO):
- *        Current 15m candle volume > 1.5Ã— average of last 20 closed bars.
+ *   H0b. VOLUME SPIKE (NEW Ã¢â‚¬â€ MUST DO):
+ *        Current 15m candle volume > 1.5Ãƒâ€” average of last 20 closed bars.
  *        Avoids entering on low-conviction, low-volume moves.
  *
- *   H1.  4H EMA50 Macro Direction (NEW â€” SHOULD DO):
+ *   H1.  4H EMA50 Macro Direction (NEW Ã¢â‚¬â€ SHOULD DO):
  *        Price must be above 4H EMA50 for LONG, below for SHORT.
- *        Highest timeframe anchor â€” filters against macro counter-trend trades.
+ *        Highest timeframe anchor Ã¢â‚¬â€ filters against macro counter-trend trades.
  *
  *   H1b. 1H EMA50 Trend Confirmation:
  *        Price above 1H EMA50 = bull. Below = bear.
@@ -43,29 +43,29 @@ import java.util.stream.Stream;
  *        EMA21 must be rising for LONG, falling for SHORT.
  *        Eliminates flat/range-bound market entries.
  *
- *   H3.  MACD â€” Improved (MUST DO):
+ *   H3.  MACD Ã¢â‚¬â€ Improved (MUST DO):
  *        (a) MACD line must be on the correct side of signal line.
  *        (b) Histogram must be on correct sign (positive for LONG, negative for SHORT).
  *        (c) Histogram absolute value must be growing for 2 consecutive bars.
  *        This prevents entering on fading or diverging MACD momentum.
  *
- *   H4.  Pullback Zone â€” Tightened (SHOULD DO):
- *        Price must be within 1.5Ã—ATR of EMA21.
+ *   H4.  Pullback Zone Ã¢â‚¬â€ Tightened (SHOULD DO):
+ *        Price must be within 1.5Ãƒâ€”ATR of EMA21.
  *        ADDITIONALLY: at least one of the last 3 candle lows (LONG) or highs (SHORT)
- *        must have touched within 1.5Ã—ATR of EMA21 â€” confirming a genuine pullback
+ *        must have touched within 1.5Ãƒâ€”ATR of EMA21 Ã¢â‚¬â€ confirming a genuine pullback
  *        to the EMA, not price just hovering above/below it.
  *
  * SOFT FILTERS (at least 1 of 3 must pass):
- *   S1. RSI in valid zone (Long: 40â€“68, Short: 32â€“60)
+ *   S1. RSI in valid zone (Long: 40Ã¢â‚¬â€œ68, Short: 32Ã¢â‚¬â€œ60)
  *   S2. Previous closed candle matches direction
  *   S3. 5m EMA9 vs EMA21 aligned with trend (if candles available)
  *
  * EXIT LOGIC:
- *   Initial SL: structural swing Â± 0.5Ã—ATR, clamped to 4.5â€“7.0Ã—ATR from entry
- *   Initial TP: entry Â± 2.2 Ã— risk (2.2:1 RR)
+ *   Initial SL: structural swing Ã‚Â± 0.5Ãƒâ€”ATR, clamped to 4.5Ã¢â‚¬â€œ7.0Ãƒâ€”ATR from entry
+ *   Initial TP: entry Ã‚Â± 2.2 Ãƒâ€” risk (2.2:1 RR)
  *   Trailing SL (runs every 10-min cycle):
- *     +1R â†’ move SL to entry (breakeven)
- *     +2R â†’ trail SL at current price Â± 1.5Ã—ATR
+ *     +1R Ã¢â€ â€™ move SL to entry (breakeven)
+ *     +2R Ã¢â€ â€™ trail SL at current price Ã‚Â± 1.5Ãƒâ€”ATR
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
@@ -104,15 +104,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
     private static final long TRADE_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
-    // H0a â€” Volatility gate
+    // H0a Ã¢â‚¬â€ Volatility gate
     private static final double ATR_MIN_PCT = 0.0015;  // 0.3%
     private static final double ATR_MAX_PCT = 0.08;   // 5.0%
 
-    // H0b â€” Volume spike filter
+    // H0b Ã¢â‚¬â€ Volume spike filter
     private static final double VOLUME_SPIKE_MULT = 0.9;
     private static final int    VOLUME_AVG_BARS   = 20;
 
-    // H4 â€” Pullback zone
+    // H4 Ã¢â‚¬â€ Pullback zone
     private static final double PULLBACK_ATR_BAND = 2.5;
     private static final int    PULLBACK_TOUCH_BARS    = 5;
     private static final double PULLBACK_TOUCH_ATR_TOL = 2;
@@ -188,7 +188,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         List<JSONObject> activePositions = getActivePositionsFull();
         System.out.println("Active positions found: " + activePositions.size());
         if (activePositions.size() >= MAX_CONCURRENT_TRADES) {
-            System.out.println("Max active trades reached â€” skipping new entries");
+            System.out.println("Max active trades reached Ã¢â‚¬â€ skipping new entries");
             return;
         }
 
@@ -211,15 +211,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if (lastTradeTime.containsKey(pair)) {
                 long lastTime = lastTradeTime.get(pair);
                 if (now - lastTime < TRADE_COOLDOWN_MS) {
-                    System.out.println("Skip " + pair + " â€” cooldown active");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("Skip " + pair + " Ã¢â‚¬â€ cooldown active");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
             }
 
             
                 if (activeSet.contains(pair)) {
-                    System.out.println("Skip " + pair + " â€” active position");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("Skip " + pair + " Ã¢â‚¬â€ active position");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.println("\n==== " + pair + " ====");
@@ -230,13 +230,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (raw15m == null || raw15m.length() < 60) {
                     System.out.println("  Insufficient 15m candles (" +
-                            (raw15m == null ? 0 : raw15m.length()) + ") â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                            (raw15m == null ? 0 : raw15m.length()) + ") Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
                 if (raw1h == null || raw1h.length() < EMA_MACRO) {
                     System.out.println("  Insufficient 1H candles (" +
-                            (raw1h == null ? 0 : raw1h.length()) + ") â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                            (raw1h == null ? 0 : raw1h.length()) + ") Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 double[] cl15  = extractCloses(raw15m);
@@ -256,17 +256,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double atrPct = (lastClose > 0) ? atr / lastClose : 0;
                 boolean volatilityOk = atrPct >= ATR_MIN_PCT && atrPct <= ATR_MAX_PCT;
-                System.out.printf("  [H0a] ATR%%=%.4f%% (range %.1f%%â€“%.1f%%) -> %s%n",
+                System.out.printf("  [H0a] ATR%%=%.4f%% (range %.1f%%Ã¢â‚¬â€œ%.1f%%) -> %s%n",
                         atrPct * 100, ATR_MIN_PCT * 100, ATR_MAX_PCT * 100,
                         volatilityOk ? "PASS" : "FAIL");
                 if (!volatilityOk) {
                     if (atrPct < ATR_MIN_PCT)
-                        System.out.println("  H0a FAIL â€” market too flat/quiet (ATR too low) â€” skip");
+                        System.out.println("  H0a FAIL Ã¢â‚¬â€ market too flat/quiet (ATR too low) Ã¢â‚¬â€ skip");
                     else
-                        System.out.println("  H0a FAIL â€” market too volatile/spiking (ATR too high) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                        System.out.println("  H0a FAIL Ã¢â‚¬â€ market too volatile/spiking (ATR too high) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H0a OK â€” volatility in healthy range");
+                System.out.println("  H0a OK Ã¢â‚¬â€ volatility in healthy range");
 
                 double currentVol = vol15[vol15.length - 2];
                 double avgVol     = calcAvgVolume(vol15, VOLUME_AVG_BARS);
@@ -275,10 +275,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         currentVol, VOLUME_AVG_BARS, avgVol, VOLUME_SPIKE_MULT * avgVol,
                         volumeOk ? "PASS" : "FAIL");
                 if (!volumeOk) {
-                    System.out.println("  H0b FAIL â€” volume spike not confirmed (low conviction) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H0b FAIL Ã¢â‚¬â€ volume spike not confirmed (low conviction) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H0b OK â€” volume spike confirmed");
+                System.out.println("  H0b OK Ã¢â‚¬â€ volume spike confirmed");
 
                 boolean macro4hUp   = false;
                 boolean macro4hDown = false;
@@ -290,11 +290,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.printf("  [H1] 4H EMA50=%.6f | Price %s EMA -> %s%n",
                             ema4h50, macro4hUp ? ">" : "<", macro4hUp ? "BULL" : "BEAR");
                     if (!macro4hUp && !macro4hDown) {
-                        System.out.println("  H1 FAIL (4H) â€” skip");
-                        System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                        System.out.println("  H1 FAIL (4H) Ã¢â‚¬â€ skip");
+                        System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                     }
                 } else {
-                    System.out.println("  [H1] 4H candles unavailable â€” skipping 4H filter");
+                    System.out.println("  [H1] 4H candles unavailable Ã¢â‚¬â€ skipping 4H filter");
                     macro4hUp   = true;
                     macro4hDown = true;
                 }
@@ -305,18 +305,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  [H1b] 1H EMA50=%.6f | Price %s EMA -> %s%n",
                         ema1h, macro1hUp ? ">" : "<", macro1hUp ? "BULL" : "BEAR");
                 if (!macro1hUp && !macro1hDown) {
-                    System.out.println("  H1b FAIL â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H1b FAIL Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
 boolean macroUp = macro1hUp;     // primary
 boolean macroDown = macro1hDown;
 
                 if (!(macroUp || macroDown)) {
-                    System.out.println("  H1/H1b FAIL â€” 4H and 1H not aligned â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H1/H1b FAIL Ã¢â‚¬â€ 4H and 1H not aligned Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H1/H1b OK â€” 4H and 1H aligned: " + (macroUp ? "BULLISH" : "BEARISH"));
+                System.out.println("  H1/H1b OK Ã¢â‚¬â€ 4H and 1H aligned: " + (macroUp ? "BULLISH" : "BEARISH"));
 
                 double ema9     = calcEMA(cl15, EMA_FAST);
                 double ema21    = calcEMA(cl15, EMA_MID);
@@ -333,10 +333,10 @@ boolean macroDown = macro1hDown;
                 boolean trendDown = macroDown && structBear;
 
                 if (!trendUp && !trendDown) {
-                    System.out.println("  H2 FAIL â€” 15m EMA structure not aligned with macro â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H2 FAIL Ã¢â‚¬â€ 15m EMA structure not aligned with macro Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H2 OK â€” " + (trendUp ? "BULLISH" : "BEARISH") + " EMA stack confirmed");
+                System.out.println("  H2 OK Ã¢â‚¬â€ " + (trendUp ? "BULLISH" : "BEARISH") + " EMA stack confirmed");
 
                 double[] cl15Prev  = Arrays.copyOfRange(cl15, 0, cl15.length - 1);
                 double   ema21Prev = calcEMA(cl15Prev, EMA_MID);
@@ -348,14 +348,14 @@ boolean macroDown = macro1hDown;
                         ema21Rising ? "RISING" : ema21Falling ? "FALLING" : "FLAT");
 
                 if (trendUp && !ema21Rising) {
-                    System.out.println("  H2b FAIL â€” EMA21 not rising (flat/ranging market) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H2b FAIL Ã¢â‚¬â€ EMA21 not rising (flat/ranging market) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
                 if (trendDown && !ema21Falling) {
-                    System.out.println("  H2b FAIL â€” EMA21 not falling (flat/ranging market) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H2b FAIL Ã¢â‚¬â€ EMA21 not falling (flat/ranging market) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H2b OK â€” EMA21 slope confirms trend direction");
+                System.out.println("  H2b OK Ã¢â‚¬â€ EMA21 slope confirms trend direction");
 
                 boolean microTrendOk = true;
                 int checkBars = 3;
@@ -377,10 +377,10 @@ boolean macroDown = macro1hDown;
                         checkBars, bullishCount, bearishCount, microTrendOk ? "PASS" : "FAIL");
 
                 if (!microTrendOk) {
-                    System.out.println("  H2c FAIL â€” no recent momentum candles â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H2c FAIL Ã¢â‚¬â€ no recent momentum candles Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H2c OK â€” micro trend confirmed");
+                System.out.println("  H2c OK Ã¢â‚¬â€ micro trend confirmed");
 
                 double[] mv      = calcMACD(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
                 double[] mvPrev  = calcMACDPrev(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
@@ -402,18 +402,18 @@ boolean macroDown = macro1hDown;
                         macdLineOk, histSignOk, histGrowing2);
 
                 if (!macdLineOk) {
-                    System.out.println("  H3 FAIL â€” MACD line on wrong side of signal â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H3 FAIL Ã¢â‚¬â€ MACD line on wrong side of signal Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
                 if (!histSignOk) {
-                    System.out.println("  H3 FAIL â€” MACD histogram wrong sign (momentum against trade) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H3 FAIL Ã¢â‚¬â€ MACD histogram wrong sign (momentum against trade) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
                 if (!histGrowing2) {
-                    System.out.println("  H3 FAIL â€” MACD histogram not accelerating for 2 bars â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H3 FAIL Ã¢â‚¬â€ MACD histogram not accelerating for 2 bars Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
-                System.out.println("  H3 OK â€” MACD aligned, correct sign, accelerating momentum");
+                System.out.println("  H3 OK Ã¢â‚¬â€ MACD aligned, correct sign, accelerating momentum");
 
                 double  pullbackBand    = PULLBACK_ATR_BAND * atr;
                 boolean inPullbackLong  = trendUp   && lastClose >= ema21 && lastClose <= (ema21 + pullbackBand);
@@ -428,8 +428,8 @@ boolean macroDown = macro1hDown;
                             ema21 - pullbackBand, ema21, lastClose, inPullbackShort ? "PASS" : "FAIL");
                 }
                 if (!inPullbackZone) {
-                    System.out.println("  H4a FAIL â€” price not in pullback zone near EMA21 â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  H4a FAIL Ã¢â‚¬â€ price not in pullback zone near EMA21 Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 double touchTolerance = PULLBACK_TOUCH_ATR_TOL * atr;
@@ -446,7 +446,7 @@ boolean macroDown = macro1hDown;
                 System.out.printf("  [H4b] EMA21 touch check (last %d bars, tol=%.6f) -> %s%n",
                         PULLBACK_TOUCH_BARS, touchTolerance, recentTouch ? "PASS" : "FAIL");
               
-                System.out.println("  H4 OK â€” genuine pullback to EMA21 confirmed");
+                System.out.println("  H4 OK Ã¢â‚¬â€ genuine pullback to EMA21 confirmed");
 
                 double  rsi        = calcRSI(cl15, RSI_PERIOD);
                 boolean rsiOkLong  = trendUp   && rsi >= RSI_LONG_MIN  && rsi <= RSI_LONG_MAX;
@@ -474,7 +474,7 @@ boolean macroDown = macro1hDown;
                     System.out.printf("  [S3] 5m EMA9=%.6f EMA21=%.6f -> %s%n",
                             ema9_5m, ema21_5m, soft5m ? "PASS" : "fail");
                 } else {
-                    System.out.println("  [S3] 5m candles unavailable â€” skipping soft filter");
+                    System.out.println("  [S3] 5m candles unavailable Ã¢â‚¬â€ skipping soft filter");
                 }
 
                 int softScore = 0;
@@ -483,32 +483,32 @@ if (softCandle) softScore++;
 if (soft5m) softScore++;
 
 if (softScore < 1)  // keep 1 but allow flexibility {
-                    System.out.println("  SOFT FAIL â€” no soft filter confirms (RSI / Candle / 5m EMA) â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  SOFT FAIL Ã¢â‚¬â€ no soft filter confirms (RSI / Candle / 5m EMA) Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 List<String> softPassed = new ArrayList<>();
                 if (softRsi)    softPassed.add("RSI");
                 if (softCandle) softPassed.add("Candle");
                 if (soft5m)     softPassed.add("5m EMA");
-                System.out.println("  SOFT OK â€” confirmed by: " + String.join(" + ", softPassed));
+                System.out.println("  SOFT OK Ã¢â‚¬â€ confirmed by: " + String.join(" + ", softPassed));
 
                 String side = trendUp ? "buy" : "sell";
                 System.out.println("  >>> ALL FILTERS PASSED -> " + side.toUpperCase() + " " + pair);
 
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) {
-                    System.out.println("  Invalid price â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  Invalid price Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 double lastClosedPrice = cl15[cl15.length - 2];
                 double maxAllowedMove = atr * 2.5;
 
                 if (Math.abs(currentPrice - lastClosedPrice) > maxAllowedMove) {
-                    System.out.printf("  SLIPPAGE FAIL â€” price moved too far (%.6f vs %.6f) â€” skip%n",
+                    System.out.printf("  SLIPPAGE FAIL Ã¢â‚¬â€ price moved too far (%.6f vs %.6f) Ã¢â‚¬â€ skip%n",
                             currentPrice, lastClosedPrice);
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 double tempEntry = lastClose;
@@ -532,8 +532,8 @@ if (softScore < 1)  // keep 1 but allow flexibility {
 
                 double qty = calcQuantity(tempEntry, slPrice, pair);
                 if (qty <= 0) {
-                    System.out.println("  Invalid qty â€” skip");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  Invalid qty Ã¢â‚¬â€ skip");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.printf("  Placing %s | entry=%.6f | qty=%.4f | lev=%dx%n",
@@ -546,7 +546,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
 
                 if (resp == null || !resp.has("id")) {
                     System.out.println("  Order failed: " + resp);
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.println("  Order placed! id=" + resp.getString("id"));
@@ -554,8 +554,8 @@ if (softScore < 1)  // keep 1 but allow flexibility {
 
                 double entry = getEntryPrice(pair, resp.getString("id"));
                 if (entry <= 0) {
-                    System.out.println("  Could not confirm entry â€” TP/SL skipped");
-                    System.out.println("âŒ FAILED AT: H0b Volume");continue;
+                    System.out.println("  Could not confirm entry Ã¢â‚¬â€ TP/SL skipped");
+                    System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
@@ -599,7 +599,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
                 if (posId != null) {
                     setTpSl(posId, tpPrice, slPrice, pair);
                 } else {
-                    System.out.println("  Position ID not found â€” TP/SL not set");
+                    System.out.println("  Position ID not found Ã¢â‚¬â€ TP/SL not set");
                 }
         
         System.out.println("\n=== Scan complete ===");
@@ -627,25 +627,25 @@ if (softScore < 1)  // keep 1 but allow flexibility {
                 isLong ? "LONG" : "SHORT", pair, entry, currentSL, currentTP);
 
         if (currentSL <= 0 || posId.isEmpty()) {
-            System.out.println("  [TRAIL] No SL or position ID â€” skip");
+            System.out.println("  [TRAIL] No SL or position ID Ã¢â‚¬â€ skip");
             return;
         }
 
         double livePrice = getLastPrice(pair);
         if (livePrice <= 0) {
-            System.out.println("  [TRAIL] Cannot get live price â€” skip");
+            System.out.println("  [TRAIL] Cannot get live price Ã¢â‚¬â€ skip");
             return;
         }
 
         JSONArray raw15m = getCandlestickData(pair, "15", 30);
         if (raw15m == null || raw15m.length() < ATR_PERIOD + 1) {
-            System.out.println("  [TRAIL] Cannot get candles for ATR â€” skip");
+            System.out.println("  [TRAIL] Cannot get candles for ATR Ã¢â‚¬â€ skip");
             return;
         }
         double atr = calcATR(extractHighs(raw15m), extractLows(raw15m), extractCloses(raw15m), ATR_PERIOD);
 
         if (atr <= 0) {
-            System.out.println("  [TRAIL] ATR invalid â€” skip");
+            System.out.println("  [TRAIL] ATR invalid Ã¢â‚¬â€ skip");
             return;
         }
 
@@ -667,10 +667,10 @@ if (softScore < 1)  // keep 1 but allow flexibility {
             boolean improved = isLong ? (trailSL > currentSL) : (trailSL < currentSL);
             if (improved) {
                 newSL = trailSL;
-                System.out.printf("  [TRAIL] +%.2fR â†’ Trail SL: %.6f -> %.6f%n",
+                System.out.printf("  [TRAIL] +%.2fR Ã¢â€ â€™ Trail SL: %.6f -> %.6f%n",
                         rMultiple, currentSL, newSL);
             } else {
-                System.out.printf("  [TRAIL] +%.2fR â†’ Trail SL %.6f already better â€” no change%n",
+                System.out.printf("  [TRAIL] +%.2fR Ã¢â€ â€™ Trail SL %.6f already better Ã¢â‚¬â€ no change%n",
                         rMultiple, currentSL);
                 return;
             }
@@ -679,16 +679,16 @@ if (softScore < 1)  // keep 1 but allow flexibility {
             boolean needsMove = isLong ? (currentSL < entry) : (currentSL > entry);
             if (needsMove) {
                 newSL = entry;
-                System.out.printf("  [TRAIL] +%.2fR â†’ Move SL to breakeven: %.6f -> %.6f%n",
+                System.out.printf("  [TRAIL] +%.2fR Ã¢â€ â€™ Move SL to breakeven: %.6f -> %.6f%n",
                         rMultiple, currentSL, newSL);
             } else {
-                System.out.printf("  [TRAIL] +%.2fR â†’ SL already at/past breakeven â€” no change%n",
+                System.out.printf("  [TRAIL] +%.2fR Ã¢â€ â€™ SL already at/past breakeven Ã¢â‚¬â€ no change%n",
                         rMultiple);
                 return;
             }
 
         } else {
-            System.out.printf("  [TRAIL] Profit=%.2fR â€” need +%.1fR for breakeven â€” no action%n",
+            System.out.printf("  [TRAIL] Profit=%.2fR Ã¢â‚¬â€ need +%.1fR for breakeven Ã¢â‚¬â€ no action%n",
                     rMultiple, TRAIL_BREAKEVEN_R);
             return;
         }
@@ -696,7 +696,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
         newSL = roundToTick(newSL, tickSize);
 
         if (Math.abs(newSL - currentSL) < tickSize * 0.5) {
-            System.out.println("  [TRAIL] SL unchanged after rounding â€” skip API call");
+            System.out.println("  [TRAIL] SL unchanged after rounding Ã¢â‚¬â€ skip API call");
             return;
         }
 
@@ -704,7 +704,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
             setTpSl(posId, currentTP, newSL, pair);
             System.out.printf("  [TRAIL] SL updated to %.6f (TP kept at %.6f)%n", newSL, currentTP);
         } else {
-            System.out.println("  [TRAIL] No existing TP â€” skipping to avoid clearing TP");
+            System.out.println("  [TRAIL] No existing TP Ã¢â‚¬â€ skipping to avoid clearing TP");
         }
     }
 
@@ -1110,7 +1110,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
     private static String publicGet(String url) throws IOException {
         HttpURLConnection c = openGet(url);
         if (c.getResponseCode() == 200) return readStream(c.getInputStream());
-        throw new IOException("HTTP " + c.getResponseCode() + " â€” " + url);
+        throw new IOException("HTTP " + c.getResponseCode() + " Ã¢â‚¬â€ " + url);
     }
 
     private static String authPost(String url, String json) throws IOException {
