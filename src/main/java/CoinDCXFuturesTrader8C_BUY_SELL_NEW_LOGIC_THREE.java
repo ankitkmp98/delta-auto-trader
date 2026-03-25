@@ -527,38 +527,76 @@ if (Math.abs(currentPrice - lastClosedPrice) > maxAllowedMove) {
 }
  
                 
-                System.out.printf("  Placing %s | entry=%.6f | qty=%.4f | lev=%dx%n",
-        side.toUpperCase(), entry, qty, LEVERAGE);
+                // ── First calculate SL/TP using LAST CLOSE as temporary entry ──
+double tempEntry = lastClose;
+
+double slPrice, tpPrice;
+
+if ("buy".equalsIgnoreCase(side)) {
+    double swLow = swingLow(lo15, SWING_BARS);
+    double rawSL = swLow - SL_SWING_BUFFER * atr;
+    double minSL = tempEntry - SL_MIN_ATR * atr;
+    double maxSL = tempEntry - SL_MAX_ATR * atr;
+    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+    double risk = tempEntry - slPrice;
+    tpPrice = tempEntry + RR * risk;
+} else {
+    double swHigh = swingHigh(hi15, SWING_BARS);
+    double rawSL = swHigh + SL_SWING_BUFFER * atr;
+    double minSL = tempEntry + SL_MIN_ATR * atr;
+    double maxSL = tempEntry + SL_MAX_ATR * atr;
+    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+    double risk = slPrice - tempEntry;
+    tpPrice = tempEntry - RR * risk;
+}
+
+// Round
+slPrice = roundToTick(slPrice, tickSize);
+tpPrice = roundToTick(tpPrice, tickSize);
+
+// ── NOW calculate qty ──
+double qty = calcQuantity(tempEntry, slPrice, pair);
+
+if (qty <= 0) {
+    System.out.println("  Invalid qty — skip");
+    continue;
+}
+
+// ── Place Order ──
+System.out.printf("  Placing %s | entry=%.6f | qty=%.4f | lev=%dx%n",
+        side.toUpperCase(), tempEntry, qty, LEVERAGE);
 
 JSONObject resp = placeFuturesMarketOrder(
         side, pair, qty, LEVERAGE,
         "email_notification", "isolated", "INR"
 );
-
-if (resp == null || !resp.has("id")) {
-    System.out.println("  Order failed: " + resp);
-    continue;
-}
-
-System.out.println("  Order placed! id=" + resp.getString("id"));
-lastTradeTime.put(pair, System.currentTimeMillis());
-                
                 if (resp == null || !resp.has("id")) {
                     System.out.println("  Order failed: " + resp);
                     continue;
                 }
-                System.out.println("  Order placed! id=" + resp.getString("id")); lastTradeTime.put(pair, System.currentTimeMillis());
+                System.out.println("  Order placed! id=" + resp.getString("id")); 
+				lastTradeTime.put(pair, System.currentTimeMillis());
 
                 // ── Confirm actual fill price ─────────────────────────────────
-                double entry = getEntryPrice(pair, resp.getString("id"));
-                if (entry <= 0) {
-                    System.out.println("  Could not confirm entry — TP/SL skipped");
-                    continue;
-                }
-                System.out.printf("  Entry confirmed: %.6f%n", entry);
+    double entry = getEntryPrice(pair, resp.getString("id"));
+if (entry <= 0) {
+    System.out.println("  Could not confirm entry — TP/SL skipped");
+    continue;
+}
 
-                // ── Calculate SL and TP ───────────────────────────────────────
-                double slPrice, tpPrice;
+System.out.printf("  Entry confirmed: %.6f%n", entry);
+
+// Re-adjust TP/SL slightly based on real entry (optional fine-tune)
+double risk = Math.abs(entry - slPrice);
+
+if ("buy".equalsIgnoreCase(side)) {
+    tpPrice = entry + RR * risk;
+} else {
+    tpPrice = entry - RR * risk;
+}
+
+slPrice = roundToTick(slPrice, tickSize);
+tpPrice = roundToTick(tpPrice, tickSize);
                 if ("buy".equalsIgnoreCase(side)) {
                     double swLow = swingLow(lo15, SWING_BARS);
                     double rawSL = swLow  - SL_SWING_BUFFER * atr;
