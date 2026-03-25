@@ -533,9 +533,28 @@ double tempEntry = lastClose;
 
 double slPrice;
 
+if ("buy".equalsIgnoreCase(side)) {
+    double swLow = swingLow(lo15, SWING_BARS);
 
+    double rawSL = swLow - Math.max(SL_SWING_BUFFER * atr, tickSize * 5);
 
-// Round SL
+    double minSL = tempEntry - SL_MIN_ATR * atr;
+    double maxSL = tempEntry - SL_MAX_ATR * atr;
+
+    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+
+} else {
+    double swHigh = swingHigh(hi15, SWING_BARS);
+
+    double rawSL = swHigh + Math.max(SL_SWING_BUFFER * atr, tickSize * 5);
+
+    double minSL = tempEntry + SL_MIN_ATR * atr;
+    double maxSL = tempEntry + SL_MAX_ATR * atr;
+
+    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+}
+
+// Round SL before qty calc
 slPrice = roundToTick(slPrice, tickSize);
 
 // ── STEP 2: Calculate quantity ──
