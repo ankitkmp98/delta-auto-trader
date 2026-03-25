@@ -416,6 +416,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
 
         double profit    = isLong ? (livePrice - entry) : (entry - livePrice);
+
+        // ── Hard safety: never touch SL for a losing position ─────────────────
+        // If price is below entry (long) or above entry (short), the trade is in
+        // loss — we must NOT cancel the existing SL because that removes the only
+        // protection. Simply skip and leave everything as-is.
+        if (profit <= 0) {
+            System.out.printf("  [TRAIL] Position in loss (profit=%.6f) — skip, SL untouched%n", profit);
+            return;
+        }
+
         double rMultiple = (initialRisk > 0) ? profit / initialRisk : 0;
 
         System.out.printf("  [TRAIL] Live=%.6f | ATR1H=%.6f | InitRisk=%.6f | Profit=%.6f (%.2fR)%n",
@@ -928,41 +938,69 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double tick = getTickSize(pair);
             double rsl  = roundToTick(sl, tick);
 
-            // Step 1 — remove any existing SL/TP stop orders so create_tpsl will succeed
+            // Step 1 — remove any existing SL/TP stop orders so create_tpsl will succeed.
+            // create_tpsl is a pure CREATE; calling it again when orders already exist
+            // returns "SL already exists" and silently does nothing.
             cancelPositionOrders(posId);
 
-            // Short pause to allow the cancel to settle before we re-create
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            // Wait 1 second to let the exchange process the cancel before re-creating.
+            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-            // Step 2 — build the new payload
+            // Step 2 — build the payload.
+            // IMPORTANT: The CoinDCX API requires stop_price and limit_price as STRINGS,
+            // and stop_market orders must NOT include limit_price (market fill, no limit).
+            // For stop_limit we send a slightly worse limit to guarantee fill.
             JSONObject slObj = new JSONObject();
-            slObj.put("stop_price",  rsl);
-            slObj.put("limit_price", rsl);
-            slObj.put("order_type",  "stop_market");
+            slObj.put("stop_price", String.valueOf(rsl));
+            slObj.put("order_type", "stop_market");
 
             JSONObject payload = new JSONObject();
-            payload.put("timestamp", Instant.now().toEpochMilli());
+            payload.put("timestamp", String.valueOf(Instant.now().toEpochMilli()));
             payload.put("id",        posId);
             payload.put("stop_loss", slObj);
 
             if (tp > 0) {
                 double rtp = roundToTick(tp, tick);
                 JSONObject tpObj = new JSONObject();
-                tpObj.put("stop_price",  rtp);
-                tpObj.put("limit_price", rtp);
-                tpObj.put("order_type",  "take_profit_market");
+                tpObj.put("stop_price", String.valueOf(rtp));
+                tpObj.put("order_type", "take_profit_market");
                 payload.put("take_profit", tpObj);
                 log("TP/SL setting: SL=" + String.format("%.6f", rsl) + " TP=" + String.format("%.6f", rtp));
             } else {
-                log("TP/SL setting: SL=" + String.format("%.6f", rsl) + " (no TP)");
+                log("TP/SL setting: SL=" + String.format("%.6f", rsl) + " (no TP — will only place SL)");
             }
 
-            // Step 3 — create the new orders
+            // Step 3 — create the new orders and log the full response for debugging.
             String resp = authPost(
                     BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl",
                     payload.toString());
-            // Log the raw response so we can see any partial failures
             log("create_tpsl response: " + resp);
+
+            // Parse and flag any partial failures so they are visible in logs.
+            try {
+                JSONObject r = new JSONObject(resp);
+                if (r.has("stop_loss")) {
+                    JSONObject sl2 = r.getJSONObject("stop_loss");
+                    if (sl2.optBoolean("success", true) == false || sl2.has("error")) {
+                        log("[WARN] SL placement failed: " + sl2);
+                    } else {
+                        log("SL placed OK: status=" + sl2.optString("status")
+                                + " stop_price=" + sl2.optDouble("stop_price"));
+                    }
+                }
+                if (r.has("take_profit")) {
+                    JSONObject tp2 = r.getJSONObject("take_profit");
+                    if (tp2.optBoolean("success", true) == false || tp2.has("error")) {
+                        log("[WARN] TP placement failed: " + tp2);
+                    } else {
+                        log("TP placed OK: status=" + tp2.optString("status")
+                                + " stop_price=" + tp2.optDouble("stop_price"));
+                    }
+                }
+            } catch (Exception parseEx) {
+                log("[WARN] Could not parse create_tpsl response: " + parseEx.getMessage());
+            }
+
         } catch (Exception e) {
             System.err.println("setTpSl: " + e.getMessage());
         }
