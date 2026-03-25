@@ -60,7 +60,7 @@ import java.util.stream.Stream;
  * 11. Soft filters — threshold lowered: entry proceeds if ANY 1 of 3 soft filters
  *                    passes (was already 1-of-3, kept the same).
  */
-public class CoinDCXFuturesTrader {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Configuration
