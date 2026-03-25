@@ -604,7 +604,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
         
         System.out.println("\n=== Scan complete ===");
             }
-    
+}
 
     // =========================================================================
     // TRAILING STOP LOSS
