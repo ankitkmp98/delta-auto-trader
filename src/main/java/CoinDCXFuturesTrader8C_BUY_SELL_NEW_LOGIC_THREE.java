@@ -169,8 +169,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double[] cl5m  = extractCloses(raw5m);
                 double[] cl15  = extractCloses(raw15m);
+                double[] op15  = extractOpens(raw15m);
                 double[] hi15  = extractHighs(raw15m);
                 double[] lo15  = extractLows(raw15m);
+                double[] vol15 = extractVolumes(raw15m);
                 double[] cl1h  = extractCloses(raw1h);
                 double[] hi1h  = extractHighs(raw1h);
                 double[] lo1h  = extractLows(raw1h);
@@ -214,6 +216,81 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  Timeframes not aligned — skip");
                     continue;
                 }
+
+                // ── Trend strength filter (sideways market rejection) ─────────
+                // trendStrength = |EMA9 - EMA21| / price
+                // If too small, the EMAs are flat/crossing — likely sideways market
+                double trendStrength = Math.abs(ema15_9 - ema15_21) / lastClose;
+                double TREND_STR_MIN = 0.001; // 0.1% min separation
+                System.out.printf("  [TREND STR] strength=%.5f (min=%.3f) -> %s%n",
+                        trendStrength, TREND_STR_MIN,
+                        trendStrength >= TREND_STR_MIN ? "TRENDING" : "SIDEWAYS");
+                if (trendStrength < TREND_STR_MIN) {
+                    System.out.println("  Market is sideways — skip");
+                    continue;
+                }
+
+                // ── Volume confirmation (last completed candle > 1.5x avg) ────
+                double lastVol = vol15.length > 1 ? vol15[vol15.length - 2] : 0;
+                double avgVol  = 0;
+                int    volCnt  = Math.min(VOL_LOOKBACK, vol15.length - 1);
+                for (int v = vol15.length - 1 - volCnt; v < vol15.length - 1; v++) avgVol += vol15[v];
+                if (volCnt > 0) avgVol /= volCnt;
+                double volRatio = (avgVol > 0) ? lastVol / avgVol : 0;
+                System.out.printf("  [VOL] lastVol=%.2f avgVol=%.2f ratio=%.2f (min=%.1f) -> %s%n",
+                        lastVol, avgVol, volRatio, VOL_MIN_RATIO,
+                        volRatio >= VOL_MIN_RATIO ? "OK" : "LOW");
+                if (avgVol > 0 && volRatio < VOL_MIN_RATIO) {
+                    System.out.println("  Volume too low — skip");
+                    continue;
+                }
+
+                // ── Pullback zone: price within PULLBACK_ATR_BAND × ATR of EMA21
+                double pullbackBand    = PULLBACK_ATR_BAND * atr;
+                boolean inPullbackLong  = trendUp   && lastClose >= (ema15_21 - pullbackBand)
+                                                    && lastClose <= (ema15_21 + pullbackBand);
+                boolean inPullbackShort = trendDown && lastClose <= (ema15_21 + pullbackBand)
+                                                    && lastClose >= (ema15_21 - pullbackBand);
+                if (trendUp) {
+                    System.out.printf("  [PULLBACK] Long: EMA21=%.6f ±%.6f | Price=%.6f -> %s%n",
+                            ema15_21, pullbackBand, lastClose, inPullbackLong ? "PASS" : "FAIL");
+                    if (!inPullbackLong) { System.out.println("  Not in pullback zone — skip"); continue; }
+                } else {
+                    System.out.printf("  [PULLBACK] Short: EMA21=%.6f ±%.6f | Price=%.6f -> %s%n",
+                            ema15_21, pullbackBand, lastClose, inPullbackShort ? "PASS" : "FAIL");
+                    if (!inPullbackShort) { System.out.println("  Not in pullback zone — skip"); continue; }
+                }
+
+                // ── Liquidity sweep detection (smart money edge) ──────────────
+                // LONG:  recent candle low < swing low → price swept stops, then recovered
+                // SHORT: recent candle high > swing high → price swept stops, then came back
+                double swLowFull  = swingLow (lo15, Math.min(SWING_BARS, lo15.length));
+                double swHighFull = swingHigh(hi15, Math.min(SWING_BARS, hi15.length));
+                double recentLow  = lo15[lo15.length - 2];
+                double recentHigh = hi15[hi15.length - 2];
+                boolean sweepLong  = trendUp   && recentLow  < swLowFull  && lastClose > swLowFull;
+                boolean sweepShort = trendDown && recentHigh > swHighFull && lastClose < swHighFull;
+                System.out.printf("  [SWEEP] swLow=%.6f swHigh=%.6f | Long=%s Short=%s%n",
+                        swLowFull, swHighFull,
+                        sweepLong ? "YES (boost)" : "no",
+                        sweepShort ? "YES (boost)" : "no");
+
+                // ── Signal scoring ────────────────────────────────────────────
+                // Passed so far: trend aligned (+3), volume OK (+2), pullback (+2)
+                int score = 7;
+                if (sweepLong || sweepShort) score += 2;     // liquidity sweep bonus
+                // Strong momentum candle: last completed candle closes in trend direction
+                double prevOpen  = op15[op15.length - 2];
+                double prevClose = cl15[cl15.length - 2];
+                boolean strongCandle = trendUp   ? (prevClose > prevOpen)   // bullish body
+                                                 : (prevClose < prevOpen);  // bearish body
+                if (strongCandle) score += 1;
+                int SCORE_MIN = 7;  // minimum to trade
+                System.out.printf("  [SCORE] %d | sweep=%s strongCandle=%s -> %s%n",
+                        score, (sweepLong || sweepShort) ? "YES" : "no",
+                        strongCandle ? "YES" : "no",
+                        score >= SCORE_MIN ? "TRADE" : "SKIP");
+                if (score < SCORE_MIN) { System.out.println("  Score too low — skip"); continue; }
 
                 System.out.println("  SIGNAL OK — " + (trendUp ? "LONG" : "SHORT"));
 
