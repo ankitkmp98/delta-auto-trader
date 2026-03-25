@@ -95,9 +95,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // SL / TP parameters
     private static final double SL_SWING_BUFFER = 0.5;  // ATR buffer beyond swing low/high
-    private static final double SL_MIN_ATR      = 4.0;  // minimum SL distance from entry
-    private static final double SL_MAX_ATR      = 6.0;  // maximum SL distance from entry
-    private static final double RR              = 1.8;  // TP = entry ± RR * risk
+    private static final double SL_MIN_ATR      = 3.0;  // minimum SL distance from entry
+    private static final double SL_MAX_ATR      = 5.0;  // maximum SL distance from entry
+    private static final double RR              = 2;  // TP = entry ± RR * risk
 
     // Trailing SL thresholds
     private static final double TRAIL_BREAKEVEN_R = 1.0;  // +1R → move SL to entry (breakeven)
