@@ -147,9 +147,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.println("\n==== " + pair + " ====");
 
                 // ── Fetch candles ─────────────────────────────────────────────
+                JSONArray raw5m  = getCandlestickData(pair, "5",  30);
                 JSONArray raw15m = getCandlestickData(pair, "15", CANDLE_15M);
                 JSONArray raw1h  = getCandlestickData(pair, "60", CANDLE_1H);
 
+                if (raw5m == null || raw5m.length() < EMA_MID + 1) {
+                    System.out.println("  Insufficient 5m candles ("
+                            + (raw5m == null ? 0 : raw5m.length()) + ") — skip");
+                    continue;
+                }
                 if (raw15m == null || raw15m.length() < 60) {
                     System.out.println("  Insufficient 15m candles ("
                             + (raw15m == null ? 0 : raw15m.length()) + ") — skip");
@@ -161,18 +167,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                double[] cl15 = extractCloses(raw15m);
-                double[] op15 = extractOpens(raw15m);
-                double[] hi15 = extractHighs(raw15m);
-                double[] lo15 = extractLows(raw15m);
-                double[] vol15 = extractVolumes(raw15m);
-                double[] cl1h = extractCloses(raw1h);
-                double[] hi1h = extractHighs(raw1h);
-                double[] lo1h = extractLows(raw1h);
+                double[] cl5m  = extractCloses(raw5m);
+                double[] cl15  = extractCloses(raw15m);
+                double[] hi15  = extractHighs(raw15m);
+                double[] lo15  = extractLows(raw15m);
+                double[] cl1h  = extractCloses(raw1h);
+                double[] hi1h  = extractHighs(raw1h);
+                double[] lo1h  = extractLows(raw1h);
 
                 double lastClose = cl15[cl15.length - 1];
-                double prevClose = cl15[cl15.length - 2];
-                double prevOpen  = op15[op15.length - 2];
                 double tickSize  = getTickSize(pair);
                 double atr       = calcATR(hi15, lo15, cl15, ATR_PERIOD);
                 double atr1h     = calcATR(hi1h, lo1h, cl1h, ATR_PERIOD);
@@ -180,35 +183,39 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  Price=%.6f  ATR15m=%.6f  ATR1h=%.6f  Tick=%.8f%n",
                         lastClose, atr, atr1h, tickSize);
 
-                // ── H1: 1H Macro Trend ────────────────────────────────────────
-                double  ema1h     = calcEMA(cl1h, EMA_MACRO);
-                boolean macroUp   = lastClose > ema1h;
-                boolean macroDown = lastClose < ema1h;
-                System.out.printf("  [H1] 1H EMA50=%.6f | Price %s EMA -> %s%n",
-                        ema1h, macroUp ? ">" : "<", macroUp ? "BULL" : "BEAR");
+                // ── 1H: Price vs EMA50 ───────────────────────────────────────
+                double  ema1h50  = calcEMA(cl1h, EMA_MACRO);
+                boolean h1Up     = lastClose > ema1h50;
+                boolean h1Down   = lastClose < ema1h50;
+                System.out.printf("  [1H]  EMA50=%.6f | Price %s EMA50 -> %s%n",
+                        ema1h50, h1Up ? ">" : "<", h1Up ? "BULL" : "BEAR");
 
-                // ── H1 sets direction — trendUp/trendDown from macro only ────
-                // H2 (15m EMA9/EMA21) is logged for information but does NOT block.
-                // Requiring both to agree caused all coins to be skipped in trending
-                // markets where the 15m bounces against the 1H macro direction.
-                boolean trendUp   = macroUp;
-                boolean trendDown = macroDown;
+                // ── 15m: EMA9 vs EMA21 ───────────────────────────────────────
+                double  ema15_9  = calcEMA(cl15, EMA_FAST);
+                double  ema15_21 = calcEMA(cl15, EMA_MID);
+                boolean tf15Up   = ema15_9 > ema15_21;
+                boolean tf15Down = ema15_9 < ema15_21;
+                System.out.printf("  [15m] EMA9=%.6f EMA21=%.6f -> %s%n",
+                        ema15_9, ema15_21, tf15Up ? "UP" : "DOWN");
 
-                // ── H2: 15m Local Trend (INFO ONLY — no hard block) ──────────
-                double  ema9  = calcEMA(cl15, EMA_FAST);
-                double  ema21 = calcEMA(cl15, EMA_MID);
-                System.out.printf("  [H2] EMA9=%.6f EMA21=%.6f -> Local %s (info only, no block)%n",
-                        ema9, ema21, ema9 > ema21 ? "UP" : "DOWN");
+                // ── 5m: EMA9 vs EMA21 ────────────────────────────────────────
+                double  ema5_9   = calcEMA(cl5m, EMA_FAST);
+                double  ema5_21  = calcEMA(cl5m, EMA_MID);
+                boolean tf5Up    = ema5_9 > ema5_21;
+                boolean tf5Down  = ema5_9 < ema5_21;
+                System.out.printf("  [5m]  EMA9=%.6f EMA21=%.6f -> %s%n",
+                        ema5_9, ema5_21, tf5Up ? "UP" : "DOWN");
+
+                // ── All 3 timeframes must align — otherwise skip ──────────────
+                boolean trendUp   = h1Up   && tf15Up   && tf5Up;
+                boolean trendDown = h1Down && tf15Down && tf5Down;
+
+                if (!trendUp && !trendDown) {
+                    System.out.println("  Timeframes not aligned — skip");
+                    continue;
+                }
 
                 System.out.println("  SIGNAL OK — " + (trendUp ? "LONG" : "SHORT"));
-
-                // ── RSI Guard: only blocks at true extremes (>75 or <25) ─────
-                // A tight RSI band (40–68) blocked too many valid entries.
-                // Now only the most extreme readings are rejected.
-                double rsi = calcRSI(cl15, RSI_PERIOD);
-                if (trendUp   && rsi > 75) { System.out.printf("  RSI=%.1f — overbought extreme — skip%n", rsi); continue; }
-                if (trendDown && rsi < 25) { System.out.printf("  RSI=%.1f — oversold extreme — skip%n",   rsi); continue; }
-                System.out.printf("  RSI=%.1f — OK%n", rsi);
 
                 // ── All filters passed — place order ──────────────────────────
                 String side = trendUp ? "buy" : "sell";
@@ -255,7 +262,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // avoids getting stopped by normal intra-bar noise on a fast chart.
                 double slAtr = (atr1h > 0) ? atr1h : atr;  // fallback to 15m ATR if 1H unavailable
                 if ("buy".equalsIgnoreCase(side)) {
-                    double emaSL  = ema21 - 1.0 * atr;               // EMA21 structural SL (15m buffer)
+                    double emaSL  = ema15_21 - 1.0 * atr;            // EMA21 structural SL (15m buffer)
                     double swLow  = swingLow(lo15, SWING_BARS);
                     double swSL   = swLow - SL_SWING_BUFFER * atr;   // swing structural SL
                     double rawSL  = Math.min(emaSL, swSL);            // take the lower (safer)
@@ -267,7 +274,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     double risk = entry - slPrice;
                     tpPrice = entry + RR * risk;
                 } else {
-                    double emaSL  = ema21 + 1.0 * atr;               // EMA21 structural SL (15m buffer)
+                    double emaSL  = ema15_21 + 1.0 * atr;            // EMA21 structural SL (15m buffer)
                     double swHigh = swingHigh(hi15, SWING_BARS);
                     double swSL   = swHigh + SL_SWING_BUFFER * atr;  // swing structural SL
                     double rawSL  = Math.max(emaSL, swSL);            // take the higher (safer)
