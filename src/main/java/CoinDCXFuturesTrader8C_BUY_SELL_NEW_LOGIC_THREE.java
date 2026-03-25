@@ -56,10 +56,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR      = 6.0;   // raised 4→6: allow structural levels
     private static final double RR              = 3.0;
 
-    // Trailing SL thresholds
-    private static final double TRAIL_BREAKEVEN_R = 0.5;  // lowered 1→0.5: zero-loss sooner
-    private static final double TRAIL_LOCK_R      = 2.0;
-    private static final double TRAIL_ATR_DIST    = 1.5;
 
     // Volume filter — last COMPLETED candle volume must be VOL_MIN_RATIO x the 20-candle average
     private static final int    VOL_LOOKBACK  = 20;
@@ -328,13 +324,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
 
     /**
-     * Called every cycle for each active position.
+     * Simple fixed-offset trailing stop loss.
      *
-     *   profit >= +1R → move SL to entry (breakeven — guaranteed no loss)
-     *   profit >= +2R → trail SL at current price ± 1.5*ATR (locks profit)
+     * Rule: if a position is in profit, move SL and TP by the same fixed distances
+     * that were used when the trade was opened (SL_MIN_ATR × ATR for SL, RR × SL-offset for TP).
      *
-     * SL only ever moves in the favourable direction.
-     * Existing TP is preserved — only SL is updated via create_tpsl API.
+     * Example (LONG, entry=100, slOffset=3, tpOffset=9):
+     *   Live price = 105  →  newSL = 102, newTP = 114
+     *   Live price = 110  →  newSL = 107, newTP = 119
+     *
+     * Only updates when the new SL is strictly better (higher for LONG, lower for SHORT)
+     * than the current SL, and only when the position is in profit.
      */
     private static void updateTrailingStopLoss(JSONObject pos) {
         String pair = pos.optString("pair");
@@ -345,16 +345,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (entry <= 0 || activeQ == 0) return;
 
         boolean isLong    = activeQ > 0;
-        // NOTE: stop_loss_trigger / take_profit_trigger may come back as the string "None"
-        // from the positions API even when a real SL/TP order exists (because those are
-        // stored as separate stop orders, not embedded in the position object).
-        // So we never bail out just because currentSL == 0 — we fall back to an ATR estimate.
         double  currentSL = pos.optDouble("stop_loss_trigger", 0);
         double  currentTP = pos.optDouble("take_profit_trigger", 0);
         String  posId     = pos.optString("id");
         double  tickSize  = getTickSize(pair);
 
-        System.out.printf("\n  [TRAIL] %s %s | entry=%.6f | SL=%.6f | TP=%.6f%n",
+        System.out.printf("%n  [TRAIL] %s %s | entry=%.6f | SL=%.6f | TP=%.6f%n",
                 isLong ? "LONG" : "SHORT", pair, entry, currentSL, currentTP);
 
         if (posId.isEmpty()) {
@@ -363,126 +359,58 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
 
         double livePrice = getLastPrice(pair);
-        if (livePrice <= 0) { System.out.println("  [TRAIL] Cannot get live price — skip"); return; }
-
-        // Fetch both 15m and 1H candles — use 1H ATR to match entry SL placement.
-        JSONArray raw15m = getCandlestickData(pair, "15", 30);
-        JSONArray raw1h  = getCandlestickData(pair, "60", CANDLE_1H);
-        if (raw15m == null || raw15m.length() < ATR_PERIOD + 1) {
-            System.out.println("  [TRAIL] Cannot get 15m candles — skip");
+        if (livePrice <= 0) {
+            System.out.println("  [TRAIL] Cannot get live price — skip");
             return;
         }
-        double atr15 = calcATR(extractHighs(raw15m), extractLows(raw15m), extractCloses(raw15m), ATR_PERIOD);
-        double atr1h = (raw1h != null && raw1h.length() >= ATR_PERIOD + 1)
-                ? calcATR(extractHighs(raw1h), extractLows(raw1h), extractCloses(raw1h), ATR_PERIOD)
-                : 0;
-        double atr = (atr1h > 0) ? atr1h : atr15;   // prefer 1H ATR; fall back to 15m
 
-        if (atr <= 0) { System.out.println("  [TRAIL] ATR is 0 — skip"); return; }
-
-        // If the position API didn't give us the current SL, estimate initial risk from ATR.
-        double initialRisk;
-        if (currentSL > 0) {
-            initialRisk = isLong ? (entry - currentSL) : (currentSL - entry);
-            if (initialRisk <= 0) initialRisk = SL_MIN_ATR * atr;
-        } else {
-            // SL not visible in position API — use minimum ATR-based risk as baseline
-            initialRisk = SL_MIN_ATR * atr;
-            System.out.printf("  [TRAIL] currentSL unknown — estimating initialRisk=%.6f (%.1f×ATR1H)%n",
-                    initialRisk, SL_MIN_ATR);
-        }
-
-        // If the position API didn't give us the current TP, reconstruct it from entry + R:R.
-        // After cancelPositionOrders() the TP order will be removed; we must always re-create it.
-        double effectiveTP = currentTP;
-        if (effectiveTP <= 0) {
-            effectiveTP = isLong ? (entry + RR * initialRisk) : (entry - RR * initialRisk);
-            System.out.printf("  [TRAIL] TP unknown — reconstructed TP=%.6f (entry ± %.1f×risk)%n",
-                    effectiveTP, RR);
-        }
-
-        double profit    = isLong ? (livePrice - entry) : (entry - livePrice);
-
-        // ── Hard safety: never touch SL for a losing position ─────────────────
-        // If price is below entry (long) or above entry (short), the trade is in
-        // loss — we must NOT cancel the existing SL because that removes the only
-        // protection. Simply skip and leave everything as-is.
+        // Skip if not in profit — never cancel the protective SL on a losing trade
+        double profit = isLong ? (livePrice - entry) : (entry - livePrice);
         if (profit <= 0) {
-            System.out.printf("  [TRAIL] Position in loss (profit=%.6f) — skip, SL untouched%n", profit);
+            System.out.printf("  [TRAIL] Not in profit (%.6f) — SL untouched%n", profit);
             return;
         }
 
-        double rMultiple = (initialRisk > 0) ? profit / initialRisk : 0;
-
-        System.out.printf("  [TRAIL] Live=%.6f | ATR1H=%.6f | InitRisk=%.6f | Profit=%.6f (%.2fR)%n",
-                livePrice, atr, initialRisk, profit, rMultiple);
-
-        double newSL;
-
-        if (rMultiple >= TRAIL_LOCK_R) {
-            // +2R or better: trail SL at live price ± 1.5×1H ATR
-            double trailSL = isLong
-                    ? livePrice - TRAIL_ATR_DIST * atr
-                    : livePrice + TRAIL_ATR_DIST * atr;
-
-            boolean improved = isLong
-                    ? (currentSL <= 0 || trailSL > currentSL)
-                    : (currentSL <= 0 || trailSL < currentSL);
-            if (improved) {
-                newSL = trailSL;
-                log("[TRAIL] " + pair + " +"+String.format("%.2f",rMultiple)+"R → Trail SL: "
-                        +String.format("%.6f",currentSL)+" -> "+String.format("%.6f",newSL));
-            } else {
-                System.out.println("  [TRAIL] Trail SL already better — no change");
-                return;
-            }
-
-        } else if (rMultiple >= TRAIL_BREAKEVEN_R) {
-            // +0.5R: move SL to entry (breakeven)
-            boolean needsMove = isLong ? (currentSL <= 0 || currentSL < entry) : (currentSL <= 0 || currentSL > entry);
-            if (needsMove) {
-                newSL = entry;
-                log("[TRAIL] " + pair + " +"+String.format("%.2f",rMultiple)+"R → Breakeven SL: "
-                        +String.format("%.6f",currentSL)+" -> "+String.format("%.6f",newSL));
-            } else {
-                System.out.println("  [TRAIL] SL already at/past breakeven — no change");
-                return;
-            }
-
-        } else {
-            System.out.printf("  [TRAIL] Profit=%.2fR — need +%.1fR — no action%n",
-                    rMultiple, TRAIL_BREAKEVEN_R);
+        // Compute ATR so we know the fixed SL/TP offset to use
+        JSONArray raw1h  = getCandlestickData(pair, "60", CANDLE_1H);
+        JSONArray raw15m = getCandlestickData(pair, "15", 30);
+        double atr = 0;
+        if (raw1h != null && raw1h.length() >= ATR_PERIOD + 1)
+            atr = calcATR(extractHighs(raw1h), extractLows(raw1h), extractCloses(raw1h), ATR_PERIOD);
+        if (atr <= 0 && raw15m != null && raw15m.length() >= ATR_PERIOD + 1)
+            atr = calcATR(extractHighs(raw15m), extractLows(raw15m), extractCloses(raw15m), ATR_PERIOD);
+        if (atr <= 0) {
+            System.out.println("  [TRAIL] ATR is 0 — skip");
             return;
         }
 
-        newSL = roundToTick(newSL, tickSize);
+        // Fixed offsets — same distances used at entry time
+        double slOffset = SL_MIN_ATR * atr;   // e.g. 3 × ATR
+        double tpOffset = RR * slOffset;       // e.g. 9 × ATR  (RR = 3)
 
-        // Validate the new SL didn't round to the same value (only matters when currentSL is known)
-        if (currentSL > 0 && Math.abs(newSL - currentSL) < tickSize * 0.5) {
-            System.out.println("  [TRAIL] SL unchanged after rounding — skip");
+        // New SL and TP anchored to live price with the same fixed offsets
+        double newSL = roundToTick(isLong ? (livePrice - slOffset) : (livePrice + slOffset), tickSize);
+        double newTP = roundToTick(isLong ? (livePrice + tpOffset) : (livePrice - tpOffset), tickSize);
+
+        System.out.printf("  [TRAIL] Live=%.6f | ATR=%.6f | SLoffset=%.6f | TPoffset=%.6f%n",
+                livePrice, atr, slOffset, tpOffset);
+
+        // Only update if the new SL is strictly better than the current one
+        boolean improved = isLong
+                ? (currentSL <= 0 || newSL > currentSL)
+                : (currentSL <= 0 || newSL < currentSL);
+
+        if (!improved) {
+            System.out.printf("  [TRAIL] SL not improved (cur=%.6f new=%.6f) — skip%n", currentSL, newSL);
             return;
         }
 
-        // ── Stale TP guard ───────────────────────────────────────────────────
-        // For large winners (e.g. +19R on CFX), the original TP may be far below
-        // the current price (original TP was set at entry+3R when entry was 0.06).
-        // Passing a TP that is already below current price confuses the create_tpsl
-        // endpoint and leaves the position with no meaningful TP.
-        // Reconstruct a fresh forward-looking TP from the trail SL level.
-        if (isLong && effectiveTP < livePrice) {
-            double riskFromTrailSl = livePrice - newSL;
-            effectiveTP = roundToTick(livePrice + RR * riskFromTrailSl, tickSize);
-            log("[TRAIL] TP stale (below current price) — forward TP reconstructed: "
-                    + String.format("%.6f", effectiveTP));
-        } else if (!isLong && effectiveTP > livePrice) {
-            double riskFromTrailSl = newSL - livePrice;
-            effectiveTP = roundToTick(livePrice - RR * riskFromTrailSl, tickSize);
-            log("[TRAIL] TP stale (above current price) — forward TP reconstructed: "
-                    + String.format("%.6f", effectiveTP));
-        }
+        log("[TRAIL] " + pair
+                + " | live=" + String.format("%.6f", livePrice)
+                + " | SL: " + String.format("%.6f", currentSL) + " → " + String.format("%.6f", newSL)
+                + " | TP: " + String.format("%.6f", currentTP) + " → " + String.format("%.6f", newTP));
 
-        // Always pass effectiveTP so it gets re-created after the cancel step inside setTpSl
-        setTpSl(posId, effectiveTP, newSL, pair);
+        setTpSl(posId, newTP, newSL, pair);
     }
 
     // =========================================================================
