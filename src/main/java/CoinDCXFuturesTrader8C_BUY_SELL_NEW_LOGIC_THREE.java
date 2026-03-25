@@ -601,13 +601,10 @@ if (softScore < 1)  // keep 1 but allow flexibility {
                 } else {
                     System.out.println("  Position ID not found — TP/SL not set");
                 }
-
-            } catch (Exception e) {
-                System.err.println("Error on " + pair + ": " + e.getMessage());
-            }
-        }
+        
         System.out.println("\n=== Scan complete ===");
-    }
+            }
+    
 
     // =========================================================================
     // TRAILING STOP LOSS
@@ -1156,4 +1153,3 @@ if (softScore < 1)  // keep 1 but allow flexibility {
     public static String generateHmacSHA256(String secret, String payload) {
         return sign(payload);
     }
-}
