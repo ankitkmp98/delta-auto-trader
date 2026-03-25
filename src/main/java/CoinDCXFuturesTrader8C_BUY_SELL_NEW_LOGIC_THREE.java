@@ -60,7 +60,7 @@ import java.util.stream.Stream;
  *   S1. RSI in valid zone (Long: 40–68, Short: 32–60)
  *   S2. Previous closed candle matches direction
  */
-public class CoinDCXFuturesTrader_V3 {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Configuration
