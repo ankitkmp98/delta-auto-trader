@@ -723,6 +723,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return Math.round(price / tick) * tick;
     }
 
+    /**
+     * Returns the number of decimal places in a tick size.
+     * e.g. tick=0.00001 → 5, tick=0.001 → 3, tick=0.5 → 1, tick=1.0 → 0
+     * Used to format prices as strings with exactly the right precision,
+     * avoiding floating-point artifacts like "0.27424000000000002".
+     */
+    private static int tickDecimals(double tick) {
+        if (tick <= 0) return 8;
+        return Math.max(0, (int) Math.round(-Math.log10(tick)));
+    }
+
     // =========================================================================
     // OHLCV EXTRACTION
     // =========================================================================
@@ -947,11 +958,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
             // Step 2 — build the payload.
-            // IMPORTANT: The CoinDCX API requires stop_price and limit_price as STRINGS,
-            // and stop_market orders must NOT include limit_price (market fill, no limit).
-            // For stop_limit we send a slightly worse limit to guarantee fill.
+            // IMPORTANT: The CoinDCX API requires stop_price as a STRING, and the value
+            // must be EXACTLY divisible by the tick size (e.g. "0.27424" not "0.27424000000000002").
+            // We derive the decimal precision from the tick size and format accordingly.
+            int dec = tickDecimals(tick);
+            String fmtSl = String.format("%." + dec + "f", rsl);
+
             JSONObject slObj = new JSONObject();
-            slObj.put("stop_price", String.valueOf(rsl));
+            slObj.put("stop_price", fmtSl);
             slObj.put("order_type", "stop_market");
 
             JSONObject payload = new JSONObject();
@@ -960,14 +974,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             payload.put("stop_loss", slObj);
 
             if (tp > 0) {
-                double rtp = roundToTick(tp, tick);
+                double rtp    = roundToTick(tp, tick);
+                String fmtTp  = String.format("%." + dec + "f", rtp);
                 JSONObject tpObj = new JSONObject();
-                tpObj.put("stop_price", String.valueOf(rtp));
+                tpObj.put("stop_price", fmtTp);
                 tpObj.put("order_type", "take_profit_market");
                 payload.put("take_profit", tpObj);
-                log("TP/SL setting: SL=" + String.format("%.6f", rsl) + " TP=" + String.format("%.6f", rtp));
+                log("TP/SL setting: tick=" + tick + " dec=" + dec
+                        + " SL=" + fmtSl + " TP=" + fmtTp);
             } else {
-                log("TP/SL setting: SL=" + String.format("%.6f", rsl) + " (no TP — will only place SL)");
+                log("TP/SL setting: tick=" + tick + " dec=" + dec
+                        + " SL=" + fmtSl + " (no TP)");
             }
 
             // Step 3 — create the new orders and log the full response for debugging.
