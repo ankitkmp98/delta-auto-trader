@@ -518,7 +518,7 @@ for (String pair : COINS_TO_TRADE) {
                 }
  // ── Slippage Protection ─────────────────────────────
 double lastClosedPrice = cl15[cl15.length - 2]; // last CLOSED candle
-double maxAllowedMove = atr * 0.5;
+double maxAllowedMove = atr * 0.8; // more realistic
 
 if (Math.abs(currentPrice - lastClosedPrice) > maxAllowedMove) {
     System.out.printf("  SLIPPAGE FAIL — price moved too far (%.6f vs %.6f) — skip%n",
@@ -533,19 +533,7 @@ double tempEntry = lastClose;
 
 double slPrice;
 
-if ("buy".equalsIgnoreCase(side)) {
-    double swLow = swingLow(lo15, SWING_BARS);
-    double rawSL = swLow - SL_SWING_BUFFER * atr;
-    double minSL = tempEntry - SL_MIN_ATR * atr;
-    double maxSL = tempEntry - SL_MAX_ATR * atr;
-    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
-} else {
-    double swHigh = swingHigh(hi15, SWING_BARS);
-    double rawSL = swHigh + SL_SWING_BUFFER * atr;
-    double minSL = tempEntry + SL_MIN_ATR * atr;
-    double maxSL = tempEntry + SL_MAX_ATR * atr;
-    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
-}
+
 
 // Round SL
 slPrice = roundToTick(slPrice, tickSize);
@@ -589,7 +577,7 @@ double tpPrice;
 
 if ("buy".equalsIgnoreCase(side)) {
     double swLow = swingLow(lo15, SWING_BARS);
-    double rawSL = swLow - SL_SWING_BUFFER * atr;
+double rawSL = swLow - Math.max(SL_SWING_BUFFER * atr, tickSize * 5);
     double minSL = entry - SL_MIN_ATR * atr;
     double maxSL = entry - SL_MAX_ATR * atr;
     slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
