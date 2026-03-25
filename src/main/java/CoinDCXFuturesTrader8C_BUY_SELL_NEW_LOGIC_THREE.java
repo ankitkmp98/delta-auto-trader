@@ -308,6 +308,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  H1b FAIL Ã¢â‚¬â€ skip");
                     System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
+            
 
 boolean macroUp = macro1hUp;     // primary
 boolean macroDown = macro1hDown;
@@ -482,7 +483,8 @@ if (softRsi) softScore++;
 if (softCandle) softScore++;
 if (soft5m) softScore++;
 
-if (softScore < 1)  // keep 1 but allow flexibility {
+if (softScore < 1)  // keep 1 but allow flexibility 
+{
                     System.out.println("  SOFT FAIL Ã¢â‚¬â€ no soft filter confirms (RSI / Candle / 5m EMA) Ã¢â‚¬â€ skip");
                     System.out.println("Ã¢ÂÅ’ FAILED AT: H0b Volume");continue;
                 }
@@ -604,6 +606,7 @@ if (softScore < 1)  // keep 1 but allow flexibility {
         
         System.out.println("\n=== Scan complete ===");
             }
+        }
 
     // =========================================================================
     // TRAILING STOP LOSS
