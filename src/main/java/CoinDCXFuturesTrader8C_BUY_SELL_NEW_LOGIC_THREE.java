@@ -1153,3 +1153,4 @@ if (softScore < 1)  // keep 1 but allow flexibility {
     public static String generateHmacSHA256(String secret, String payload) {
         return sign(payload);
     }
+}
