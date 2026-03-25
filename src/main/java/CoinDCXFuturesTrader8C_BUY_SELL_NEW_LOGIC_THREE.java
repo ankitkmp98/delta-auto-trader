@@ -609,11 +609,18 @@ if ("buy".equalsIgnoreCase(side)) {
 }
 
 // Round final values
+// Recalculate TP based on actual entry (SL remains same)
+double risk = Math.abs(entry - slPrice);
+
+if ("buy".equalsIgnoreCase(side)) {
+    tpPrice = entry + RR * risk;
+} else {
+    tpPrice = entry - RR * risk;
+}
+
 slPrice = roundToTick(slPrice, tickSize);
 tpPrice = roundToTick(tpPrice, tickSize);
 
-// ── STEP 6: Log Risk/Reward ──
-double risk   = Math.abs(entry - slPrice);
 double reward = Math.abs(tpPrice - entry);
 
 System.out.printf("  SL=%.6f | TP=%.6f | Risk=%.6f | Reward=%.6f | R:R=1:%.1f%n",
