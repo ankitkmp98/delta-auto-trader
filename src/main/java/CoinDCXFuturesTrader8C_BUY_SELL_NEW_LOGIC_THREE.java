@@ -126,21 +126,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         initLogger();
         initInstrumentCache();
 
-        // ── PHASE 1: Trailing SL update for all active positions ──────────────
-        log("=== PHASE 1: Trailing SL Update for Active Positions ===");
+        // ── Get active positions (used to skip already-open pairs) ────────────
         List<JSONObject> activePositions = getActivePositionsFull();
         log("Active positions found: " + activePositions.size());
 
-        for (JSONObject pos : activePositions) {
-            try {
-                updateTrailingStopLoss(pos);
-            } catch (Exception e) {
-                log("Trail SL error for " + pos.optString("pair") + ": " + e.getMessage());
-            }
-        }
-
-        // ── PHASE 2: Scan for new entry signals ───────────────────────────────
-        log("=== PHASE 2: Scanning for New Entry Opportunities ===");
+        // ── Scan for new entry signals ────────────────────────────────────────
+        log("=== Scanning for New Entry Opportunities ===");
 
         Set<String> activeSet = new HashSet<>();
         for (JSONObject pos : activePositions) activeSet.add(pos.optString("pair"));
@@ -317,100 +308,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         log("=== Scan complete ===");
         closeLogger();
-    }
-
-    // =========================================================================
-    // TRAILING STOP LOSS
-    // =========================================================================
-
-    /**
-     * Simple fixed-offset trailing stop loss.
-     *
-     * Rule: if a position is in profit, move SL and TP by the same fixed distances
-     * that were used when the trade was opened (SL_MIN_ATR × ATR for SL, RR × SL-offset for TP).
-     *
-     * Example (LONG, entry=100, slOffset=3, tpOffset=9):
-     *   Live price = 105  →  newSL = 102, newTP = 114
-     *   Live price = 110  →  newSL = 107, newTP = 119
-     *
-     * Only updates when the new SL is strictly better (higher for LONG, lower for SHORT)
-     * than the current SL, and only when the position is in profit.
-     */
-    private static void updateTrailingStopLoss(JSONObject pos) {
-        String pair = pos.optString("pair");
-        if (pair.isEmpty()) return;
-
-        double entry   = pos.optDouble("avg_price", 0);
-        double activeQ = pos.optDouble("active_pos", 0);
-        if (entry <= 0 || activeQ == 0) return;
-
-        boolean isLong    = activeQ > 0;
-        double  currentSL = pos.optDouble("stop_loss_trigger", 0);
-        double  currentTP = pos.optDouble("take_profit_trigger", 0);
-        String  posId     = pos.optString("id");
-        double  tickSize  = getTickSize(pair);
-
-        System.out.printf("%n  [TRAIL] %s %s | entry=%.6f | SL=%.6f | TP=%.6f%n",
-                isLong ? "LONG" : "SHORT", pair, entry, currentSL, currentTP);
-
-        if (posId.isEmpty()) {
-            System.out.println("  [TRAIL] No position ID — skip");
-            return;
-        }
-
-        double livePrice = getLastPrice(pair);
-        if (livePrice <= 0) {
-            System.out.println("  [TRAIL] Cannot get live price — skip");
-            return;
-        }
-
-        // Skip if not in profit — never cancel the protective SL on a losing trade
-        double profit = isLong ? (livePrice - entry) : (entry - livePrice);
-        if (profit <= 0) {
-            System.out.printf("  [TRAIL] Not in profit (%.6f) — SL untouched%n", profit);
-            return;
-        }
-
-        // Compute ATR so we know the fixed SL/TP offset to use
-        JSONArray raw1h  = getCandlestickData(pair, "60", CANDLE_1H);
-        JSONArray raw15m = getCandlestickData(pair, "15", 30);
-        double atr = 0;
-        if (raw1h != null && raw1h.length() >= ATR_PERIOD + 1)
-            atr = calcATR(extractHighs(raw1h), extractLows(raw1h), extractCloses(raw1h), ATR_PERIOD);
-        if (atr <= 0 && raw15m != null && raw15m.length() >= ATR_PERIOD + 1)
-            atr = calcATR(extractHighs(raw15m), extractLows(raw15m), extractCloses(raw15m), ATR_PERIOD);
-        if (atr <= 0) {
-            System.out.println("  [TRAIL] ATR is 0 — skip");
-            return;
-        }
-
-        // Fixed offsets — same distances used at entry time
-        double slOffset = SL_MIN_ATR * atr;   // e.g. 3 × ATR
-        double tpOffset = RR * slOffset;       // e.g. 9 × ATR  (RR = 3)
-
-        // New SL and TP anchored to live price with the same fixed offsets
-        double newSL = roundToTick(isLong ? (livePrice - slOffset) : (livePrice + slOffset), tickSize);
-        double newTP = roundToTick(isLong ? (livePrice + tpOffset) : (livePrice - tpOffset), tickSize);
-
-        System.out.printf("  [TRAIL] Live=%.6f | ATR=%.6f | SLoffset=%.6f | TPoffset=%.6f%n",
-                livePrice, atr, slOffset, tpOffset);
-
-        // Only update if the new SL is strictly better than the current one
-        boolean improved = isLong
-                ? (currentSL <= 0 || newSL > currentSL)
-                : (currentSL <= 0 || newSL < currentSL);
-
-        if (!improved) {
-            System.out.printf("  [TRAIL] SL not improved (cur=%.6f new=%.6f) — skip%n", currentSL, newSL);
-            return;
-        }
-
-        log("[TRAIL] " + pair
-                + " | live=" + String.format("%.6f", livePrice)
-                + " | SL: " + String.format("%.6f", currentSL) + " → " + String.format("%.6f", newSL)
-                + " | TP: " + String.format("%.6f", currentTP) + " → " + String.format("%.6f", newTP));
-
-        setTpSl(posId, newTP, newSL, pair);
     }
 
     // =========================================================================
@@ -837,13 +734,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     /**
-     * Sets or updates TP and SL on an existing position.
+     * Sets TP and SL on an existing position.
      *
-     * Because create_tpsl is a CREATE (not upsert), we first cancel existing stop orders
-     * for the position, then place fresh ones.  This is required both at entry and every
-     * time the trailing SL logic wants to move the stop.
-     *
-     * If tp == 0, only the SL order is submitted (TP preserved from a prior run if any).
+     * Because create_tpsl is a CREATE (not upsert), existing stop orders are cancelled
+     * first, then fresh ones are placed.
      */
     public static void setTpSl(String posId, double tp, double sl, String pair) {
         try {
