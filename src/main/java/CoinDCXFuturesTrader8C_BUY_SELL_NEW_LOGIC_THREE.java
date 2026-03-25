@@ -216,7 +216,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
             }
 
-            try {
+            
                 if (activeSet.contains(pair)) {
                     System.out.println("Skip " + pair + " — active position");
                     System.out.println("❌ FAILED AT: H0b Volume");continue;
