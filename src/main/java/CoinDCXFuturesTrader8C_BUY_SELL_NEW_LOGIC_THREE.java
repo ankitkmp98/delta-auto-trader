@@ -528,9 +528,10 @@ if (Math.abs(currentPrice - lastClosedPrice) > maxAllowedMove) {
  
                 
                 // ── First calculate SL/TP using LAST CLOSE as temporary entry ──
+// ── STEP 1: Pre-calc SL using TEMP ENTRY (for qty only) ──
 double tempEntry = lastClose;
 
-double slPrice, tpPrice;
+double slPrice;
 
 if ("buy".equalsIgnoreCase(side)) {
     double swLow = swingLow(lo15, SWING_BARS);
@@ -538,23 +539,18 @@ if ("buy".equalsIgnoreCase(side)) {
     double minSL = tempEntry - SL_MIN_ATR * atr;
     double maxSL = tempEntry - SL_MAX_ATR * atr;
     slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
-    double risk = tempEntry - slPrice;
-    tpPrice = tempEntry + RR * risk;
 } else {
     double swHigh = swingHigh(hi15, SWING_BARS);
     double rawSL = swHigh + SL_SWING_BUFFER * atr;
     double minSL = tempEntry + SL_MIN_ATR * atr;
     double maxSL = tempEntry + SL_MAX_ATR * atr;
     slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
-    double risk = slPrice - tempEntry;
-    tpPrice = tempEntry - RR * risk;
 }
 
-// Round
+// Round SL
 slPrice = roundToTick(slPrice, tickSize);
-tpPrice = roundToTick(tpPrice, tickSize);
 
-// ── NOW calculate qty ──
+// ── STEP 2: Calculate quantity ──
 double qty = calcQuantity(tempEntry, slPrice, pair);
 
 if (qty <= 0) {
@@ -562,7 +558,7 @@ if (qty <= 0) {
     continue;
 }
 
-// ── Place Order ──
+// ── STEP 3: Place Order ──
 System.out.printf("  Placing %s | entry=%.6f | qty=%.4f | lev=%dx%n",
         side.toUpperCase(), tempEntry, qty, LEVERAGE);
 
@@ -570,15 +566,17 @@ JSONObject resp = placeFuturesMarketOrder(
         side, pair, qty, LEVERAGE,
         "email_notification", "isolated", "INR"
 );
-                if (resp == null || !resp.has("id")) {
-                    System.out.println("  Order failed: " + resp);
-                    continue;
-                }
-                System.out.println("  Order placed! id=" + resp.getString("id")); 
-				lastTradeTime.put(pair, System.currentTimeMillis());
 
-                // ── Confirm actual fill price ─────────────────────────────────
-    double entry = getEntryPrice(pair, resp.getString("id"));
+if (resp == null || !resp.has("id")) {
+    System.out.println("  Order failed: " + resp);
+    continue;
+}
+
+System.out.println("  Order placed! id=" + resp.getString("id"));
+lastTradeTime.put(pair, System.currentTimeMillis());
+
+// ── STEP 4: Get ACTUAL entry price ──
+double entry = getEntryPrice(pair, resp.getString("id"));
 if (entry <= 0) {
     System.out.println("  Could not confirm entry — TP/SL skipped");
     continue;
@@ -586,50 +584,40 @@ if (entry <= 0) {
 
 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-// Re-adjust TP/SL slightly based on real entry (optional fine-tune)
-double risk = Math.abs(entry - slPrice);
+// ── STEP 5: FINAL SL/TP based on REAL entry ──
+double tpPrice;
 
 if ("buy".equalsIgnoreCase(side)) {
+    double swLow = swingLow(lo15, SWING_BARS);
+    double rawSL = swLow - SL_SWING_BUFFER * atr;
+    double minSL = entry - SL_MIN_ATR * atr;
+    double maxSL = entry - SL_MAX_ATR * atr;
+    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+
+    double risk = entry - slPrice;
     tpPrice = entry + RR * risk;
+
 } else {
+    double swHigh = swingHigh(hi15, SWING_BARS);
+    double rawSL = swHigh + SL_SWING_BUFFER * atr;
+    double minSL = entry + SL_MIN_ATR * atr;
+    double maxSL = entry + SL_MAX_ATR * atr;
+    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+
+    double risk = slPrice - entry;
     tpPrice = entry - RR * risk;
 }
 
+// Round final values
 slPrice = roundToTick(slPrice, tickSize);
 tpPrice = roundToTick(tpPrice, tickSize);
-                if ("buy".equalsIgnoreCase(side)) {
-                    double swLow = swingLow(lo15, SWING_BARS);
-                    double rawSL = swLow  - SL_SWING_BUFFER * atr;
-                    double minSL = entry  - SL_MIN_ATR * atr;
-                    double maxSL = entry  - SL_MAX_ATR * atr;
-                    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
-                    double risk = entry - slPrice;
-                    tpPrice = entry + RR * risk;
-                } else {
-                    double swHigh = swingHigh(hi15, SWING_BARS);
-                    double rawSL  = swHigh + SL_SWING_BUFFER * atr;
-                    double minSL  = entry  + SL_MIN_ATR * atr;
-                    double maxSL  = entry  + SL_MAX_ATR * atr;
-                    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
-                    double risk = slPrice - entry;
-                    tpPrice = entry - RR * risk;
-                }
 
-                slPrice = roundToTick(slPrice, tickSize);
-                tpPrice = roundToTick(tpPrice, tickSize);
+// ── STEP 6: Log Risk/Reward ──
+double risk   = Math.abs(entry - slPrice);
+double reward = Math.abs(tpPrice - entry);
 
-                double qty = calcQuantity(entry, slPrice, pair);
-
-if (qty <= 0) {
-    System.out.println("  Invalid qty after SL calculation — skip");
-    continue;
-}
-
-                double risk   = Math.abs(entry - slPrice);
-                double reward = Math.abs(tpPrice - entry);
-                System.out.printf("  SL=%.6f | TP=%.6f | Risk=%.6f | Reward=%.6f | R:R=1:%.1f%n",
-                        slPrice, tpPrice, risk, reward, (risk > 0 ? reward / risk : 0));
-
+System.out.printf("  SL=%.6f | TP=%.6f | Risk=%.6f | Reward=%.6f | R:R=1:%.1f%n",
+        slPrice, tpPrice, risk, reward, (risk > 0 ? reward / risk : 0));
                 // ── Set TP/SL on the position ─────────────────────────────────
                 String posId = getPositionId(pair);
                 if (posId != null) {
