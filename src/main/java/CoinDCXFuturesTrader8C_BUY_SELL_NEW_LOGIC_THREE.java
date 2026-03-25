@@ -109,13 +109,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ATR_MAX_PCT = 0.05;   // 5.0%
 
     // H0b — Volume spike filter
-    private static final double VOLUME_SPIKE_MULT = 1.5;
+    private static final double VOLUME_SPIKE_MULT = 1.2;
     private static final int    VOLUME_AVG_BARS   = 20;
 
     // H4 — Pullback zone
     private static final double PULLBACK_ATR_BAND = 1.5;
-    private static final int    PULLBACK_TOUCH_BARS    = 3;
-    private static final double PULLBACK_TOUCH_ATR_TOL = 1.5;
+    private static final int    PULLBACK_TOUCH_BARS    = 5;
+    private static final double PULLBACK_TOUCH_ATR_TOL = 2;
 
     // SL / TP parameters
     private static final double SL_SWING_BUFFER = 0.5;
@@ -212,14 +212,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 long lastTime = lastTradeTime.get(pair);
                 if (now - lastTime < TRADE_COOLDOWN_MS) {
                     System.out.println("Skip " + pair + " — cooldown active");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
             }
 
             try {
                 if (activeSet.contains(pair)) {
                     System.out.println("Skip " + pair + " — active position");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.println("\n==== " + pair + " ====");
@@ -231,12 +231,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (raw15m == null || raw15m.length() < 60) {
                     System.out.println("  Insufficient 15m candles (" +
                             (raw15m == null ? 0 : raw15m.length()) + ") — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 if (raw1h == null || raw1h.length() < EMA_MACRO) {
                     System.out.println("  Insufficient 1H candles (" +
                             (raw1h == null ? 0 : raw1h.length()) + ") — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 double[] cl15  = extractCloses(raw15m);
@@ -264,7 +264,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         System.out.println("  H0a FAIL — market too flat/quiet (ATR too low) — skip");
                     else
                         System.out.println("  H0a FAIL — market too volatile/spiking (ATR too high) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H0a OK — volatility in healthy range");
 
@@ -276,7 +276,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         volumeOk ? "PASS" : "FAIL");
                 if (!volumeOk) {
                     System.out.println("  H0b FAIL — volume spike not confirmed (low conviction) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H0b OK — volume spike confirmed");
 
@@ -291,7 +291,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                             ema4h50, macro4hUp ? ">" : "<", macro4hUp ? "BULL" : "BEAR");
                     if (!macro4hUp && !macro4hDown) {
                         System.out.println("  H1 FAIL (4H) — skip");
-                        continue;
+                        System.out.println("❌ FAILED AT: H0b Volume");continue;
                     }
                 } else {
                     System.out.println("  [H1] 4H candles unavailable — skipping 4H filter");
@@ -306,7 +306,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         ema1h, macro1hUp ? ">" : "<", macro1hUp ? "BULL" : "BEAR");
                 if (!macro1hUp && !macro1hDown) {
                     System.out.println("  H1b FAIL — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 boolean macroUp   = macro4hUp && macro1hUp;
@@ -314,7 +314,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (!(macroUp || macroDown)) {
                     System.out.println("  H1/H1b FAIL — 4H and 1H not aligned — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H1/H1b OK — 4H and 1H aligned: " + (macroUp ? "BULLISH" : "BEARISH"));
 
@@ -334,7 +334,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (!trendUp && !trendDown) {
                     System.out.println("  H2 FAIL — 15m EMA structure not aligned with macro — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H2 OK — " + (trendUp ? "BULLISH" : "BEARISH") + " EMA stack confirmed");
 
@@ -349,11 +349,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (trendUp && !ema21Rising) {
                     System.out.println("  H2b FAIL — EMA21 not rising (flat/ranging market) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 if (trendDown && !ema21Falling) {
                     System.out.println("  H2b FAIL — EMA21 not falling (flat/ranging market) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H2b OK — EMA21 slope confirms trend direction");
 
@@ -378,7 +378,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (!microTrendOk) {
                     System.out.println("  H2c FAIL — no recent momentum candles — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H2c OK — micro trend confirmed");
 
@@ -394,23 +394,22 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 boolean macdLineOk = trendUp ? (macdLine > macdSigV) : (macdLine < macdSigV);
                 boolean histSignOk = trendUp ? (macdHist > 0)       : (macdHist < 0);
-                boolean histGrowing2 = Math.abs(macdHist) > Math.abs(macdHistPrev)
-                        && Math.abs(macdHistPrev) > Math.abs(macdHistPrev2);
+                boolean histGrowing2 = true;
 
                 System.out.printf("  [H3] LineOk=%s HistSign=%s HistGrowing2bars=%s%n",
                         macdLineOk, histSignOk, histGrowing2);
 
                 if (!macdLineOk) {
                     System.out.println("  H3 FAIL — MACD line on wrong side of signal — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 if (!histSignOk) {
                     System.out.println("  H3 FAIL — MACD histogram wrong sign (momentum against trade) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 if (!histGrowing2) {
                     System.out.println("  H3 FAIL — MACD histogram not accelerating for 2 bars — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H3 OK — MACD aligned, correct sign, accelerating momentum");
 
@@ -428,7 +427,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 if (!inPullbackZone) {
                     System.out.println("  H4a FAIL — price not in pullback zone near EMA21 — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 double touchTolerance = PULLBACK_TOUCH_ATR_TOL * atr;
@@ -446,7 +445,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         PULLBACK_TOUCH_BARS, touchTolerance, recentTouch ? "PASS" : "FAIL");
                 if (!recentTouch) {
                     System.out.println("  H4b FAIL — no recent candle touched EMA21 (price just hovering) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
                 System.out.println("  H4 OK — genuine pullback to EMA21 confirmed");
 
@@ -481,7 +480,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (!softRsi && !softCandle && !soft5m) {
                     System.out.println("  SOFT FAIL — no soft filter confirms (RSI / Candle / 5m EMA) — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 List<String> softPassed = new ArrayList<>();
@@ -496,16 +495,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) {
                     System.out.println("  Invalid price — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 double lastClosedPrice = cl15[cl15.length - 2];
-                double maxAllowedMove = atr * 1.2;
+                double maxAllowedMove = atr * 2.5;
 
                 if (Math.abs(currentPrice - lastClosedPrice) > maxAllowedMove) {
                     System.out.printf("  SLIPPAGE FAIL — price moved too far (%.6f vs %.6f) — skip%n",
                             currentPrice, lastClosedPrice);
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 double tempEntry = lastClose;
@@ -530,7 +529,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double qty = calcQuantity(tempEntry, slPrice, pair);
                 if (qty <= 0) {
                     System.out.println("  Invalid qty — skip");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.printf("  Placing %s | entry=%.6f | qty=%.4f | lev=%dx%n",
@@ -543,7 +542,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (resp == null || !resp.has("id")) {
                     System.out.println("  Order failed: " + resp);
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.println("  Order placed! id=" + resp.getString("id"));
@@ -552,7 +551,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double entry = getEntryPrice(pair, resp.getString("id"));
                 if (entry <= 0) {
                     System.out.println("  Could not confirm entry — TP/SL skipped");
-                    continue;
+                    System.out.println("❌ FAILED AT: H0b Volume");continue;
                 }
 
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
