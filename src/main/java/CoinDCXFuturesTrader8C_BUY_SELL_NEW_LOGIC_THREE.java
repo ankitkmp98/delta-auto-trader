@@ -205,7 +205,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
 // ===== MOMENTUM FILTER (avoid sideways market) =====
 double momentum = lastClose - prevClose;
-boolean strongMove = Math.abs(momentum) > (0.3 * atr);
+boolean strongMove = Math.abs(momentum) > (0.2 * atr);
 
 if (!strongMove) {
     System.out.println("  Weak momentum — skip");
