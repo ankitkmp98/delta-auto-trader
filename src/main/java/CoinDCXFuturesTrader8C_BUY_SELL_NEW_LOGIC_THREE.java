@@ -26,8 +26,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // Margin limits per trade (INR). Bot uses MAX_MARGIN as trade size.
     // Change these two values to control how much margin is used per order.
-    private static final double MIN_MARGIN             = 1000.0;  // minimum margin per trade (INR)
-    private static final double MAX_MARGIN             = 1200.0;  // maximum margin per trade (INR)
+    private static final double MIN_MARGIN             = 300.0;  // minimum margin per trade (INR)
+    private static final double MAX_MARGIN             = 400.0;  // maximum margin per trade (INR)
     private static final int    LEVERAGE               = 11;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
 
