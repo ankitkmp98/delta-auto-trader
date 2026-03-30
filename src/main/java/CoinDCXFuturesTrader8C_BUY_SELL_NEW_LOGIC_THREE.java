@@ -24,11 +24,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    // Margin limits per trade (INR). Bot uses MAX_MARGIN as trade size.
-    // Change these two values to control how much margin is used per order.
-    private static final double MIN_MARGIN             = 300.0;  // minimum margin per trade (INR)
-    private static final double MAX_MARGIN             = 400.0;  // maximum margin per trade (INR)
-    private static final int    LEVERAGE               = 11;
+    private static final double MAX_MARGIN             = 2400.0;
+    private static final int    LEVERAGE               = 5;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
 
     // BTC pair used as global market bias filter
@@ -57,10 +54,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double PULLBACK_ATR_BAND = 5.0;
 
     // SL / TP
-    private static final double SL_SWING_BUFFER = 0.5;
-    private static final double SL_MIN_ATR      = 3.0;   // raised 2→3: no SL inside ATR noise
-    private static final double SL_MAX_ATR      = 6.0;   // raised 4→6: allow structural levels
-    private static final double RR              = 3.0;
+    private static final double SL_SWING_BUFFER = 1.5;
+    private static final double SL_MIN_ATR      = 6.0;   // raised 2→3: no SL inside ATR noise
+    private static final double SL_MAX_ATR      = 9.0;   // raised 4→6: allow structural levels
+    private static final double RR              = 2.0;
 
 
     // Volume filter — last COMPLETED candle volume must be VOL_MIN_RATIO x the 20-candle average
@@ -807,46 +804,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static double calcQuantity(double price, String pair) {
         if (price <= 0) return 0;
-        // Target: place each order using MAX_MARGIN INR of margin.
-        // After qty rounding the actual margin is verified to be within [MIN_MARGIN, MAX_MARGIN].
-        // If it falls below MIN_MARGIN, the coin is skipped (price too high for the qty precision).
-        // To adjust trade size just change MIN_MARGIN / MAX_MARGIN at the top of the class.
         double notionalUsdt = (MAX_MARGIN * LEVERAGE) / 93.0;
-        double rawQty = notionalUsdt / price;
-
-        double roundedQty;
+        double qty = notionalUsdt / price;
         if (INTEGER_QTY_PAIRS.contains(pair)) {
-            roundedQty = Math.floor(rawQty);
+            return Math.max(Math.floor(qty), 0);
         } else {
-            roundedQty = Math.floor(rawQty * 100.0) / 100.0;
+            return Math.max(Math.floor(qty * 100.0) / 100.0, 0);
         }
-
-        if (roundedQty <= 0) return 0;
-
-        // Compute the actual margin CoinDCX will use for this quantity (in INR)
-        // actualMarginInr = (qty × price / leverage) × 93  (USDT→INR at ~93 rate)
-        double actualMarginInr = (roundedQty * price / LEVERAGE) * 93.0;
-
-        System.out.printf("  [MARGIN] qty=%.4f price=%.6f → actual margin=%.2f INR" +
-                        " (allowed %.0f – %.0f)%n",
-                roundedQty, price, actualMarginInr, MIN_MARGIN, MAX_MARGIN);
-
-        if (actualMarginInr < MIN_MARGIN) {
-            System.out.printf("  Margin %.2f INR < MIN_MARGIN %.0f — skipping (qty too small after rounding)%n",
-                    actualMarginInr, MIN_MARGIN);
-            return 0;
-        }
-        if (actualMarginInr > MAX_MARGIN) {
-            System.out.printf("  Margin %.2f INR > MAX_MARGIN %.0f — reducing qty by 1 step%n",
-                    actualMarginInr, MAX_MARGIN);
-            if (INTEGER_QTY_PAIRS.contains(pair)) {
-                roundedQty = Math.max(roundedQty - 1, 0);
-            } else {
-                roundedQty = Math.max(Math.floor((roundedQty - 0.01) * 100.0) / 100.0, 0);
-            }
-        }
-
-        return roundedQty;
     }
 
     public static double getLastPrice(String pair) {
