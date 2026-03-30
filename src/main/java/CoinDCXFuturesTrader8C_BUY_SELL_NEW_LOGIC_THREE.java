@@ -24,8 +24,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN             = 2400.0;
-    private static final int    LEVERAGE               = 5;
+    private static final double MAX_MARGIN             = 1200.0;
+    private static final int    LEVERAGE               = 6;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
 
     // BTC pair used as global market bias filter
@@ -804,7 +804,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static double calcQuantity(double price, String pair) {
         if (price <= 0) return 0;
-        double notionalUsdt = (MAX_MARGIN * LEVERAGE) / 93.0;
+        // MAX_MARGIN = fixed position SIZE in INR (regardless of leverage).
+        // margin locked = MAX_MARGIN / LEVERAGE (e.g. 1200 INR size at 10x = 120 INR margin)
+        double notionalUsdt = MAX_MARGIN / 93.0;
         double qty = notionalUsdt / price;
         if (INTEGER_QTY_PAIRS.contains(pair)) {
             return Math.max(Math.floor(qty), 0);
