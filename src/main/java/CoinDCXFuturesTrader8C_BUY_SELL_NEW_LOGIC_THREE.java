@@ -48,7 +48,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double MAX_MARGIN             = 1200.0;
     private static final int    LEVERAGE               = 10;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 15;
-    private static final int    ENTRY_CHECK_DELAY_MS   = 1200;
+    private static final int    ENTRY_CHECK_DELAY_MS   = 1500;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
 
     // Indicator parameters
@@ -60,7 +60,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MACD_SIG   = 9;
     private static final int RSI_PERIOD = 14;
     private static final int ATR_PERIOD = 14;
-    private static final int SWING_BARS = 12;
+    private static final int SWING_BARS = 15;
 
     // RSI — wide enough to fire, tight enough to avoid extremes
     private static final double RSI_LONG_MIN  = 45.0;
@@ -69,12 +69,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 56.0;
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
-    private static final double SL_SWING_BUFFER = 2.5;   // ATR buffer beyond swing low/high (structural)
-    private static final double SL_MIN_ATR      = 4.0;   // MINIMUM distance from entry (breathing room)
+    private static final double SL_SWING_BUFFER = 2.2;   // ATR buffer beyond swing low/high (structural)
+    private static final double SL_MIN_ATR      = 3.5;   // MINIMUM distance from entry (breathing room)
     private static final double SL_MAX_ATR      = 6.0;   // MAXIMUM distance from entry (risk cap)
-    private static final double RR              = 1.6;   // 1:2 R:R
+    private static final double RR              = 1.7;   // 1:2 R:R
 
-    private static final int CANDLE_15M = 180;
+    private static final int CANDLE_15M = 200;
     private static final int CANDLE_1H  = 120;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
@@ -524,7 +524,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     private static double calcQuantity(double price, String pair) {
-        double qty = MAX_MARGIN / (price * 93);
+        double qty = MAX_MARGIN / (price * LEVERAGE);
         return Math.max(
                 INTEGER_QTY_PAIRS.contains(pair)
                         ? Math.floor(qty)
