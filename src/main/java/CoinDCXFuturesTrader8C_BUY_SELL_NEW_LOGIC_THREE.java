@@ -68,8 +68,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     // Capital & risk
-    private static final double TOTAL_CAPITAL   = 12_000.0; // your actual INR capital
-    private static final double RISK_PCT        = 0.01;     // 1% of capital risked per trade
+    private static final double TOTAL_CAPITAL   = 12_00.0; // your actual INR capital
+    private static final double RISK_PCT        = 0.001;     // 0.1% of capital risked per trade
     private static final double MAX_DAILY_LOSS  = -0.060;    // -3% → circuit breaker
     private static final int    MAX_POSITIONS   = 800000;        // concurrent open positions cap
     private static final int    MAX_SECTOR_POS  = 50;        // max trades in same sector
