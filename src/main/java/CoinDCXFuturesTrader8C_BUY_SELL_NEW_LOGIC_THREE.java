@@ -75,6 +75,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    MAX_SECTOR_POS  = 50;        // max trades in same sector
     private static final int    LEVERAGE        = 10;
 
+    private static final double MAX_MARGIN_INR = 120.0;
+private static final double MAX_QTY       = 1200.0;
+
     // Execution
     private static final int  MAX_ENTRY_PRICE_CHECKS = 15;
     private static final int  ENTRY_CHECK_DELAY_MS   = 1500;
@@ -681,14 +684,38 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
      * qty = riskAmt / slDistancePerUnit
      * The leverage is applied by the exchange — we just size the contract qty.
      */
+    // private static double calcQuantityFromRisk(double entry, double slPrice, String pair) {
+    //     double riskAmt = TOTAL_CAPITAL * RISK_PCT;
+    //     double slDist  = Math.abs(entry - slPrice);
+    //     if (slDist <= 0) return 0;
+    //     double rawQty = riskAmt / slDist;
+    //     if (INTEGER_QTY_PAIRS.contains(pair)) return Math.floor(rawQty);
+    //     return Math.floor(rawQty * 100.0) / 100.0;
+    // }
+
     private static double calcQuantityFromRisk(double entry, double slPrice, String pair) {
-        double riskAmt = TOTAL_CAPITAL * RISK_PCT;
-        double slDist  = Math.abs(entry - slPrice);
-        if (slDist <= 0) return 0;
-        double rawQty = riskAmt / slDist;
-        if (INTEGER_QTY_PAIRS.contains(pair)) return Math.floor(rawQty);
-        return Math.floor(rawQty * 100.0) / 100.0;
-    }
+    double riskAmt = TOTAL_CAPITAL * RISK_PCT;    // existing risk model
+    double slDist  = Math.abs(entry - slPrice);
+    if (slDist <= 0) return 0;
+
+    // 1) Risk-based qty (max loss = riskAmt)
+    double qtyFromRisk = riskAmt / slDist;
+
+    // 2) Size cap
+    double qtyFromSizeCap = MAX_QTY;
+
+    // 3) Margin cap: margin ≈ entry * qty / LEVERAGE <= MAX_MARGIN_INR
+    double qtyFromMarginCap = (MAX_MARGIN_INR * LEVERAGE) / entry;
+
+    // Final cap
+    double rawQty = Math.min(qtyFromRisk, Math.min(qtyFromSizeCap, qtyFromMarginCap));
+
+    if (rawQty <= 0) return 0;
+
+    // Respect integer / 2-decimal precision for each pair
+    if (INTEGER_QTY_PAIRS.contains(pair)) return Math.floor(rawQty);
+    return Math.floor(rawQty * 100.0) / 100.0;
+}
 
     // =========================================================================
     // DAILY PNL — Circuit Breaker [FIX-6]
