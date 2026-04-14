@@ -71,7 +71,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double TOTAL_CAPITAL   = 12_000.0; // your actual INR capital
     private static final double RISK_PCT        = 0.01;     // 1% of capital risked per trade
     private static final double MAX_DAILY_LOSS  = -0.060;    // -3% → circuit breaker
-    private static final int    MAX_POSITIONS   = 60;        // concurrent open positions cap
+    private static final int    MAX_POSITIONS   = 80;        // concurrent open positions cap
     private static final int    MAX_SECTOR_POS  = 2;        // max trades in same sector
     private static final int    LEVERAGE        = 10;
 
