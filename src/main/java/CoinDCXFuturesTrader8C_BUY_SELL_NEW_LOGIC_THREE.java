@@ -76,7 +76,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // Capital & risk — NEW: Margin-based instead of risk % based
     private static final double TOTAL_CAPITAL      = 12_00.0;      // your actual INR capital
-    private static final double MAX_MARGIN_INR     = 80.0;         // max 80 INR margin per trade
+    private static final double MAX_MARGIN_INR     = 150.0;         // max 80 INR margin per trade
     private static final int    LEVERAGE           = 10;           // 10x leverage
     // Max position size = MAX_MARGIN_INR * LEVERAGE = 800 INR
     private static final double MAX_POSITION_SIZE  = MAX_MARGIN_INR * LEVERAGE; // 800 INR
