@@ -75,8 +75,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     // Capital & risk — NEW: Margin-based instead of risk % based
-    private static final double TOTAL_CAPITAL      = 12_00.0;      // your actual INR capital
-    private static final double MAX_MARGIN_INR     = 60.0;         // max 80 INR margin per trade
+    // private static final double TOTAL_CAPITAL      = 4_00.0;      // your actual INR capital
+    private static final double MAX_MARGIN_INR     = 20.0;         // max 80 INR margin per trade
     private static final int    LEVERAGE           = 10;           // 10x leverage
     // Max position size = MAX_MARGIN_INR * LEVERAGE = 1500 INR
     private static final double MAX_POSITION_SIZE  = MAX_MARGIN_INR * LEVERAGE; // 1500 INR
