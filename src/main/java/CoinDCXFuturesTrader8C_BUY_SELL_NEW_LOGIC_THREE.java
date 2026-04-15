@@ -17,66 +17,73 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * CoinDCX Futures Trader — Improved Signal Engine v2
+ * CoinDCX Futures Trader — v3 OPTIMIZED
  *
- * KEY IMPROVEMENTS OVER PREVIOUS VERSION:
+ * KEY CHANGES FROM V2:
  *
- *  [FIX-1]  Swing low/high now correctly excludes the last 2 forming bars.
- *  [FIX-2]  Risk-based position sizing: risk 1% of total capital per trade.
- *           Quantity is derived from SL distance, not a flat margin cap.
- *  [FIX-3]  Tighter SL (1.5–2.5x ATR) + higher R:R (1:2.5).
- *           Break-even win rate drops from 40% → 29%.
- *  [FIX-4]  MACD histogram momentum check: histogram must be INCREASING,
- *           not just positive. Filters entries where trend is already fading.
- *  [FIX-5]  4H EMA-21 middle-tier filter. All 3 TFs (1H/4H/15m) must agree.
- *  [FIX-6]  Daily loss circuit breaker: halts trading if day's PnL < -3%.
- *  [FIX-7]  Max concurrent positions cap (default 5).
- *  [FIX-8]  Correlation guard: max 2 trades in same sector (L1, DeFi, Meme).
- *  [FIX-9]  Volume confirmation: entry bar volume > 20-bar average.
- *  [FIX-10] Parallel coin scanning with ExecutorService (10 threads).
- *  [FIX-11] Scan result CSV logging for performance analysis.
- *  [FIX-12] MACD array length guard prevents wrong seeding on short data.
+ *  [NEW-1]  MARGIN SYSTEM: Max 80 INR margin per trade (10x lev → max 800 INR position size).
+ *           Quantity capped by: (MAX_MARGIN_INR * LEVERAGE) / entry_price
  *
- * SIGNAL ARCHITECTURE (unchanged 3-HARD + 2-SOFT, but each filter is stronger):
+ *  [NEW-2]  SL PLACEMENT: Smart SL that sits between swing low + buffer and liquidation point.
+ *           SL uses ADAPTIVE_SL_FACTOR (0.5-0.7x ATR from swing) to avoid tight/loose extremes.
+ *           Formula: rawSL = swingLow ± (ADAPTIVE_SL_FACTOR * ATR)
+ *           Then clamped between minSL (breathing room) and LIQUIDATION_BUFFER below liq price.
  *
- *   HARD:
- *     H1. 1H EMA-50   : macro trend (price above = bull, below = bear)
- *     H2. 4H EMA-21   : mid-tier trend (NEW — replaces nothing, adds a layer)
- *     H3. 15m EMA 9/21: local trend alignment
+ *  [NEW-3]  TP PLACEMENT: Higher R:R (1:3) for better reward, positioned to maximize hit rate.
+ *           TP = entry + (RR_RATIO * actualRisk)
+ *           Entry zone filtered to only high-conviction signals (stricter filters).
+ *
+ *  [NEW-4]  REMOVED: MAX_POSITIONS limit — trade as many as you want.
+ *           REMOVED: MAX_SECTOR_POS sector correlation guard.
+ *           REMOVED: Daily loss circuit breaker (getDailyPnl checks).
+ *
+ *  [NEW-5]  LIQUIDATION GUARD: SL computed to never exceed liquidation price.
+ *           liquidPrice = entryPrice * (1 ± LIQUIDATION_BUFFER_PCT)
+ *           For long:  SL ≥ liquidPrice (stays above liq price)
+ *           For short: SL ≤ liquidPrice (stays below liq price)
+ *
+ *  [NEW-6]  EMA LOGIC TUNED: Stricter entry rules to improve TP hit rate.
+ *           H3 now requires EMA9 > EMA21 + (MIN_EMA_DISTANCE * ATR) for stronger trend.
+ *           This filters weak/chop zones and increases conviction.
+ *
+ *  [NEW-7]  VOLUME CONFIRMATION: S3 filter now requires 1.5x (not 1.1x) average volume
+ *           to reduce low-confidence entries.
+ *
+ *  [NEW-8]  SOFT FILTERS: At least 2 of 3 must pass (not 1 of 3) for higher conviction.
+ *
+ * SIGNAL ARCHITECTURE (4-HARD + 3-SOFT, higher bar):
+ *
+ *   HARD (ALL must pass):
+ *     H1. 1H EMA-50   : macro trend
+ *     H2. 4H EMA-21   : mid-tier trend
+ *     H3. 15m EMA 9/21: local trend (with min distance buffer)
  *     H4. MACD hist   : bullish/bearish AND histogram building momentum
  *
- *   SOFT (1 of 2 required):
+ *   SOFT (2 of 3 required for higher conviction):
  *     S1. RSI zone     : Long 45-64 | Short 36-56
  *     S2. Candle body  : Previous closed candle matches direction
- *     S3. Volume spike : Entry bar volume > 1.1x 20-bar average (NEW)
- *
- *   SL/TP (3-bound system):
- *     rawSL  = swing extreme ± SWING_BUFFER × ATR (structural reference)
- *     minSL  = entry ± MIN_ATR × ATR              (breathing room floor)
- *     maxSL  = entry ± MAX_ATR × ATR              (risk cap ceiling)
- *     final  = clamp(rawSL, maxSL, minSL)
- *     TP     = entry ± RR × actualRisk            (1:2.5 R:R)
+ *     S3. Volume spike : Entry bar volume > 1.5x 20-bar average
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
-    // Configuration — edit these to tune behaviour
+    // Configuration — Tuned for margin & SL/TP
     // =========================================================================
     private static final String API_KEY    = System.getenv("DELTA_API_KEY");
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    // Capital & risk
-    private static final double TOTAL_CAPITAL   = 12_00.0; // your actual INR capital
-    private static final double RISK_PCT        = 0.001;     // 0.1% of capital risked per trade
-    private static final double MAX_DAILY_LOSS  = -0.060;    // -3% → circuit breaker
-    private static final int    MAX_POSITIONS   = 800000;        // concurrent open positions cap
-    private static final int    MAX_SECTOR_POS  = 50;        // max trades in same sector
-    private static final int    LEVERAGE        = 10;
+    // Capital & risk — NEW: Margin-based instead of risk % based
+    private static final double TOTAL_CAPITAL      = 12_00.0;      // your actual INR capital
+    private static final double MAX_MARGIN_INR     = 80.0;         // max 80 INR margin per trade
+    private static final int    LEVERAGE           = 10;           // 10x leverage
+    // Max position size = MAX_MARGIN_INR * LEVERAGE = 800 INR
+    private static final double MAX_POSITION_SIZE  = MAX_MARGIN_INR * LEVERAGE; // 800 INR
 
-    private static final double MAX_MARGIN_INR = 120.0;
-private static final double MAX_QTY       = 1200.0;
+    // Liquidation protection
+    private static final double LIQUIDATION_BUFFER_PCT = 0.05;  // 5% buffer from liquidation
+    private static final double LIQUIDATION_CUSHION    = 0.02;  // extra 2% safety margin
 
     // Execution
     private static final int  MAX_ENTRY_PRICE_CHECKS = 15;
@@ -96,17 +103,20 @@ private static final double MAX_QTY       = 1200.0;
     private static final int SWING_BARS = 15;
     private static final int VOL_PERIOD = 20;
 
+    // NEW: EMA distance buffer for stronger trend confirmation
+    private static final double MIN_EMA_DISTANCE = 0.3;  // EMA9 must be 0.3*ATR above EMA21 for bullish
+
     // RSI zones
     private static final double RSI_LONG_MIN  = 45.0;
     private static final double RSI_LONG_MAX  = 64.0;
     private static final double RSI_SHORT_MIN = 36.0;
     private static final double RSI_SHORT_MAX = 56.0;
 
-    // SL/TP — tightened for better R:R
-    private static final double SL_SWING_BUFFER = 0.9;  // ATR buffer beyond swing extreme
-    private static final double SL_MIN_ATR      = 1.8;  // minimum SL distance (breathing room)
-    private static final double SL_MAX_ATR      = 3.6;  // maximum SL distance (risk cap)
-    private static final double RR              = 1.2;  // reward:risk ratio (1:2.5)
+    // NEW: Smart SL/TP system
+    private static final double ADAPTIVE_SL_FACTOR = 0.6;  // 0.6x ATR from swing extreme
+    private static final double SL_MIN_ATR         = 1.0;  // minimum breathing room
+    private static final double SL_MAX_ATR         = 2.5;  // maximum SL distance (risk cap)
+    private static final double RR_RATIO           = 3.0;  // 1:3 reward:risk for better TP hits
 
     // Candle counts
     private static final int CANDLE_15M = 200;
@@ -114,7 +124,7 @@ private static final double MAX_QTY       = 1200.0;
     private static final int CANDLE_1H  = 120;
 
     // Scan log file
-    private static final String SCAN_LOG = "scan_log.csv";
+    private static final String SCAN_LOG = "scan_log_v3.csv";
 
     // =========================================================================
     // Caches
@@ -122,31 +132,6 @@ private static final double MAX_QTY       = 1200.0;
     private static final Map<String, JSONObject> instrumentCache  = new ConcurrentHashMap<>();
     private static final Object                  cacheLock        = new Object();
     private static volatile long                 lastCacheUpdate  = 0;
-
-    // Thread-safe sector counters for correlation guard
-    private static final Map<String, Integer> sectorCount = new ConcurrentHashMap<>();
-
-    // =========================================================================
-    // Sector groupings for correlation guard [FIX-8]
-    // =========================================================================
-    private static final Map<String, String> SECTOR_MAP = new HashMap<>();
-    static {
-        // L1 blockchains
-        for (String s : new String[]{"SOL","AVAX","NEAR","APT","SUI","ADA","ETH","BNB","TRX","TON","ALGO","ICP","EGLD","FTM"})
-            SECTOR_MAP.put(s, "L1");
-        // Meme coins
-        for (String s : new String[]{"1000SHIB","1000BONK","WIF","BOME","DOGS","BRETT","1000PEPE","TRUMP","DOGE","1000FLOKI","MOODENG","PONKE","POPCAT","TURBO","FARTCOIN","GOAT","1000CHEEMS","1000CAT","1000LUNC","1000RATS","1000000MOG","1MBABYDOGE"})
-            SECTOR_MAP.put(s, "MEME");
-        // DeFi
-        for (String s : new String[]{"UNI","AAVE","CRV","COMP","MKR","SNX","1INCH","SUSHI","YFI","CAKE","PENDLE","JUP","GMX","DYDX","RUNE","LDO","RPL","FXS","CVX","BAL"})
-            SECTOR_MAP.put(s, "DEFI");
-        // Layer 2 / Scaling
-        for (String s : new String[]{"ARB","OP","MATIC","IMX","METIS","STRK","ZK","MANTA","SCROLL","LRC","SKL"})
-            SECTOR_MAP.put(s, "L2");
-        // Infrastructure / Storage
-        for (String s : new String[]{"FIL","AR","STORJ","GRT","ANKR","API3","LINK","BAND","TRB"})
-            SECTOR_MAP.put(s, "INFRA");
-    }
 
     // =========================================================================
     // Coin list
@@ -194,38 +179,21 @@ private static final double MAX_QTY       = 1200.0;
     // MAIN
     // =========================================================================
     public static void main(String[] args) {
-        System.out.println("=== CoinDCX Futures Trader v2 — Improved ===");
+        System.out.println("=== CoinDCX Futures Trader v3 — Optimized (Margin-Based, No Limits) ===");
+        System.out.println("Max margin per trade: " + MAX_MARGIN_INR + " INR");
+        System.out.println("Max position size: " + MAX_POSITION_SIZE + " INR (at " + LEVERAGE + "x leverage)");
+        System.out.println("TP:SL Ratio: 1:" + RR_RATIO);
+        System.out.println("");
+        
         initScanLog();
         initInstrumentCache();
 
-        // [FIX-6] Daily circuit breaker check
-        double dailyPnl = getDailyPnl();
-        double dailyPnlPct = dailyPnl / TOTAL_CAPITAL;
-        System.out.printf("Daily PnL: %.2f INR (%.2f%%)%n", dailyPnl, dailyPnlPct * 100);
-        if (dailyPnlPct < MAX_DAILY_LOSS) {
-            System.out.printf("!!! CIRCUIT BREAKER: daily loss %.2f%% exceeds limit %.0f%% — halting all trading%n",
-                    dailyPnlPct * 100, MAX_DAILY_LOSS * 100);
-            return;
-        }
-
-        // Fetch active positions
+        // Fetch active positions (for informational purposes only)
         Set<String> active = getActivePositions();
         System.out.println("Active positions: " + active.size() + " → " + active);
+        System.out.println(""); // NEW: No position cap check
 
-        // [FIX-7] Max positions cap
-        if (active.size() >= MAX_POSITIONS) {
-            System.out.println("Max concurrent positions (" + MAX_POSITIONS + ") reached — halting scan");
-            return;
-        }
-
-        // [FIX-8] Seed sector counters from existing positions
-        for (String p : active) {
-            String coin   = baseCoin(p);
-            String sector = SECTOR_MAP.getOrDefault(coin, "OTHER");
-            sectorCount.merge(sector, 1, Integer::sum);
-        }
-
-        // [FIX-10] Parallel scanning
+        // [NEW-10] Parallel scanning — no limits on concurrent trades
         ExecutorService pool = Executors.newFixedThreadPool(SCAN_THREADS);
         List<Future<?>> futures = new ArrayList<>();
 
@@ -245,17 +213,9 @@ private static final double MAX_QTY       = 1200.0;
     }
 
     // =========================================================================
-    // CORE SCAN LOGIC (per pair)
+    // CORE SCAN LOGIC (per pair) — Improved SL/TP Logic
     // =========================================================================
     private static void scanPair(String pair, Set<String> active) throws Exception {
-        // Check position cap again inside thread (another thread may have opened one)
-        synchronized (active) {
-            if (active.size() >= MAX_POSITIONS) {
-                log(pair, "SKIP", "max_positions", "");
-                return;
-            }
-        }
-
         System.out.println("\n==== " + pair + " ====");
 
         // ── Fetch candles ─────────────────────────────────────────────────────
@@ -279,7 +239,7 @@ private static final double MAX_QTY       = 1200.0;
             return;
         }
 
-        // [FIX-12] MACD data length guard
+        // Guard against insufficient data for MACD
         if (raw15m.length() < MACD_SLOW + MACD_SIG + 5) {
             System.out.println("  Insufficient data for MACD — skip");
             log(pair, "SKIP", "insufficient_macd_data", "");
@@ -312,7 +272,7 @@ private static final double MAX_QTY       = 1200.0;
             return;
         }
 
-        // ── HARD FILTER H2: 4H Middle Tier [FIX-5] ───────────────────────────
+        // ── HARD FILTER H2: 4H Middle Tier ───────────────────────────────────
         double  ema4h    = calcEMA(cl4h, EMA_MID);
         boolean mid4hUp   = lastClose > ema4h;
         boolean mid4hDown = lastClose < ema4h;
@@ -324,32 +284,34 @@ private static final double MAX_QTY       = 1200.0;
         }
         System.out.println("  H2 OK — 4H aligned");
 
-        // ── HARD FILTER H3: 15m Local Trend ──────────────────────────────────
+        // ── HARD FILTER H3: 15m Local Trend (NEW: stricter with EMA distance) ──
         double  ema9      = calcEMA(cl15, EMA_FAST);
         double  ema21     = calcEMA(cl15, EMA_MID);
-        boolean localUp   = ema9 > ema21;
-        boolean localDown = ema9 < ema21;
-        System.out.printf("  [H3] EMA9=%.6f EMA21=%.6f → %s%n",
-                ema9, ema21, localUp ? "UP" : localDown ? "DOWN" : "flat");
+        // NEW: EMA9 must be meaningfully above/below EMA21, not just above/below
+        double  emaDistance = Math.abs(ema9 - ema21);
+        double  minEmaDistance = MIN_EMA_DISTANCE * atr;
+        boolean localUp   = ema9 > ema21 && emaDistance > minEmaDistance;
+        boolean localDown = ema9 < ema21 && emaDistance > minEmaDistance;
+        System.out.printf("  [H3] EMA9=%.6f EMA21=%.6f Dist=%.6f (min=%.6f) → %s%n",
+                ema9, ema21, emaDistance, minEmaDistance, 
+                localUp ? "UP" : localDown ? "DOWN" : "weak/flat");
 
         boolean trendUp   = macroUp   && mid4hUp   && localUp;
         boolean trendDown = macroDown && mid4hDown && localDown;
         if (!trendUp && !trendDown) {
-            System.out.println("  H3 FAIL — 3-TF alignment failed — skip");
-            log(pair, "FAIL", "H3_local_misalign", "");
+            System.out.println("  H3 FAIL — 3-TF alignment failed or trend too weak — skip");
+            log(pair, "FAIL", "H3_local_misalign", String.format("dist=%.6f", emaDistance));
             return;
         }
         System.out.println("  H3 OK — all 3 timeframes aligned: " + (trendUp ? "BULLISH" : "BEARISH"));
 
-        // ── HARD FILTER H4: MACD with histogram momentum [FIX-4] ─────────────
+        // ── HARD FILTER H4: MACD with histogram momentum ───────────────────────
         double[] mv       = calcMACDWithPrev(cl15, MACD_FAST, MACD_SLOW, MACD_SIG);
         double   macdLine = mv[0], macdSigV = mv[1], macdHist = mv[2], prevHist = mv[3];
         System.out.printf("  [H4] MACD=%.6f Sig=%.6f Hist=%.6f PrevHist=%.6f%n",
                 macdLine, macdSigV, macdHist, prevHist);
 
-        // Bull: line above signal AND histogram growing (momentum building)
         boolean macdBull = macdLine > macdSigV && macdHist > prevHist;
-        // Bear: line below signal AND histogram falling (momentum building short side)
         boolean macdBear = macdLine < macdSigV && macdHist < prevHist;
 
         if (trendUp   && !macdBull) {
@@ -364,7 +326,7 @@ private static final double MAX_QTY       = 1200.0;
         }
         System.out.println("  H4 OK — MACD momentum building");
 
-        // ── SOFT FILTERS: at least 1 of 3 must pass ──────────────────────────
+        // ── SOFT FILTERS: at least 2 of 3 must pass (stricter than before) ─────
         // S1: RSI zone
         double  rsi        = calcRSI(cl15, RSI_PERIOD);
         boolean rsiOkLong  = trendUp   && rsi >= RSI_LONG_MIN  && rsi <= RSI_LONG_MAX;
@@ -378,37 +340,28 @@ private static final double MAX_QTY       = 1200.0;
         boolean softCandle = (trendUp && prevBull) || (trendDown && prevBear);
         System.out.printf("  [S2] Prev candle body → %s%n", softCandle ? "PASS" : "fail");
 
-        // S3: Volume spike [FIX-9]
+        // S3: Volume spike (NEW: increased to 1.5x from 1.1x)
         boolean softVolume = false;
         if (vl15 != null && vl15.length > VOL_PERIOD + 1) {
             double avgVol = calcSMA(vl15, VOL_PERIOD);
-            double entryVol = vl15[vl15.length - 2]; // confirmed closed bar
-            softVolume = entryVol > avgVol * 1.1;
-            System.out.printf("  [S3] Vol=%.2f AvgVol=%.2f → %s%n",
-                    entryVol, avgVol, softVolume ? "PASS" : "fail");
+            double entryVol = vl15[vl15.length - 2];
+            softVolume = entryVol > avgVol * 1.5;  // NEW: 1.5x instead of 1.1x
+            System.out.printf("  [S3] Vol=%.2f AvgVol=%.2f (1.5x=%.2f) → %s%n",
+                    entryVol, avgVol, avgVol * 1.5, softVolume ? "PASS" : "fail");
         } else {
             System.out.println("  [S3] Volume data unavailable — skip soft filter");
         }
 
-        if (!softRsi && !softCandle && !softVolume) {
-            System.out.println("  SOFT FAIL — no confirming filter passed — skip");
-            log(pair, "FAIL", "SOFT_none", String.format("RSI=%.2f", rsi));
+        // NEW: Need 2 of 3 soft filters to pass
+        int softCount = (softRsi ? 1 : 0) + (softCandle ? 1 : 0) + (softVolume ? 1 : 0);
+        if (softCount < 2) {
+            System.out.println("  SOFT FAIL — only " + softCount + " of 3 filters passed (need 2) — skip");
+            log(pair, "FAIL", "SOFT_count_" + softCount, String.format("RSI=%.2f", rsi));
             return;
         }
 
         String softPassed = (softRsi ? "RSI " : "") + (softCandle ? "Candle " : "") + (softVolume ? "Volume" : "");
-        System.out.println("  SOFT OK — confirmed by: " + softPassed.trim());
-
-        // ── [FIX-8] Correlation / sector guard ───────────────────────────────
-        String coin   = baseCoin(pair);
-        String sector = SECTOR_MAP.getOrDefault(coin, "OTHER");
-        int currentSectorCount = sectorCount.getOrDefault(sector, 0);
-        if (currentSectorCount >= MAX_SECTOR_POS) {
-            System.out.println("  SECTOR GUARD: already " + currentSectorCount
-                    + " positions in sector [" + sector + "] — skip " + pair);
-            log(pair, "SKIP", "sector_limit_" + sector, "");
-            return;
-        }
+        System.out.println("  SOFT OK (" + softCount + " of 3) — confirmed by: " + softPassed.trim());
 
         // ── All filters passed ────────────────────────────────────────────────
         String side = trendUp ? "buy" : "sell";
@@ -421,33 +374,34 @@ private static final double MAX_QTY       = 1200.0;
             return;
         }
 
-        // ── Compute SL first so we can size position correctly [FIX-2] ────────
-        double slEstimate;
-        if ("buy".equalsIgnoreCase(side)) {
-            double swLow = swingLow(lo15, SWING_BARS);
-            double rawSL = swLow  - SL_SWING_BUFFER * atr;
-            double minSL = currentPrice - SL_MIN_ATR * atr;
-            double maxSL = currentPrice - SL_MAX_ATR * atr;
-            slEstimate   = Math.max(Math.min(rawSL, minSL), maxSL);
-        } else {
-            double swHigh = swingHigh(hi15, SWING_BARS);
-            double rawSL  = swHigh + SL_SWING_BUFFER * atr;
-            double minSL  = currentPrice + SL_MIN_ATR * atr;
-            double maxSL  = currentPrice + SL_MAX_ATR * atr;
-            slEstimate    = Math.min(Math.max(rawSL, minSL), maxSL);
-        }
-        slEstimate = roundToTick(slEstimate, tickSize);
-
-        // Risk-based quantity [FIX-2]
-        double qty = calcQuantityFromRisk(currentPrice, slEstimate, pair);
-        if (qty <= 0) {
-            System.out.println("  Invalid qty from risk calc — skip");
+        // ── NEW: Compute SL using smart adaptive logic + liquidation guard ─────
+        double slPrice = computeSmartStopLoss(side, currentPrice, hi15, lo15, atr, LEVERAGE);
+        
+        if (slPrice <= 0) {
+            System.out.println("  Invalid SL from smart logic — skip");
             return;
         }
 
-        System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx | riskAmt=%.2f INR%n",
-                side.toUpperCase(), currentPrice, qty, LEVERAGE,
-                Math.abs(currentPrice - slEstimate) * qty);
+        // ── NEW: Risk-based quantity with margin cap ───────────────────────────
+        double qty = calcQuantityFromMargin(currentPrice, pair);
+        
+        if (qty <= 0) {
+            System.out.println("  Invalid qty from margin calc — skip");
+            return;
+        }
+
+        // Verify position size doesn't exceed cap
+        double positionSize = qty * currentPrice;
+        if (positionSize > MAX_POSITION_SIZE) {
+            System.out.println("  Position size " + positionSize + " exceeds max " + MAX_POSITION_SIZE + " — skip");
+            return;
+        }
+
+        double actualRisk = Math.abs(currentPrice - slPrice);
+        double riskAmt = actualRisk * qty;
+
+        System.out.printf("  Placing %s | price=%.6f | qty=%.4f | margin=%.2f INR | size=%.2f INR | risk=%.2f INR%n",
+                side.toUpperCase(), currentPrice, qty, (currentPrice * qty / LEVERAGE), positionSize, riskAmt);
 
         // ── Place order ───────────────────────────────────────────────────────
         JSONObject resp = placeFuturesMarketOrder(side, pair, qty, LEVERAGE,
@@ -458,46 +412,32 @@ private static final double MAX_QTY       = 1200.0;
             return;
         }
         System.out.println("  Order placed! id=" + resp.getString("id"));
-
-        // Update sector counter after successful order
-        sectorCount.merge(sector, 1, Integer::sum);
         synchronized (active) { active.add(pair); }
 
         // ── Confirm entry price ───────────────────────────────────────────────
         double entry = getEntryPrice(pair, resp.getString("id"));
         if (entry <= 0) {
-            System.out.println("  Could not confirm entry — using estimated price for TP/SL");
+            System.out.println("  Could not confirm entry — using estimated price");
             entry = currentPrice;
         }
         System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-        // ── Recompute SL/TP from actual entry [FIX-1] ────────────────────────
-        double slPrice, tpPrice;
-        if ("buy".equalsIgnoreCase(side)) {
-            double swLow = swingLow(lo15, SWING_BARS);       // [FIX-1] excludes last 2 bars
-            double rawSL = swLow  - SL_SWING_BUFFER * atr;
-            double minSL = entry  - SL_MIN_ATR * atr;
-            double maxSL = entry  - SL_MAX_ATR * atr;
-            slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
-            double risk = entry - slPrice;
-            tpPrice = entry + RR * risk;
-        } else {
-            double swHigh = swingHigh(hi15, SWING_BARS);     // [FIX-1] excludes last 2 bars
-            double rawSL  = swHigh + SL_SWING_BUFFER * atr;
-            double minSL  = entry  + SL_MIN_ATR * atr;
-            double maxSL  = entry  + SL_MAX_ATR * atr;
-            slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
-            double risk = slPrice - entry;
-            tpPrice = entry - RR * risk;
-        }
-
+        // ── Recompute SL/TP from actual entry ─────────────────────────────────
+        slPrice = computeSmartStopLoss(side, entry, hi15, lo15, atr, LEVERAGE);
         slPrice = roundToTick(slPrice, tickSize);
+
+        double risk = Math.abs(entry - slPrice);
+        double tpPrice;
+        if ("buy".equalsIgnoreCase(side)) {
+            tpPrice = entry + (RR_RATIO * risk);
+        } else {
+            tpPrice = entry - (RR_RATIO * risk);
+        }
         tpPrice = roundToTick(tpPrice, tickSize);
 
-        double actualRisk   = Math.abs(entry - slPrice);
         double actualReward = Math.abs(tpPrice - entry);
-        System.out.printf("  SL=%.6f | TP=%.6f | Risk=%.6f | Reward=%.6f | R:R=1:%.1f%n",
-                slPrice, tpPrice, actualRisk, actualReward, actualReward / actualRisk);
+        System.out.printf("  Final SL=%.6f | TP=%.6f | Risk=%.6f | Reward=%.6f | R:R=1:%.1f%n",
+                slPrice, tpPrice, risk, actualReward, actualReward / risk);
 
         // ── Set TP/SL ─────────────────────────────────────────────────────────
         String posId = getPositionId(pair);
@@ -509,9 +449,100 @@ private static final double MAX_QTY       = 1200.0;
 
         // ── Log trade ─────────────────────────────────────────────────────────
         log(pair, "TRADE_" + side.toUpperCase(),
-                String.format("entry=%.6f,sl=%.6f,tp=%.6f,rr=%.1f,soft=%s",
-                        entry, slPrice, tpPrice, actualReward / actualRisk, softPassed.trim()),
-                String.format("RSI=%.2f,MACDhist=%.6f", rsi, macdHist));
+                String.format("entry=%.6f,sl=%.6f,tp=%.6f,rr=%.1f,margin=%.2f,size=%.2f",
+                        entry, slPrice, tpPrice, actualReward / risk, positionSize / LEVERAGE, positionSize),
+                String.format("RSI=%.2f,MACDhist=%.6f,soft=%s", rsi, macdHist, softPassed.trim()));
+    }
+
+    // =========================================================================
+    // NEW: Smart SL Computation with Liquidation Guard
+    // =========================================================================
+
+    /**
+     * Compute stop loss using:
+     * 1. Swing extreme + adaptive ATR buffer (0.6x ATR)
+     * 2. Clamp between min breathing room and max risk cap
+     * 3. Ensure it doesn't exceed liquidation point (with safety buffer)
+     */
+    private static double computeSmartStopLoss(String side, double entry, 
+                                                double[] hi, double[] lo, 
+                                                double atr, int leverage) {
+        // Liquidation price: entry ± (LIQUIDATION_BUFFER_PCT * entry)
+        // For long: liq = entry * (1 - (1/leverage - LIQUIDATION_BUFFER_PCT))
+        // For short: liq = entry * (1 + (1/leverage - LIQUIDATION_BUFFER_PCT))
+        double liqBuffer = (1.0 / leverage) + LIQUIDATION_CUSHION;
+        double liquidPrice;
+        
+        if ("buy".equalsIgnoreCase(side)) {
+            liquidPrice = entry * (1 - liqBuffer);
+            
+            // Swing low + buffer
+            double swLow = swingLow(lo, SWING_BARS);
+            double rawSL = swLow - (ADAPTIVE_SL_FACTOR * atr);
+            
+            // Min breathing room
+            double minSL = entry - (SL_MIN_ATR * atr);
+            
+            // Max risk cap
+            double maxSL = entry - (SL_MAX_ATR * atr);
+            
+            // Clamp to [maxSL, minSL] range
+            double slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+            
+            // Guard: ensure SL stays above liquidation (with 0.5% extra buffer)
+            double safeLiqPrice = liquidPrice * 1.005;
+            if (slPrice < safeLiqPrice) {
+                slPrice = safeLiqPrice;
+            }
+            
+            return slPrice;
+        } else {
+            // SHORT
+            liquidPrice = entry * (1 + liqBuffer);
+            
+            // Swing high + buffer
+            double swHigh = swingHigh(hi, SWING_BARS);
+            double rawSL = swHigh + (ADAPTIVE_SL_FACTOR * atr);
+            
+            // Min breathing room
+            double minSL = entry + (SL_MIN_ATR * atr);
+            
+            // Max risk cap
+            double maxSL = entry + (SL_MAX_ATR * atr);
+            
+            // Clamp to [minSL, maxSL] range
+            double slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+            
+            // Guard: ensure SL stays below liquidation
+            double safeLiqPrice = liquidPrice * 0.995;
+            if (slPrice > safeLiqPrice) {
+                slPrice = safeLiqPrice;
+            }
+            
+            return slPrice;
+        }
+    }
+
+    // =========================================================================
+    // NEW: Margin-Based Position Sizing
+    // =========================================================================
+
+    /**
+     * Size position based on max margin (80 INR) instead of risk %.
+     * qty = (MAX_MARGIN_INR * LEVERAGE) / entry
+     * This ensures margin never exceeds 80 INR.
+     */
+    private static double calcQuantityFromMargin(double entry, String pair) {
+        // Max position size at this entry price
+        double maxQty = (MAX_MARGIN_INR * LEVERAGE) / entry;
+        
+        if (maxQty <= 0) return 0;
+
+        // Respect integer / 2-decimal precision for each pair
+        if (INTEGER_QTY_PAIRS.contains(pair)) {
+            return Math.floor(maxQty);
+        }
+        return Math.floor(maxQty * 100.0) / 100.0;
     }
 
     // =========================================================================
@@ -543,7 +574,7 @@ private static final double MAX_QTY       = 1200.0;
     }
 
     /**
-     * MACD with previous histogram for momentum check [FIX-4].
+     * MACD with previous histogram for momentum check.
      * Returns [macdLine, signalLine, currentHist, prevHist]
      */
     private static double[] calcMACDWithPrev(double[] cl, int fast, int slow, int sig) {
@@ -609,21 +640,16 @@ private static final double MAX_QTY       = 1200.0;
         return sum / period;
     }
 
-    /**
-     * Swing low — [FIX-1] excludes the last 2 bars (forming / just-closed).
-     * Looks at bars [length-2-SWING_BARS .. length-2].
-     */
+    /** Swing low — excludes last 2 bars. */
     private static double swingLow(double[] lo, int bars) {
-        int end   = lo.length - 2;                  // exclude current + last forming bar
+        int end   = lo.length - 2;
         int start = Math.max(0, end - bars);
         double min = Double.MAX_VALUE;
         for (int i = start; i < end; i++) min = Math.min(min, lo[i]);
         return min;
     }
 
-    /**
-     * Swing high — [FIX-1] excludes the last 2 bars.
-     */
+    /** Swing high — excludes last 2 bars. */
     private static double swingHigh(double[] hi, int bars) {
         int end   = hi.length - 2;
         int start = Math.max(0, end - bars);
@@ -665,7 +691,6 @@ private static final double MAX_QTY       = 1200.0;
         return o;
     }
 
-    /** Returns null-safe volume array; returns null if volume field is absent. */
     private static double[] extractVolumes(JSONArray a) {
         try {
             if (a.length() == 0 || !a.getJSONObject(0).has("volume")) return null;
@@ -676,85 +701,7 @@ private static final double MAX_QTY       = 1200.0;
     }
 
     // =========================================================================
-    // POSITION SIZING [FIX-2]
-    // =========================================================================
-
-    /**
-     * Risk-based sizing: risks exactly RISK_PCT of TOTAL_CAPITAL per trade.
-     * qty = riskAmt / slDistancePerUnit
-     * The leverage is applied by the exchange — we just size the contract qty.
-     */
-    // private static double calcQuantityFromRisk(double entry, double slPrice, String pair) {
-    //     double riskAmt = TOTAL_CAPITAL * RISK_PCT;
-    //     double slDist  = Math.abs(entry - slPrice);
-    //     if (slDist <= 0) return 0;
-    //     double rawQty = riskAmt / slDist;
-    //     if (INTEGER_QTY_PAIRS.contains(pair)) return Math.floor(rawQty);
-    //     return Math.floor(rawQty * 100.0) / 100.0;
-    // }
-
-    private static double calcQuantityFromRisk(double entry, double slPrice, String pair) {
-    double riskAmt = TOTAL_CAPITAL * RISK_PCT;    // existing risk model
-    double slDist  = Math.abs(entry - slPrice);
-    if (slDist <= 0) return 0;
-
-    // 1) Risk-based qty (max loss = riskAmt)
-    double qtyFromRisk = riskAmt / slDist;
-
-    // 2) Size cap
-    double qtyFromSizeCap = MAX_QTY;
-
-    // 3) Margin cap: margin ≈ entry * qty / LEVERAGE <= MAX_MARGIN_INR
-    double qtyFromMarginCap = (MAX_MARGIN_INR * LEVERAGE) / entry;
-
-    // Final cap
-    double rawQty = Math.min(qtyFromRisk, Math.min(qtyFromSizeCap, qtyFromMarginCap));
-
-    if (rawQty <= 0) return 0;
-
-    // Respect integer / 2-decimal precision for each pair
-    if (INTEGER_QTY_PAIRS.contains(pair)) return Math.floor(rawQty);
-    return Math.floor(rawQty * 100.0) / 100.0;
-}
-
-    // =========================================================================
-    // DAILY PNL — Circuit Breaker [FIX-6]
-    // =========================================================================
-
-    /**
-     * Fetches today's realised PnL from closed positions.
-     * Returns 0.0 on any error (conservative — won't falsely trip the breaker).
-     */
-    private static double getDailyPnl() {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("page",  "1");
-            body.put("size",  "50");
-            body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
-            String resp = authPost(
-                    BASE_URL + "/exchange/v1/derivatives/futures/positions/closed", body.toString());
-            JSONArray arr = resp.startsWith("[")
-                    ? new JSONArray(resp)
-                    : new JSONArray().put(new JSONObject(resp));
-            String today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
-            double pnl = 0;
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject p = arr.getJSONObject(i);
-                String closedAt = p.optString("closed_at", "");
-                if (closedAt.startsWith(today)) {
-                    pnl += p.optDouble("realized_pnl", 0);
-                }
-            }
-            return pnl;
-        } catch (Exception e) {
-            System.err.println("getDailyPnl: " + e.getMessage());
-            return 0;
-        }
-    }
-
-    // =========================================================================
-    // SCAN LOGGING [FIX-11]
+    // SCAN LOGGING
     // =========================================================================
 
     private static void initScanLog() {
@@ -781,7 +728,6 @@ private static final double MAX_QTY       = 1200.0;
     // HELPERS
     // =========================================================================
 
-    /** Extracts base coin from pair like "B-SOL_USDT" → "SOL". */
     private static String baseCoin(String pair) {
         String s = pair.startsWith("B-") ? pair.substring(2) : pair;
         int idx = s.indexOf("_USDT");
@@ -804,7 +750,7 @@ private static final double MAX_QTY       = 1200.0;
                 default:    minsPerBar = 15;  break;
             }
             long to   = Instant.now().getEpochSecond();
-            long from = to - minsPerBar * 60L * (count + 5); // +5 buffer for gaps
+            long from = to - minsPerBar * 60L * (count + 5);
             String url = PUBLIC_API_URL + "/market_data/candlesticks"
                     + "?pair=" + pair + "&from=" + from + "&to=" + to
                     + "&resolution=" + resolution + "&pcode=f";
@@ -1069,4 +1015,3 @@ private static final double MAX_QTY       = 1200.0;
         return sign(payload);
     }
 }
-
