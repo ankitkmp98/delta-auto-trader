@@ -72,7 +72,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_SWING_BUFFER = 0.6;   // ATR buffer beyond swing low/high (structural)
     private static final double SL_MIN_ATR      = 1.3;   // MINIMUM distance from entry (breathing room)
     private static final double SL_MAX_ATR      = 2.6;   // MAXIMUM distance from entry (risk cap)
-    private static final double RR              = 0.6;   // 1:5 R:R
+    private static final double RR              = 1.2;   // 1:5 R:R
 
     private static final int CANDLE_15M = 200;
     private static final int CANDLE_1H  = 120;
