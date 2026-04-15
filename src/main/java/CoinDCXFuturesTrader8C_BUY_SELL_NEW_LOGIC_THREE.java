@@ -46,7 +46,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 1200.0;
-    private static final int    LEVERAGE               = 20;
+    private static final int    LEVERAGE               = 10;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 15;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1500;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -70,8 +70,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
     private static final double SL_SWING_BUFFER = 0.6;   // ATR buffer beyond swing low/high (structural)
-    private static final double SL_MIN_ATR      = 1.3;   // MINIMUM distance from entry (breathing room)
-    private static final double SL_MAX_ATR      = 2.6;   // MAXIMUM distance from entry (risk cap)
+    private static final double SL_MIN_ATR      = 1.5;   // MINIMUM distance from entry (breathing room)
+    private static final double SL_MAX_ATR      = 2.7;   // MAXIMUM distance from entry (risk cap)
     private static final double RR              = 1.2;   // 1:5 R:R
 
     private static final int CANDLE_15M = 200;
