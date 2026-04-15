@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  *
  * KEY CHANGES FROM V2:
  *
- *  [NEW-1]  MARGIN SYSTEM: Max 80 INR margin per trade (10x lev → max 800 INR position size).
+ *  [NEW-1]  MARGIN SYSTEM: Max 80 INR margin per trade (10x lev → max 1500 INR position size).
  *           Quantity capped by: (MAX_MARGIN_INR * LEVERAGE) / entry_price
  *
  *  [NEW-2]  SL PLACEMENT: Smart SL that sits between swing low + buffer and liquidation point.
@@ -78,8 +78,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double TOTAL_CAPITAL      = 12_00.0;      // your actual INR capital
     private static final double MAX_MARGIN_INR     = 150.0;         // max 80 INR margin per trade
     private static final int    LEVERAGE           = 10;           // 10x leverage
-    // Max position size = MAX_MARGIN_INR * LEVERAGE = 800 INR
-    private static final double MAX_POSITION_SIZE  = MAX_MARGIN_INR * LEVERAGE; // 800 INR
+    // Max position size = MAX_MARGIN_INR * LEVERAGE = 1500 INR
+    private static final double MAX_POSITION_SIZE  = MAX_MARGIN_INR * LEVERAGE; // 1500 INR
 
     // Liquidation protection
     private static final double LIQUIDATION_BUFFER_PCT = 0.05;  // 5% buffer from liquidation
