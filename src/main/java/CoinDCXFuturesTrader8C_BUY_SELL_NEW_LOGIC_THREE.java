@@ -106,7 +106,7 @@ private static final double MAX_QTY       = 1200.0;
     private static final double SL_SWING_BUFFER = 0.9;  // ATR buffer beyond swing extreme
     private static final double SL_MIN_ATR      = 1.8;  // minimum SL distance (breathing room)
     private static final double SL_MAX_ATR      = 3.6;  // maximum SL distance (risk cap)
-    private static final double RR              = 0.9;  // reward:risk ratio (1:2.5)
+    private static final double RR              = 1.2;  // reward:risk ratio (1:2.5)
 
     // Candle counts
     private static final int CANDLE_15M = 200;
