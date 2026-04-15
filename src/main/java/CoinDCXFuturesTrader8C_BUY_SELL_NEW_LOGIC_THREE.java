@@ -104,7 +104,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int VOL_PERIOD = 20;
 
     // NEW: EMA distance buffer for stronger trend confirmation
-    private static final double MIN_EMA_DISTANCE = 0.2;  // EMA9 must be 0.3*ATR above EMA21 for bullish
+    private static final double MIN_EMA_DISTANCE = 0.2;  // EMA9 must be 0.2*ATR above EMA21 for bullish
 
     // RSI zones
     private static final double RSI_LONG_MIN  = 45.0;
@@ -345,8 +345,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (vl15 != null && vl15.length > VOL_PERIOD + 1) {
             double avgVol = calcSMA(vl15, VOL_PERIOD);
             double entryVol = vl15[vl15.length - 2];
-            softVolume = entryVol > avgVol * 1.2;  // NEW: 1.5x instead of 1.1x
-            System.out.printf("  [S3] Vol=%.2f AvgVol=%.2f (1.5x=%.2f) → %s%n",
+            softVolume = entryVol > avgVol * 1.2;  // NEW: 1.2x instead of 1.1x
+            System.out.printf("  [S3] Vol=%.2f AvgVol=%.2f (1.2x=%.2f) → %s%n",
                     entryVol, avgVol, avgVol * 1.2, softVolume ? "PASS" : "fail");
         } else {
             System.out.println("  [S3] Volume data unavailable — skip soft filter");
