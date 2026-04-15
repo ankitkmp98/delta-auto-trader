@@ -46,7 +46,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 1200.0;
-    private static final int    LEVERAGE               = 3;
+    private static final int    LEVERAGE               = 6;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -60,22 +60,22 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MACD_SIG   = 9;
     private static final int RSI_PERIOD = 14;
     private static final int ATR_PERIOD = 14;
-    private static final int SWING_BARS = 12;
+    private static final int SWING_BARS = 15;
 
     // RSI — wide enough to fire, tight enough to avoid extremes
-    private static final double RSI_LONG_MIN  = 45.0;
-    private static final double RSI_LONG_MAX  = 64.0;
-    private static final double RSI_SHORT_MIN = 36.0;
-    private static final double RSI_SHORT_MAX = 56.0;
+    private static final double RSI_LONG_MIN  = 40.0;
+    private static final double RSI_LONG_MAX  = 68.0;
+    private static final double RSI_SHORT_MIN = 32.0;
+    private static final double RSI_SHORT_MAX = 60.0;
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
-    private static final double SL_SWING_BUFFER = 0.3;   // ATR buffer beyond swing low/high (structural)
-    private static final double SL_MIN_ATR      = 0.6;   // MINIMUM distance from entry (breathing room)
-    private static final double SL_MAX_ATR      = 1.2;   // MAXIMUM distance from entry (risk cap)
-    private static final double RR              = 4.2;   // 1:2 R:R
+    private static final double SL_SWING_BUFFER = 0.5;   // ATR buffer beyond swing low/high (structural)
+    private static final double SL_MIN_ATR      = 0.5;   // MINIMUM distance from entry (breathing room)
+    private static final double SL_MAX_ATR      = 1.0;   // MAXIMUM distance from entry (risk cap)
+    private static final double RR              = 2.1;   // 1:2 R:R
 
-    private static final int CANDLE_15M = 180;
-    private static final int CANDLE_1H  = 120;
+    private static final int CANDLE_15M = 120;
+    private static final int CANDLE_1H  = 70;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -102,7 +102,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         "ASTR", "TWT", "CTSI", "VIRTUAL", "CHR", "EDU", "PROM", "KSM", "BICO", "DENT",
         "ALT", "C98", "RLC", "SUN", "PENDLE", "BANANA", "NMR", "POL", "MAGIC",
         "MOODENG", "WAXP", "ZK", "GAS", "ALPACA", "TNSR", "PHB", "POWR", "LSK", "FIO",
-        "DEFI", "KAS", "1000SATS", "ARKM", "PIXEL", "MAV", "REI", "ZRO", "COOKIE",
+        "DEFI", "USDC", "KAS", "1000SATS", "ARKM", "PIXEL", "MAV", "REI", "ZRO", "COOKIE",
         "JOE", "BNT", "CYBER", "SCRT", "XRP", "VELODROME", "ONG", "AERO", "HOOK", "AI16Z",
         "KMNO", "LPT", "THETA", "NTRN", "VIC", "RAYSOL", "PARTI", "MELANIA", "MEW", "EIGEN",
         "XVG", "MYRO", "IO", "SHELL", "AUCTION", "STORJ", "SWELL", "COS", "FORTH", "BEL",
@@ -137,7 +137,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                System.out.println("\\n==== " + pair + " ====");
+                System.out.println("\n==== " + pair + " ====");
 
                 // ── Fetch candles ─────────────────────────────────────────────
                 JSONArray raw15m = getCandlestickData(pair, "15", CANDLE_15M);
@@ -311,7 +311,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.err.println("Error on " + pair + ": " + e.getMessage());
             }
         }
-        System.out.println("\\n=== Scan complete ===");
+        System.out.println("\n=== Scan complete ===");
     }
 
     // =========================================================================
@@ -698,7 +698,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static String readStream(InputStream is) throws IOException {
         return new BufferedReader(new InputStreamReader(is))
-                .lines().collect(Collectors.joining("\\n"));
+                .lines().collect(Collectors.joining("\n"));
     }
 
     private static String sign(String payload) {
