@@ -34,6 +34,12 @@ import java.util.stream.Stream;
  *     Long  SL = max(swing low - 0.5xATR,  EMA21 - 1.5xATR) capped at 2.5xATR
  *     Short SL = min(swing high + 0.5xATR, EMA21 + 1.5xATR) capped at 2.5xATR
  *     TP       = entry +/- 2.0 x actual risk  (1:2 R:R — profitable at 34% win rate)
+ *
+ *  MARGIN RULE:
+ *     For every new order, the margin spent = MAX_MARGIN / LEVERAGE.
+ *     Total position size (qty × price) is capped at MAX_MARGIN.
+ *     Example: MAX_MARGIN=1200, LEVERAGE=10 → margin per trade = 120 INR,
+ *              total position size = 1200 INR.
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
@@ -45,8 +51,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN             = 1200.0;
-    private static final int    LEVERAGE               = 10;
+    private static final double MAX_MARGIN             = 1200.0;   // Total position size cap (INR)
+    private static final int    LEVERAGE               = 10;       // Margin spent = MAX_MARGIN / LEVERAGE
     private static final int    MAX_ENTRY_PRICE_CHECKS = 15;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1500;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -241,8 +247,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double qty = calcQuantity(currentPrice, pair);
                 if (qty <= 0) { System.out.println("  Invalid qty — skip"); continue; }
 
+                // ── Log margin breakdown ──────────────────────────────────────
+                double positionSize = qty * currentPrice;
+                double marginSpent  = positionSize / LEVERAGE;
                 System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx%n",
                         side.toUpperCase(), currentPrice, qty, LEVERAGE);
+                System.out.printf("  Position size=%.4f INR | Margin spent=%.4f INR (cap=%.1f/lev=%d)%n",
+                        positionSize, marginSpent, MAX_MARGIN, LEVERAGE);
 
                 JSONObject resp = placeFuturesMarketOrder(side, pair, qty, LEVERAGE,
                         "email_notification", "isolated", "INR");
@@ -523,8 +534,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return null;
     }
 
+    /**
+     * Calculates the quantity such that:
+     *   - Total position size (qty × price) <= MAX_MARGIN
+     *   - Margin actually spent             =  position size / LEVERAGE
+     *                                       =  MAX_MARGIN / LEVERAGE
+     *
+     * Example with MAX_MARGIN=1200, LEVERAGE=10, price=50:
+     *   qty         = 1200 / 50  = 24 units
+     *   position    = 24 × 50    = 1200 INR   (<= MAX_MARGIN ✓)
+     *   margin used = 1200 / 10  = 120 INR    (= MAX_MARGIN / LEVERAGE ✓)
+     */
     private static double calcQuantity(double price, String pair) {
-        double qty = MAX_MARGIN / (price * LEVERAGE);
+        // qty × price = MAX_MARGIN  →  qty = MAX_MARGIN / price
+        double qty = MAX_MARGIN / price;
         return Math.max(
                 INTEGER_QTY_PAIRS.contains(pair)
                         ? Math.floor(qty)
