@@ -46,8 +46,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 900.0;
-    private static final int    LEVERAGE               = 5;
-    private static final int    MAX_ENTRY_PRICE_CHECKS = 15;
+    private static final int    LEVERAGE               = 3;
+    private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
 
@@ -60,19 +60,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MACD_SIG   = 9;
     private static final int RSI_PERIOD = 14;
     private static final int ATR_PERIOD = 14;
-    private static final int SWING_BARS = 15;
+    private static final int SWING_BARS = 20;
 
     // RSI — wide enough to fire, tight enough to avoid extremes
-    private static final double RSI_LONG_MIN  = 42.0;
-    private static final double RSI_LONG_MAX  = 68.0;
-    private static final double RSI_SHORT_MIN = 32.0;
-    private static final double RSI_SHORT_MAX = 58.0;
+    private static final double RSI_LONG_MIN  = 45.0;
+    private static final double RSI_LONG_MAX  = 65.0;
+    private static final double RSI_SHORT_MIN = 40.0;
+    private static final double RSI_SHORT_MAX = 60.0;
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
-    private static final double SL_SWING_BUFFER = 0.9;   // ATR buffer beyond swing low/high (structural)
+    private static final double SL_SWING_BUFFER = 1.1;   // ATR buffer beyond swing low/high (structural)
     private static final double SL_MIN_ATR      = 1.8;   // MINIMUM distance from entry (breathing room)
-    private static final double SL_MAX_ATR      = 2.2;   // MAXIMUM distance from entry (risk cap)
-    private static final double RR              = 1.2;   // 1:5 R:R
+    private static final double SL_MAX_ATR      = 2.5;   // MAXIMUM distance from entry (risk cap)
+    private static final double RR              = 1.5;   // 1:5 R:R
 
     private static final int CANDLE_15M = 200;
     private static final int CANDLE_1H  = 120;
