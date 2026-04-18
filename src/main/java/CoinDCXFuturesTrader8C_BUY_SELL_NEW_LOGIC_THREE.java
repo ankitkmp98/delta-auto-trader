@@ -531,15 +531,30 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
         return null;
     }
 
+    // private static double calcQuantity(double price, String pair) {
+    //     // double qty = MAX_MARGIN / (price * LEVERAGE);
+    //     double qty = MAX_MARGIN / price;
+    //     return Math.max(
+    //             INTEGER_QTY_PAIRS.contains(pair)
+    //                     ? Math.floor(qty)
+    //                     : Math.floor(qty * 100) / 100,
+    //             0);
+    // }
+
     private static double calcQuantity(double price, String pair) {
-        // double qty = MAX_MARGIN / (price * LEVERAGE);
-        double qty = MAX_MARGIN / price;
-        return Math.max(
-                INTEGER_QTY_PAIRS.contains(pair)
-                        ? Math.floor(qty)
-                        : Math.floor(qty * 100) / 100,
-                0);
-    }
+    // Assume ~83 INR per USDT (update dynamically if needed)
+    double USDT_INR = 98.0;
+    
+    // Desired margin <= MAX_MARGIN
+    double maxNotionalUSDT = MAX_MARGIN * LEVERAGE / USDT_INR;
+    double maxQty = maxNotionalUSDT / price;
+    
+    // Apply precision
+    return INTEGER_QTY_PAIRS.contains(pair)
+            ? Math.floor(maxQty)
+            : Math.floor(maxQty * 100) / 100.0;
+}
+    
 
     public static double getLastPrice(String pair) {
         try {
