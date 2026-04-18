@@ -45,8 +45,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN             = 900.0;
-    private static final int    LEVERAGE               = 10;
+    private static final double MAX_MARGIN             = 1200.0;
+    private static final int    LEVERAGE               = 3;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -541,12 +541,22 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
     //             0);
     // }
 
-        private static double calcQuantity(double currentPrice, String pair) {
-        double qty = MAX_MARGIN / (currentPrice * 98);
-        return Math.max(INTEGER_QTY_PAIRS.contains(pair) ?
-                Math.floor(qty) : Math.floor(qty * 100) / 100, 0);
-    }
-    
+private static double calcQuantity(double price, String pair) {
+
+    // You can later replace this with dynamic API value
+    double usdtInrRate = 98.0;  // safer than 83 (exchange uses higher internal rate)
+
+    // Core formula
+    double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+
+    // Apply precision rules
+    double finalQty = INTEGER_QTY_PAIRS.contains(pair)
+            ? Math.floor(qty)
+            : Math.floor(qty * 100) / 100.0;
+
+    // Safety check (avoid zero or negative)
+    return Math.max(finalQty, 0);
+}
 
     public static double getLastPrice(String pair) {
         try {
