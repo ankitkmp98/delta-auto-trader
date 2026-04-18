@@ -143,8 +143,7 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
                 if (System.currentTimeMillis() - lastTrade < COOLDOWN_MS) {
                     System.out.println("  Skip " + pair + " — cooldown active");
                     continue;//new
-                    
-
+                }
                 System.out.println("\n==== " + pair + " ====");
 
                 // ── Fetch candles ─────────────────────────────────────────────
