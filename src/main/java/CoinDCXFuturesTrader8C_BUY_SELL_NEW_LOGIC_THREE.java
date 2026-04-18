@@ -541,18 +541,22 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
     //             0);
     // }
 
-    private static double calcQuantity(double price, String pair) {
-    // Assume ~83 INR per USDT (update dynamically if needed)
-    double USDT_INR = 98.0;
-    
-    // Desired margin <= MAX_MARGIN
-    double maxNotionalUSDT = MAX_MARGIN * LEVERAGE / USDT_INR;
-    double maxQty = maxNotionalUSDT / price;
-    
-    // Apply precision
+private static double calcQuantity(double price, String pair) {
+    // Fetch live USDT_INR rate (spot price)
+    double usdtInr = getLastPrice("USDT_INR");
+    if (usdtInr <= 0) usdtInr = 98.0;  // Fallback
+
+    // Notional value in INR for target margin
+    double positionValueInr = MAX_MARGIN * LEVERAGE;
+
+    // Convert to USDT notional, then qty (base asset units)
+    double positionValueUsdt = positionValueInr / usdtInr;
+    double qty = positionValueUsdt / price;
+
+    // Apply pair-specific precision
     return INTEGER_QTY_PAIRS.contains(pair)
-            ? Math.floor(maxQty)
-            : Math.floor(maxQty * 100) / 100.0;
+            ? Math.floor(qty)
+            : Math.floor(qty * 100) / 100.0;
 }
     
 
