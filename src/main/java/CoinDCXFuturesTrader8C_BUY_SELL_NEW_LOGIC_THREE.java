@@ -80,6 +80,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
 
+    private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();//new
+private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
+
     // =========================================================================
     // Coin list
     // =========================================================================
@@ -136,6 +139,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("Skip " + pair + " — active position");
                     continue;
                 }
+                long lastTrade = lastTradeTime.getOrDefault(pair, 0L);//new
+                if (System.currentTimeMillis() - lastTrade < COOLDOWN_MS) {
+                    System.out.println("  Skip " + pair + " — cooldown active");
+                    continue;//new
+                    
 
                 System.out.println("\n==== " + pair + " ====");
 
@@ -252,6 +260,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
                 System.out.println("  Order placed! id=" + resp.getString("id"));
+                    lastTradeTime.put(pair, System.currentTimeMillis());//new
 
                 // ── Confirm entry price ───────────────────────────────────────
                 double entry = getEntryPrice(pair, resp.getString("id"));
