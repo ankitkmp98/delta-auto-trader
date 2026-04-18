@@ -541,23 +541,29 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
     //             0);
     // }
 
-private static double calcQuantity(double price, String pair) {
-    // Fetch live USDT_INR rate (spot price)
-    double usdtInr = getLastPrice("USDT_INR");
-    if (usdtInr <= 0) usdtInr = 98.0;  // Fallback
+// private static double calcQuantity(double price, String pair) {
+//     // Fetch live USDT_INR rate (spot price)
+//     double usdtInr = getLastPrice("USDT_INR");
+//     if (usdtInr <= 0) usdtInr = 98.0;  // Fallback
 
-    // Notional value in INR for target margin
-    double positionValueInr = MAX_MARGIN * LEVERAGE;
+//     // Notional value in INR for target margin
+//     double positionValueInr = MAX_MARGIN * LEVERAGE;
 
-    // Convert to USDT notional, then qty (base asset units)
-    double positionValueUsdt = positionValueInr / usdtInr;
-    double qty = positionValueUsdt / price;
+//     // Convert to USDT notional, then qty (base asset units)
+//     double positionValueUsdt = positionValueInr / usdtInr;
+//     double qty = positionValueUsdt / price;
 
-    // Apply pair-specific precision
-    return INTEGER_QTY_PAIRS.contains(pair)
-            ? Math.floor(qty)
-            : Math.floor(qty * 100) / 100.0;
-}
+//     // Apply pair-specific precision
+//     return INTEGER_QTY_PAIRS.contains(pair)
+//             ? Math.floor(qty)
+//             : Math.floor(qty * 100) / 100.0;
+// }
+
+        private static double calcQuantity(double currentPrice, String pair) {
+        double quantity = MAX_MARGIN / (currentPrice * 98);
+        return Math.max(INTEGER_QUANTITY_PAIRS.contains(pair) ?
+                Math.floor(quantity) : Math.floor(quantity * 100) / 100, 0);
+    }
     
 
     public static double getLastPrice(String pair) {
