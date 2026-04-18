@@ -533,7 +533,7 @@ private static final long COOLDOWN_MS = 4 * 60 * 60 * 1000L; // 4 hours //new
 
     private static double calcQuantity(double price, String pair) {
         // double qty = MAX_MARGIN / (price * LEVERAGE);
-        double qty = MAX_MARGIN / price;
+        double qty = MAX_MARGIN / currentPrice;
         return Math.max(
                 INTEGER_QTY_PAIRS.contains(pair)
                         ? Math.floor(qty)
