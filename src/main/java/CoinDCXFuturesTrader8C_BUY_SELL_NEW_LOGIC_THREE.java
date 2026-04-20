@@ -70,7 +70,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
     private static final double SL_SWING_BUFFER = 1.5;   // ATR buffer beyond swing low/high (structural)
-    private static final double SL_MIN_ATR      = 2.4;   // MINIMUM distance from entry (breathing room)
+    private static final double SL_MIN_ATR      = 3.3;   // MINIMUM distance from entry (breathing room)
     private static final double SL_MAX_ATR      = 3.6;   // MAXIMUM distance from entry (risk cap)
     private static final double RR              = 1.2;   // 1:4 R:R
 
