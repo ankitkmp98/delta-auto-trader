@@ -81,7 +81,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static long lastCacheUpdate = 0;
 
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();//new
-private static final long COOLDOWN_MS = 6 * 60 * 60 * 1000L; // 4 hours //new
+private static final long COOLDOWN_MS = 2 * 60 * 60 * 1000L; // 4 hours //new
 
     // =========================================================================
     // Coin list
