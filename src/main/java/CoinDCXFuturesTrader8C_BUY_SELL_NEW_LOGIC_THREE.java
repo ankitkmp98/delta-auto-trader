@@ -63,16 +63,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int SWING_BARS = 20;
 
     // RSI — wide enough to fire, tight enough to avoid extremes
-    private static final double RSI_LONG_MIN  = 48.0;
-    private static final double RSI_LONG_MAX  = 58.0;
-    private static final double RSI_SHORT_MIN = 42.0;
-    private static final double RSI_SHORT_MAX = 52.0;
+    private static final double RSI_LONG_MIN  = 45.0;
+    private static final double RSI_LONG_MAX  = 65.0;
+    private static final double RSI_SHORT_MIN = 35.0;
+    private static final double RSI_SHORT_MAX = 55.0;
 
     // SL parameters — 3-bound system (structure, minimum breathing room, maximum risk)
-    private static final double SL_SWING_BUFFER = 4.5;   // ATR buffer beyond swing low/high (structural)
-    private static final double SL_MIN_ATR      = 3.6;   // MINIMUM distance from entry (breathing room)
-    private static final double SL_MAX_ATR      = 4.5;   // MAXIMUM distance from entry (risk cap)
-    private static final double RR              = 0.9;   // 1:4 R:R
+    private static final double SL_SWING_BUFFER = 1.2;   // ATR buffer beyond swing low/high (structural)
+    private static final double SL_MIN_ATR      = 1.2;   // MINIMUM distance from entry (breathing room)
+    private static final double SL_MAX_ATR      = 2.0;   // MAXIMUM distance from entry (risk cap)
+    private static final double RR              = 2.0;   // 1:4 R:R
 
     private static final int CANDLE_15M = 200;
     private static final int CANDLE_1H  = 120;
