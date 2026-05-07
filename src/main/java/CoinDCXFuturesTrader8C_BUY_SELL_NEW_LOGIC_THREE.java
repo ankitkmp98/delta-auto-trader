@@ -766,7 +766,9 @@ System.out.printf("  Risk=%.6f | Reward=%.6f | R:R = 1:%.1f%n",
     public static JSONObject placeFuturesMarketOrder(String side, String pair, double qty,
                                                      int lev, String notif,
                                                      String marginType, String marginCcy) {
-        // Add this just before placing the order:
+    
+        try {
+            // Add this just before placing the order:
 double distFromEma9 = Math.abs(lastClose - ema9);
 if (distFromEma9 > 0.8 * atr15m) {
     System.out.printf("  Skip — price %.6f extended from EMA9 (dist=%.6f > 0.8xATR=%.6f)%n",
@@ -774,7 +776,6 @@ if (distFromEma9 > 0.8 * atr15m) {
     continue;
 }
 System.out.println("  Entry zone OK — price near EMA9");
-        try {
             JSONObject order = new JSONObject();
             order.put("side",                       side.toLowerCase());
             order.put("pair",                       pair);
