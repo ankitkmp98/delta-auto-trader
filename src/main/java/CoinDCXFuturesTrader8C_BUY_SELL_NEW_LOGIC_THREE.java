@@ -76,10 +76,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // This is the fix for SL getting hit too early:
     //   15m ATR is ~3x wider than 5m ATR
     //   Using 5m ATR puts SL close to actual recent noise level
-    private static final double SL_SWING_BUFFER = 1.0;   // ATR buffer beyond 5m swing
-    private static final double SL_MIN_ATR      = 1.0;   // minimum SL distance (5m ATR units)
-    private static final double SL_MAX_ATR      = 1.8;   // maximum SL distance (5m ATR units)
-    private static final double RR              = 1.2;   // 1:2 R:R
+    private static final double SL_SWING_BUFFER = 0.3;   // ATR buffer beyond 5m swing
+    private static final double SL_MIN_ATR      = 2.0;   // minimum SL distance (5m ATR units)
+    private static final double SL_MAX_ATR      = 3.5;   // maximum SL distance (5m ATR units)
+    private static final double RR              = 1.5;   // 1:2 R:R
+    
+    private static final double NOISE_BUFFER     = 0.8;   // extra breathing room (15m ATR units)
 
     private static final int CANDLE_15M = 200;
     private static final int CANDLE_5M  = 120;  // 5m candles for entry timing + tight SL
@@ -347,37 +349,66 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
                 // ── SL: 3-bound system ────────────────────────────────────────
-                double slPrice, tpPrice;
-                if ("buy".equalsIgnoreCase(side)) {
-                    // Use 5m swing low + 5m ATR for tight, accurate SL
-                    // 5m swing low over last 20 bars = last ~100 minutes of structure
-                    double swLow5m = swingLow(lo5m, SWING_BARS);
-                    double rawSL   = swLow5m - SL_SWING_BUFFER * atr5m;
-                    double minSL   = entry   - SL_MIN_ATR * atr5m;   // 5m ATR = ~3x tighter than 15m
-                    double maxSL   = entry   - SL_MAX_ATR * atr5m;
-                    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
-                    double risk = entry - slPrice;
-                    tpPrice = entry + RR * risk;
-                } else {
-                    // Use 5m swing high + 5m ATR for tight, accurate SL
-                    double swHigh5m = swingHigh(hi5m, SWING_BARS);
-                    double rawSL    = swHigh5m + SL_SWING_BUFFER * atr5m;
-                    double minSL    = entry    + SL_MIN_ATR * atr5m;
-                    double maxSL    = entry    + SL_MAX_ATR * atr5m;
-                    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
-                    double risk = slPrice - entry;
-                    tpPrice = entry - RR * risk;
-                }
+                // ── SL/TP: Wide SL with breathing room, TP at 1.5x risk ──────────────────
+double slPrice, tpPrice;
 
-                slPrice = roundToTick(slPrice, tickSize);
-                tpPrice = roundToTick(tpPrice, tickSize);
+if ("buy".equalsIgnoreCase(side)) {
 
-                double slPct = Math.abs(entry - slPrice) / entry * 100;
-                System.out.printf("  SL=%.6f (%.2f%% from entry) | TP=%.6f | R:R=1:%.1f%n",
-                        slPrice, slPct, tpPrice, RR);
-                System.out.printf("  Risk=%.6f | Reward=%.6f%n",
-                        Math.abs(entry - slPrice),
-                        Math.abs(tpPrice - entry));
+    // Step 1: Find the deepest swing low in last 30 bars (not 20)
+    // Deeper lookback = stronger structure level = harder for market to break
+    double swLow15m = swingLow(lo15, 30);
+
+    // Step 2: Go BELOW the swing low by noise buffer + small ATR buffer
+    // This places SL in "no man's land" — beyond where normal noise reaches
+    // Market would need a genuine reversal to hit this, not just a wick
+    double rawSL = swLow15m - (NOISE_BUFFER * atr15m) - (SL_SWING_BUFFER * atr15m);
+
+    // Step 3: Clamp — SL must be at least 2x ATR away (breathing room)
+    //                  SL must be at most 3.5x ATR away (not too far)
+    double minSL = entry - SL_MIN_ATR * atr15m;   // closest SL allowed
+    double maxSL = entry - SL_MAX_ATR * atr15m;   // farthest SL allowed
+    slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+
+    // Step 4: TP = 1.5x the actual risk taken
+    // Since SL is wide (2-3.5x ATR), TP will also be reasonably far
+    // but price needs LESS move % to hit TP than to hit SL
+    double risk = entry - slPrice;
+    tpPrice = entry + RR * risk;
+
+    System.out.printf("  SwingLow=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
+            swLow15m, rawSL, slPrice);
+
+} else {
+
+    // Step 1: Find deepest swing high in last 30 bars
+    double swHigh15m = swingHigh(hi15, 30);
+
+    // Step 2: Go ABOVE swing high by noise buffer + small ATR buffer
+    double rawSL = swHigh15m + (NOISE_BUFFER * atr15m) + (SL_SWING_BUFFER * atr15m);
+
+    // Step 3: Clamp
+    double minSL = entry + SL_MIN_ATR * atr15m;
+    double maxSL = entry + SL_MAX_ATR * atr15m;
+    slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+
+    // Step 4: TP
+    double risk = slPrice - entry;
+    tpPrice = entry - RR * risk;
+
+    System.out.printf("  SwingHigh=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
+            swHigh15m, rawSL, slPrice);
+}
+
+slPrice = roundToTick(slPrice, tickSize);
+tpPrice = roundToTick(tpPrice, tickSize);
+
+double slPct = Math.abs(entry - slPrice) / entry * 100;
+double tpPct = Math.abs(tpPrice - entry) / entry * 100;
+System.out.printf("  SL=%.6f (%.2f%% from entry) | TP=%.6f (%.2f%% from entry)%n",
+        slPrice, slPct, tpPrice, tpPct);
+System.out.printf("  Risk=%.6f | Reward=%.6f | R:R = 1:%.1f%n",
+        Math.abs(entry - slPrice),
+        Math.abs(tpPrice - entry), RR);
 
                 // ── Set TP/SL ─────────────────────────────────────────────────
                 String posId = getPositionId(pair);
@@ -735,6 +766,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static JSONObject placeFuturesMarketOrder(String side, String pair, double qty,
                                                      int lev, String notif,
                                                      String marginType, String marginCcy) {
+        // Add this just before placing the order:
+double distFromEma9 = Math.abs(lastClose - ema9);
+if (distFromEma9 > 0.8 * atr15m) {
+    System.out.printf("  Skip — price %.6f extended from EMA9 (dist=%.6f > 0.8xATR=%.6f)%n",
+            lastClose, distFromEma9, 0.8 * atr15m);
+    continue;
+}
+System.out.println("  Entry zone OK — price near EMA9");
         try {
             JSONObject order = new JSONObject();
             order.put("side",                       side.toLowerCase());
