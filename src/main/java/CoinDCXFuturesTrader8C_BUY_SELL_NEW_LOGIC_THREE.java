@@ -330,6 +330,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx%n",
                         side.toUpperCase(), currentPrice, qty, LEVERAGE);
 
+                // Add this just before placing the order:
+double distFromEma9 = Math.abs(lastClose - ema9);
+if (distFromEma9 > 0.8 * atr15m) {
+    System.out.printf("  Skip — price %.6f extended from EMA9 (dist=%.6f > 0.8xATR=%.6f)%n",
+            lastClose, distFromEma9, 0.8 * atr15m);
+    continue;
+}
+System.out.println("  Entry zone OK — price near EMA9");
+
                 JSONObject resp = placeFuturesMarketOrder(side, pair, qty, LEVERAGE,
                         "email_notification", "isolated", "INR");
 
@@ -768,14 +777,6 @@ System.out.printf("  Risk=%.6f | Reward=%.6f | R:R = 1:%.1f%n",
                                                      String marginType, String marginCcy) {
     
         try {
-            // Add this just before placing the order:
-double distFromEma9 = Math.abs(lastClose - ema9);
-if (distFromEma9 > 0.8 * atr15m) {
-    System.out.printf("  Skip — price %.6f extended from EMA9 (dist=%.6f > 0.8xATR=%.6f)%n",
-            lastClose, distFromEma9, 0.8 * atr15m);
-    continue;
-}
-System.out.println("  Entry zone OK — price near EMA9");
             JSONObject order = new JSONObject();
             order.put("side",                       side.toLowerCase());
             order.put("pair",                       pair);
