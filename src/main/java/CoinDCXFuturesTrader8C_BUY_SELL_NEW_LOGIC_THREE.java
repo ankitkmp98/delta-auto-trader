@@ -50,7 +50,7 @@ import java.util.stream.Stream;
  *     SL = swing structure +/- noise buffer, clamped 2.0–3.5x ATR
  *     TP = entry +/- 1.2x actual risk (1:1.2 minimum, validated before order)
  */
-public class CoinDCXFuturesTrader {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Configuration
