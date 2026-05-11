@@ -77,9 +77,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   15m ATR is ~3x wider than 5m ATR
     //   Using 5m ATR puts SL close to actual recent noise level
     private static final double SL_SWING_BUFFER = 0.3;   // ATR buffer beyond 5m swing
-    private static final double SL_MIN_ATR      = 3.0;   // minimum SL distance (5m ATR units)
-    private static final double SL_MAX_ATR      = 3.5;   // maximum SL distance (5m ATR units)
-    private static final double RR              = 1.2;   // 1:2 R:R
+    private static final double SL_MIN_ATR      = 1.0;   // minimum SL distance (5m ATR units)
+    private static final double SL_MAX_ATR      = 1.5;   // maximum SL distance (5m ATR units)
+    private static final double RR              = 1.5;   // 1:2 R:R
     
     private static final double NOISE_BUFFER     = 0.8;   // extra breathing room (15m ATR units)
 
