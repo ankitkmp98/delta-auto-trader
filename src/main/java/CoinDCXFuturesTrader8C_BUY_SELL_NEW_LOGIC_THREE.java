@@ -46,7 +46,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 800.0;
-    private static final int    LEVERAGE               = 9;
+    private static final int    LEVERAGE               = 12;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -77,9 +77,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   15m ATR is ~3x wider than 5m ATR
     //   Using 5m ATR puts SL close to actual recent noise level
     private static final double SL_SWING_BUFFER = 0.3;   // ATR buffer beyond 5m swing
-    private static final double SL_MIN_ATR      = 2.0;   // minimum SL distance (5m ATR units)
-    private static final double SL_MAX_ATR      = 2.5;   // maximum SL distance (5m ATR units)
-    private static final double RR              = 1.5;   // 1:2 R:R
+    private static final double SL_MIN_ATR      = 1.0;   // minimum SL distance (5m ATR units)
+    private static final double SL_MAX_ATR      = 1.5;   // maximum SL distance (5m ATR units)
+    private static final double RR              = 3.5;   // 1:2 R:R
     
     private static final double NOISE_BUFFER     = 0.8;   // extra breathing room (15m ATR units)
 
