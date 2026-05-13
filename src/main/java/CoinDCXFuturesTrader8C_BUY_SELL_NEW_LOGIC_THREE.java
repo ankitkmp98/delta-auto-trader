@@ -313,6 +313,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  N1 FAIL — market sideways, ADX too low — skip");
                     continue;
                 }
+                if (adx > 45) {
+    System.out.println("  N1 FAIL — ADX too high, trend exhausted — skip");
+    continue;
+}
                 System.out.println("  N1 OK — trend is strong (ADX=" + String.format("%.1f", adx) + ")");
 
                 // ─────────────────────────────────────────────────────────────
@@ -487,15 +491,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double slPrice, tpPrice;
 
                 if ("buy".equalsIgnoreCase(side)) {
-                    double swLow15m = swingLow(lo15, 30);
-                    double rawSL    = swLow15m - (NOISE_BUFFER * atr15m) - (SL_SWING_BUFFER * atr15m);
-                    double minSL    = entry - SL_MIN_ATR * atr15m;
-                    double maxSL    = entry - SL_MAX_ATR * atr15m;
-                    slPrice         = Math.max(Math.min(rawSL, minSL), maxSL);
-                    double risk     = entry - slPrice;
-                    tpPrice         = entry + RR * risk;
-                    System.out.printf("  SwingLow=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
-                            swLow15m, rawSL, slPrice);
+                    double swLow5m = swingLow(lo5m, 20);
+
+double rawSL = swLow5m
+        - (NOISE_BUFFER * atr5m)
+        - (SL_SWING_BUFFER * atr5m);
+
+double minSL = entry - SL_MIN_ATR * atr5m;
+double maxSL = entry - SL_MAX_ATR * atr5m;
+
+slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
+
+tpPrice = entry + (atr15m * 2.0);
+
+System.out.printf("  SwingLow5m=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
+        swLow5m, rawSL, slPrice);
                 } else {
                     double swHigh15m = swingHigh(hi15, 30);
                     double rawSL     = swHigh15m + (NOISE_BUFFER * atr15m) + (SL_SWING_BUFFER * atr15m);
