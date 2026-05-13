@@ -75,7 +75,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Position sizing
     private static final double MAX_MARGIN         = 800.0;   // INR per trade (normal mode)
     private static final double CAUTIOUS_MARGIN    = 400.0;   // INR per trade (after profit target)
-    private static final int    MAX_OPEN_POSITIONS = 3;       // [FIX-3] hard cap
+    private static final int    MAX_OPEN_POSITIONS = 50;       // [FIX-3] hard cap
 
     // API timing
     private static final int  MAX_ENTRY_PRICE_CHECKS = 12;
