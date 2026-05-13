@@ -507,15 +507,21 @@ tpPrice = entry + (atr15m * 2.0);
 System.out.printf("  SwingLow5m=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
         swLow5m, rawSL, slPrice);
                 } else {
-                    double swHigh15m = swingHigh(hi15, 30);
-                    double rawSL     = swHigh15m + (NOISE_BUFFER * atr15m) + (SL_SWING_BUFFER * atr15m);
-                    double minSL     = entry + SL_MIN_ATR * atr15m;
-                    double maxSL     = entry + SL_MAX_ATR * atr15m;
-                    slPrice          = Math.min(Math.max(rawSL, minSL), maxSL);
-                    double risk      = slPrice - entry;
-                    tpPrice          = entry - RR * risk;
-                    System.out.printf("  SwingHigh=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
-                            swHigh15m, rawSL, slPrice);
+                    double swHigh5m = swingHigh(hi5m, 20);
+
+double rawSL = swHigh5m
+        + (NOISE_BUFFER * atr5m)
+        + (SL_SWING_BUFFER * atr5m);
+
+double minSL = entry + SL_MIN_ATR * atr5m;
+double maxSL = entry + SL_MAX_ATR * atr5m;
+
+slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
+
+tpPrice = entry - (atr15m * 2.0);
+
+System.out.printf("  SwingHigh5m=%.6f | RawSL=%.6f | Clamped SL=%.6f%n",
+        swHigh5m, rawSL, slPrice);
                 }
 
                 slPrice = roundToTick(slPrice, tickSize);
