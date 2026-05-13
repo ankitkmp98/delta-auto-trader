@@ -83,9 +83,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     
     private static final double NOISE_BUFFER     = 0.8;   // extra breathing room (15m ATR units)
 
-    private static final int CANDLE_15M = 200;
-    private static final int CANDLE_5M  = 120;  // 5m candles for entry timing + tight SL
-    private static final int CANDLE_1H  = 120;
+    private static final int CANDLE_15M = 100;
+    private static final int CANDLE_5M  = 60;  // 5m candles for entry timing + tight SL
+    private static final int CANDLE_1H  = 60;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
