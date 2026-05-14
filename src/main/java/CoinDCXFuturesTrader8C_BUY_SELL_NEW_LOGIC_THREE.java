@@ -129,13 +129,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.0;
 
     // ── ADX threshold ────────────────────────────────────────────────────────
-    private static final double ADX_MIN = 25.0;
+    private static final double ADX_MIN = 18.0;
 
     // ── RSI zones (FIX #4: tighter — avoid overbought entries) ───────────────
-    private static final double RSI_LONG_MIN  = 45.0;
-    private static final double RSI_LONG_MAX  = 62.0;   // was 68 → now 62
-    private static final double RSI_SHORT_MIN = 38.0;   // was 32 → now 38
-    private static final double RSI_SHORT_MAX = 55.0;
+    private static final double RSI_LONG_MIN  = 42.0;
+    private static final double RSI_LONG_MAX  = 68.0;   // was 68 → now 62
+    private static final double RSI_SHORT_MIN = 32.0;   // was 32 → now 38
+    private static final double RSI_SHORT_MAX = 58.0;
 
     // ── SL parameters (FIX #8: tighter clamp — was 2.0/3.5, now 1.5/2.5) ────
     private static final double SL_SWING_BUFFER = 0.5;
@@ -155,12 +155,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_FLIP_MAX_CANDLE_RATIO= 1.2;  // tighter on flip candle
 
     // ── 5m candle quality ─────────────────────────────────────────────────────
-    private static final double MIN_5M_BODY_RATIO          = 0.50;
-    private static final double CLOSE_NEAR_EXTREME_RATIO   = 0.30;
+    private static final double MIN_5M_BODY_RATIO          = 0.35;
+    private static final double CLOSE_NEAR_EXTREME_RATIO   = 0.45;
 
     // ── FIX #7: High volatility skip threshold ────────────────────────────────
     // ATR as % of price — if > 2.5%, market is too erratic (news event, spike)
-    private static final double MAX_ATR_PERCENT = 2.5;
+    private static final double MAX_ATR_PERCENT = 4.5;
 
     // ── Candle fetch counts ───────────────────────────────────────────────────
     private static final int CANDLE_15M = 100;
@@ -381,8 +381,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 boolean ema21Rising  = ema21 > prevEma21;
                 boolean ema21Falling = ema21 < prevEma21;
 
-                boolean localUp   = ema9 > ema21 && ema21Rising;
-                boolean localDown = ema9 < ema21 && ema21Falling;
+                boolean localUp   = ema9 > ema21;
+                boolean localDown = ema9 < ema21;
 
                 System.out.printf("  [T1] EMA9=%.6f EMA21=%.6f prevEMA21=%.6f | Slope=%s | Cross=%s -> %s%n",
                         ema9, ema21, prevEma21,
@@ -448,8 +448,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                             trendUp ? "LONG" : "SHORT",
                             btcAligned ? "PASS — aligned" : "FAIL — against BTC");
                     if (!btcAligned) {
-                        System.out.println("  Q2 FAIL — altcoin signal against BTC trend — skip");
-                        continue;
+                        System.out.println("BTC not aligned — lower confidence trade");
                     }
                     System.out.println("  Q2 OK — altcoin and BTC aligned");
                 } else {
