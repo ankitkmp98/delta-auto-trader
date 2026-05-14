@@ -141,7 +141,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_SWING_BUFFER = 0.5;
     private static final double NOISE_BUFFER    = 0.6;
     private static final double SL_MIN_ATR      = 1.5;   // was 2.0
-    private static final double SL_MAX_ATR      = 2.5;   // was 3.5
+    private static final double SL_MAX_ATR      = 3.0;   // was 3.5
 
     // ── Dynamic RR (FIX #5) ───────────────────────────────────────────────────
     // RR is now based on ADX strength — strong trend gets bigger target
