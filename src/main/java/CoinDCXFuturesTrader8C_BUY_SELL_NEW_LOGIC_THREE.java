@@ -425,14 +425,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // ─────────────────────────────────────────────────────────────
                 // QUALITY FILTER Q1: ADX > 25
                 // ─────────────────────────────────────────────────────────────
-                double adx = calcADX(hi15, lo15, cl15, ADX_PERIOD);
-                System.out.printf("  [Q1] ADX=%.2f (min=%.0f) -> %s%n",
-                        adx, ADX_MIN, adx >=  ? "PASS" : "FAIL — sideways");
-                if (adx < ADX_MIN) {
-                    System.out.println("  Q1 FAIL — ADX too low, market sideways — skip");
-                    continue;
-                }
-                System.out.printf("  Q1 OK — trend strength confirmed (ADX=%.1f)%n", adx);
+                // ─────────────────────────────────────────────────────────────
+// QUALITY FILTER Q1: ADX > 25
+// ─────────────────────────────────────────────────────────────
+double adx = calcADX(hi15, lo15, cl15, ADX_PERIOD);
+
+System.out.printf("  [Q1] ADX=%.2f (min=%.0f) -> %s%n",
+        adx, ADX_MIN, adx >= ADX_MIN ? "PASS" : "FAIL — sideways");
+
+if (adx < ADX_MIN) {
+    System.out.println("  Q1 FAIL — ADX too low, market sideways — skip");
+    continue;
+}
+
+System.out.printf("  Q1 OK — trend strength confirmed (ADX=%.1f)%n", adx);
 
                 // ─────────────────────────────────────────────────────────────
                 // QUALITY FILTER Q2: BTC Correlation (FIX #6)
