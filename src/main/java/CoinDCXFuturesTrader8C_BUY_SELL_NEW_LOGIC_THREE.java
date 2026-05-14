@@ -150,7 +150,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RR_WEAK   = 1.3;  // ADX < 30
 
     // ── Entry zone filters ────────────────────────────────────────────────────
-    private static final double EMA9_PULLBACK_MAX       = 0.6;  // max dist from EMA9 (ATR units)
+    private static final double EMA9_PULLBACK_MAX       = 1.4;  // max dist from EMA9 (ATR units)
     private static final double MAX_CANDLE_ATR_RATIO    = 1.5;  // skip if candle > 1.5x ATR
     private static final double ST_FLIP_MAX_CANDLE_RATIO= 1.2;  // tighter on flip candle
 
@@ -427,7 +427,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // ─────────────────────────────────────────────────────────────
                 double adx = calcADX(hi15, lo15, cl15, ADX_PERIOD);
                 System.out.printf("  [Q1] ADX=%.2f (min=%.0f) -> %s%n",
-                        adx, ADX_MIN, adx >= ADX_MIN ? "PASS" : "FAIL — sideways");
+                        adx, ADX_MIN, adx >=  ? "PASS" : "FAIL — sideways");
                 if (adx < ADX_MIN) {
                     System.out.println("  Q1 FAIL — ADX too low, market sideways — skip");
                     continue;
