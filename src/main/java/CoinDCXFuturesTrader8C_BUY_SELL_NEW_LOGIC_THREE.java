@@ -129,7 +129,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.0;
 
     // ── ADX threshold ────────────────────────────────────────────────────────
-    private static final double ADX_MIN = 18.0;
+    private static final double ADX_MIN = 22.0;
 
     // ── RSI zones (FIX #4: tighter — avoid overbought entries) ───────────────
     private static final double RSI_LONG_MIN  = 42.0;
@@ -150,7 +150,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RR_WEAK   = 1.3;  // ADX < 30
 
     // ── Entry zone filters ────────────────────────────────────────────────────
-    private static final double EMA9_PULLBACK_MAX       = 1.4;  // max dist from EMA9 (ATR units)
+    private static final double EMA9_PULLBACK_MAX       = 0.9;  // max dist from EMA9 (ATR units)
     private static final double MAX_CANDLE_ATR_RATIO    = 1.5;  // skip if candle > 1.5x ATR
     private static final double ST_FLIP_MAX_CANDLE_RATIO= 1.2;  // tighter on flip candle
 
@@ -160,7 +160,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── FIX #7: High volatility skip threshold ────────────────────────────────
     // ATR as % of price — if > 2.5%, market is too erratic (news event, spike)
-    private static final double MAX_ATR_PERCENT = 4.5;
+    private static final double MAX_ATR_PERCENT = 3.0;
 
     // ── Candle fetch counts ───────────────────────────────────────────────────
     private static final int CANDLE_15M = 100;
@@ -479,10 +479,16 @@ System.out.printf("  Q1 OK — trend strength confirmed (ADX=%.1f)%n", adx);
                 boolean nearEma9;
                 if (trendUp) {
                     // BUY: price must be at or above EMA9, within range
-                    nearEma9 = lastClose >= ema9 && distFromEma9 <= maxAllowedDist;
+                    nearEma9 =
+        lastLow <= ema9 &&
+        lastClose > ema9 &&
+        distFromEma9 <= maxAllowedDist;
                 } else {
                     // SELL: price must be at or below EMA9, within range
-                    nearEma9 = lastClose <= ema9 && distFromEma9 <= maxAllowedDist;
+                  nearEma9 =
+        lastHigh >= ema9 &&
+        lastClose < ema9 &&
+        distFromEma9 <= maxAllowedDist;
                 }
 
                 System.out.printf("  [E1] Price=%.6f EMA9=%.6f | Dist=%.6f MaxDist=%.6f | Price%sEMA9 -> %s%n",
@@ -623,51 +629,127 @@ System.out.printf("  Q1 OK — trend strength confirmed (ADX=%.1f)%n", adx);
                 }
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
+                                // ─────────────────────────────────────────────────────────────
+                // IMPROVED SL/TP LOGIC (v12)
+                // Structure Based SL + Realistic TP
                 // ─────────────────────────────────────────────────────────────
-                // SL/TP: Dynamic R:R based on ADX (FIX #5) + Tighter SL (FIX #8)
-                // ─────────────────────────────────────────────────────────────
-                // Dynamic RR logic:
-                //   ADX >= 40 → 2.2 : very strong trend, let profit run
-                //   ADX >= 30 → 1.8 : solid trend, good target
-                //   ADX <  30 → 1.3 : weak/moderate trend, take profit quickly
+
+                // Better realistic RR for 15m futures
                 double dynamicRR;
-                if      (adx >= 40) { dynamicRR = RR_STRONG; }
-                else if (adx >= 30) { dynamicRR = RR_MEDIUM; }
-                else                { dynamicRR = RR_WEAK;   }
-                System.out.printf("  Dynamic R:R = 1:%.1f (ADX=%.1f)%n", dynamicRR, adx);
 
-                double slPrice, tpPrice;
-
-                if ("buy".equalsIgnoreCase(side)) {
-                    double swLow15m = swingLow(lo15, 30);
-                    double rawSL    = swLow15m - (NOISE_BUFFER * atr15m) - (SL_SWING_BUFFER * atr15m);
-                    double minSL    = entry - SL_MIN_ATR * atr15m;   // closest allowed (1.5x ATR)
-                    double maxSL    = entry - SL_MAX_ATR * atr15m;   // farthest allowed (2.5x ATR)
-                    slPrice         = Math.max(Math.min(rawSL, minSL), maxSL);
-                    double risk     = entry - slPrice;
-                    tpPrice         = entry + dynamicRR * risk;
-                    System.out.printf("  SwingLow=%.6f | RawSL=%.6f | SL=%.6f%n",
-                            swLow15m, rawSL, slPrice);
+                if (adx >= 40) {
+                    dynamicRR = 1.8;
+                } else if (adx >= 30) {
+                    dynamicRR = 1.5;
                 } else {
-                    double swHigh15m = swingHigh(hi15, 30);
-                    double rawSL     = swHigh15m + (NOISE_BUFFER * atr15m) + (SL_SWING_BUFFER * atr15m);
-                    double minSL     = entry + SL_MIN_ATR * atr15m;
-                    double maxSL     = entry + SL_MAX_ATR * atr15m;
-                    slPrice          = Math.min(Math.max(rawSL, minSL), maxSL);
-                    double risk      = slPrice - entry;
-                    tpPrice          = entry - dynamicRR * risk;
-                    System.out.printf("  SwingHigh=%.6f | RawSL=%.6f | SL=%.6f%n",
-                            swHigh15m, rawSL, slPrice);
+                    dynamicRR = 1.2;
                 }
 
+                System.out.printf("  Dynamic R:R = 1:%.1f (ADX=%.1f)%n",
+                        dynamicRR, adx);
+
+                double slPrice;
+                double tpPrice;
+                double risk;
+
+                if ("buy".equalsIgnoreCase(side)) {
+
+                    // Recent structure low
+                    double recentSwingLow = swingLow(lo15, 10);
+
+                    // Structure based SL
+                    slPrice = recentSwingLow - (0.8 * atr15m);
+
+                    // Risk
+                    risk = entry - slPrice;
+
+                    // ATR based TP
+                    double atrTarget = 2.2 * atr15m;
+
+                    // RR based TP
+                    double rrTarget = dynamicRR * risk;
+
+                    // Take smaller realistic TP
+                    tpPrice = entry + Math.min(atrTarget, rrTarget);
+
+                    System.out.printf(
+                            "  BUY | SwingLow=%.6f | Risk=%.6f | ATR_Target=%.6f | RR_Target=%.6f%n",
+                            recentSwingLow,
+                            risk,
+                            atrTarget,
+                            rrTarget
+                    );
+
+                } else {
+
+                    // Recent structure high
+                    double recentSwingHigh = swingHigh(hi15, 10);
+
+                    // Structure based SL
+                    slPrice = recentSwingHigh + (0.8 * atr15m);
+
+                    // Risk
+                    risk = slPrice - entry;
+
+                    // ATR based TP
+                    double atrTarget = 2.2 * atr15m;
+
+                    // RR based TP
+                    double rrTarget = dynamicRR * risk;
+
+                    // Take smaller realistic TP
+                    tpPrice = entry - Math.min(atrTarget, rrTarget);
+
+                    System.out.printf(
+                            "  SELL | SwingHigh=%.6f | Risk=%.6f | ATR_Target=%.6f | RR_Target=%.6f%n",
+                            recentSwingHigh,
+                            risk,
+                            atrTarget,
+                            rrTarget
+                    );
+                }
+
+                // Round to tick size
                 slPrice = roundToTick(slPrice, tickSize);
                 tpPrice = roundToTick(tpPrice, tickSize);
 
-                double slPct = Math.abs(entry - slPrice) / entry * 100;
-                double tpPct = Math.abs(tpPrice - entry)  / entry * 100;
-                System.out.printf("  SL=%.6f (%.2f%%) | TP=%.6f (%.2f%%) | R:R=1:%.1f%n",
-                        slPrice, slPct, tpPrice, tpPct, dynamicRR);
+                // Safety check
+                if ("buy".equalsIgnoreCase(side)) {
 
+                    // Ensure SL below entry
+                    if (slPrice >= entry) {
+                        slPrice = entry - (1.2 * atr15m);
+                    }
+
+                    // Ensure TP above entry
+                    if (tpPrice <= entry) {
+                        tpPrice = entry + (1.5 * atr15m);
+                    }
+
+                } else {
+
+                    // Ensure SL above entry
+                    if (slPrice <= entry) {
+                        slPrice = entry + (1.2 * atr15m);
+                    }
+
+                    // Ensure TP below entry
+                    if (tpPrice >= entry) {
+                        tpPrice = entry - (1.5 * atr15m);
+                    }
+                }
+
+                double slPct = Math.abs(entry - slPrice) / entry * 100.0;
+                double tpPct = Math.abs(tpPrice - entry) / entry * 100.0;
+
+                System.out.printf(
+                        "  FINAL -> Entry=%.6f | SL=%.6f (%.2f%%) | TP=%.6f (%.2f%%)%n",
+                        entry,
+                        slPrice,
+                        slPct,
+                        tpPrice,
+                        tpPct
+                );
                 // ── Set TP/SL ─────────────────────────────────────────────────
                 String posId = getPositionId(pair);
                 if (posId != null) {
