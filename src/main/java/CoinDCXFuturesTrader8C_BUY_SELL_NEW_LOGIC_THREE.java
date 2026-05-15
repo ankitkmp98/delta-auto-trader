@@ -72,7 +72,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // FIX A: Leverage 10x (was 20x in v12 — too risky)
     private static final double MAX_MARGIN             = 800.0;
-    private static final int    LEVERAGE               = 11;
+    private static final int    LEVERAGE               = 20;
 
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
