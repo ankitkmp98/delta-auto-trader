@@ -105,8 +105,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN             = 400.0;
-    private static final int    LEVERAGE               = 20;
+    private static final double MAX_MARGIN             = 250.0;
+    private static final int    LEVERAGE               = 10;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -129,19 +129,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.0;
 
     // ── ADX threshold ────────────────────────────────────────────────────────
-    private static final double ADX_MIN = 22.0;
+    private static final double ADX_MIN = 25.0;
 
     // ── RSI zones (FIX #4: tighter — avoid overbought entries) ───────────────
-    private static final double RSI_LONG_MIN  = 42.0;
-    private static final double RSI_LONG_MAX  = 68.0;   // was 68 → now 62
-    private static final double RSI_SHORT_MIN = 32.0;   // was 32 → now 38
-    private static final double RSI_SHORT_MAX = 58.0;
+    private static final double RSI_LONG_MIN  = 45.0;
+    private static final double RSI_LONG_MAX  = 62.0;   // was 68 → now 62
+    private static final double RSI_SHORT_MIN = 38.0;   // was 32 → now 38
+    private static final double RSI_SHORT_MAX = 55.0;
 
     // ── SL parameters (FIX #8: tighter clamp — was 2.0/3.5, now 1.5/2.5) ────
     private static final double SL_SWING_BUFFER = 0.5;
     private static final double NOISE_BUFFER    = 0.6;
     private static final double SL_MIN_ATR      = 1.5;   // was 2.0
-    private static final double SL_MAX_ATR      = 3.0;   // was 3.5
+    private static final double SL_MAX_ATR      = 2.5;   // was 3.5
 
     // ── Dynamic RR (FIX #5) ───────────────────────────────────────────────────
     // RR is now based on ADX strength — strong trend gets bigger target
@@ -150,7 +150,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RR_WEAK   = 1.3;  // ADX < 30
 
     // ── Entry zone filters ────────────────────────────────────────────────────
-    private static final double EMA9_PULLBACK_MAX       = 0.9;  // max dist from EMA9 (ATR units)
+    private static final double EMA9_PULLBACK_MAX       = 0.6;  // max dist from EMA9 (ATR units)
     private static final double MAX_CANDLE_ATR_RATIO    = 1.5;  // skip if candle > 1.5x ATR
     private static final double ST_FLIP_MAX_CANDLE_RATIO= 1.2;  // tighter on flip candle
 
@@ -160,7 +160,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── FIX #7: High volatility skip threshold ────────────────────────────────
     // ATR as % of price — if > 2.5%, market is too erratic (news event, spike)
-    private static final double MAX_ATR_PERCENT = 3.0;
+    private static final double MAX_ATR_PERCENT = 2.5;
 
     // ── Candle fetch counts ───────────────────────────────────────────────────
     private static final int CANDLE_15M = 100;
@@ -303,11 +303,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double[] hi5m = extractHighs(raw5m);
                 double[] lo5m = extractLows(raw5m);
 
-                double lastClose = cl15[cl15.length - 1];
-                double lastHigh  = hi15[hi15.length - 1];
-                double lastLow   = lo15[lo15.length - 1];
-                double prevClose = cl15[cl15.length - 2];
-                double prevOpen  = op15[op15.length - 2];
+          // Use CLOSED candles only (avoid repaint/fake signals)
+
+double lastClose = cl15[cl15.length - 2];
+double lastHigh  = hi15[hi15.length - 2];
+double lastLow   = lo15[lo15.length - 2];
+
+double prevClose = cl15[cl15.length - 3];
+double prevOpen  = op15[op15.length - 3];
                 double tickSize  = getTickSize(pair);
                 double atr15m    = calcATR(hi15, lo15, cl15, ATR_PERIOD);
                 double atr5m     = calcATR(hi5m, lo5m, cl5m, ATR_PERIOD);
@@ -447,19 +450,33 @@ System.out.printf("  Q1 OK — trend strength confirmed (ADX=%.1f)%n", adx);
                 // Trading against BTC trend = fighting the market current.
                 // LONG altcoin only when BTC is also bullish (EMA9 > EMA21)
                 // SHORT altcoin only when BTC is also bearish (EMA9 < EMA21)
-                if (btcTrendOk) {
-                    boolean btcAligned = (trendUp && btcBull) || (trendDown && btcBear);
-                    System.out.printf("  [Q2] BTC trend: %s | Trade: %s -> %s%n",
-                            btcBull ? "BULL" : "BEAR",
-                            trendUp ? "LONG" : "SHORT",
-                            btcAligned ? "PASS — aligned" : "FAIL — against BTC");
-                    if (!btcAligned) {
-                        System.out.println("BTC not aligned — lower confidence trade");
-                    }
-                    System.out.println("  Q2 OK — altcoin and BTC aligned");
-                } else {
-                    System.out.println("  [Q2] BTC data N/A — filter skipped");
-                }
+             if (btcTrendOk) {
+
+    boolean btcAligned =
+            (trendUp && btcBull) ||
+            (trendDown && btcBear);
+
+    System.out.printf(
+            "  [Q2] BTC trend: %s | Trade: %s -> %s%n",
+            btcBull ? "BULL" : "BEAR",
+            trendUp ? "LONG" : "SHORT",
+            btcAligned ? "PASS — aligned"
+                       : "FAIL — against BTC"
+    );
+
+    if (!btcAligned) {
+        System.out.println(
+                "  Q2 FAIL — BTC opposite trend — skip"
+        );
+        continue;
+    }
+
+    System.out.println("  Q2 OK — BTC aligned");
+
+} else {
+
+    System.out.println("  [Q2] BTC data unavailable — filter skipped");
+}
 
                 // ─────────────────────────────────────────────────────────────
                 // ENTRY ZONE E1: EMA9 Directional Pullback (FIX #1 — MOST IMPORTANT)
