@@ -109,9 +109,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // FIX G: TP RR ratios — ACHIEVABLE (not greedy)
     // ADX >= 35 → 1.6x RR | ADX >= 25 → 1.4x RR | ADX < 25 → 1.2x RR
-    private static final double RR_STRONG = 1.6;  // ADX >= 35
-    private static final double RR_MEDIUM = 1.4;  // ADX >= 25
-    private static final double RR_WEAK   = 1.2;  // ADX < 25
+    private static final double RR_STRONG = 0.8;  // ADX >= 35
+    private static final double RR_MEDIUM = 0.7;  // ADX >= 25
+    private static final double RR_WEAK   = 0.6;  // ADX < 25
 
     // FIX E: EMA9 pullback — 1.0x ATR (v12 had 1.4 = too far from EMA9)
     private static final double EMA9_PULLBACK_MAX    = 1.0;
