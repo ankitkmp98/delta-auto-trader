@@ -105,7 +105,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // FIX G: SL = 1.5x ATR from entry — gives room, not too tight
-    private static final double SL_ATR_MULT = 2.5;
+    private static final double SL_ATR_MULT = 1.5;
 
     // FIX G: TP RR ratios — ACHIEVABLE (not greedy)
     // ADX >= 35 → 1.6x RR | ADX >= 25 → 1.4x RR | ADX < 25 → 1.2x RR
