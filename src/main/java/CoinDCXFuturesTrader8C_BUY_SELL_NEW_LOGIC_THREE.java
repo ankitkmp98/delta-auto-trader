@@ -439,13 +439,7 @@ double prevEma21 = ema21Series[last - 1];
                 double maxAllowedDist = EMA9_PULLBACK_MAX * atr15m;
                 boolean nearEma9;
 
-                if (trendUp) {
-                    // BUY: price at/above EMA9 = holding support
-                    nearEma9 = lastClose >= ema9 && distFromEma9 <= maxAllowedDist;
-                } else {
-                    // SELL: price at/below EMA9 = holding resistance
-                    nearEma9 = lastClose <= ema9 && distFromEma9 <= maxAllowedDist;
-                }
+            nearEma9 = distFromEma9 <= maxAllowedDist;
 
                 System.out.printf("  [E1] Price=%.6f EMA9=%.6f Dist=%.6f Max=%.6f -> %s%n",
                         lastClose, ema9, distFromEma9, maxAllowedDist,
