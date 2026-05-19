@@ -342,11 +342,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.println("  M1 OK — macro " + (macroUp ? "BULLISH" : "BEARISH"));
 
                 // TREND FILTER T1: 15m EMA9/21 + EMA21 slope
-                double ema9  = calcEMA(cl15, EMA_FAST);
-                double ema21 = calcEMA(cl15, EMA_MID);
-               double[] ema21Series = calcEMASeries(cl15, EMA_MID);
-double ema21     = ema21Series[last];      // last closed candle
-double prevEma21 = ema21Series[last - 1]; // candle before that
+               double ema9      = calcEMA(cl15, EMA_FAST);
+double[] ema21Series = calcEMASeries(cl15, EMA_MID);
+double ema21     = ema21Series[last];
+double prevEma21 = ema21Series[last - 1];
 
                 boolean ema21Rising  = ema21 > prevEma21;
                 boolean ema21Falling = ema21 < prevEma21;
