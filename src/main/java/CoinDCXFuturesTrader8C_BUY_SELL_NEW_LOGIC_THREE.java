@@ -323,8 +323,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 boolean macroUp, macroDown;
                 if (has200) {
-                    macroUp   = lastClose > ema1h && ema1h > ema200_1h;
-                    macroDown = lastClose < ema1h && ema1h < ema200_1h;
+                    macroUp   = lastClose > ema1h;
+                    macroDown = lastClose < ema1h;
                     System.out.printf("  [M1] EMA50=%.4f EMA200=%.4f -> %s%n",
                             ema1h, ema200_1h,
                             macroUp ? "STRONG BULL" : macroDown ? "STRONG BEAR" : "MIXED");
@@ -344,8 +344,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // TREND FILTER T1: 15m EMA9/21 + EMA21 slope
                 double ema9  = calcEMA(cl15, EMA_FAST);
                 double ema21 = calcEMA(cl15, EMA_MID);
-                double prevEma21 = calcEMA(
-                        Arrays.copyOfRange(cl15, 0, cl15.length - 1), EMA_MID);
+               double[] ema21Series = calcEMASeries(cl15, EMA_MID);
+double ema21     = ema21Series[last];      // last closed candle
+double prevEma21 = ema21Series[last - 1]; // candle before that
 
                 boolean ema21Rising  = ema21 > prevEma21;
                 boolean ema21Falling = ema21 < prevEma21;
