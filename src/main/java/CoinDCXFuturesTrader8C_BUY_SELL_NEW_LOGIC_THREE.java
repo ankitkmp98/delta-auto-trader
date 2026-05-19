@@ -1,9 +1,5 @@
-
-
-
 import org.json.JSONArray;
 import org.json.JSONObject;
-
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
@@ -1054,13 +1050,39 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return null;
     }
 
+    // private static double calcQuantity(double price, String pair, double usdtInrRate) {
+    //     double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+    //     double finalQty = INTEGER_QTY_PAIRS.contains(pair)
+    //             ? Math.floor(qty)
+    //             : Math.floor(qty * 100) / 100.0;
+    //     return Math.max(finalQty, 0);
+    // }
+
     private static double calcQuantity(double price, String pair, double usdtInrRate) {
-        double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
-        double finalQty = INTEGER_QTY_PAIRS.contains(pair)
-                ? Math.floor(qty)
-                : Math.floor(qty * 100) / 100.0;
-        return Math.max(finalQty, 0);
+
+    // Position size using leverage
+    double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+
+    double finalQty = INTEGER_QTY_PAIRS.contains(pair)
+            ? Math.floor(qty)
+            : Math.floor(qty * 100) / 100.0;
+
+    // Safety check
+    double positionValue = finalQty * price * usdtInrRate;
+    double usedMargin = positionValue / LEVERAGE;
+
+    // Reduce qty if margin exceeds MAX_MARGIN
+    while (usedMargin > MAX_MARGIN && finalQty > 0) {
+        finalQty = INTEGER_QTY_PAIRS.contains(pair)
+                ? finalQty - 1
+                : finalQty - 0.01;
+
+        positionValue = finalQty * price * usdtInrRate;
+        usedMargin = positionValue / LEVERAGE;
     }
+
+    return Math.max(finalQty, 0);
+}
 
     public static double getLastPrice(String pair) {
         try {
