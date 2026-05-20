@@ -77,7 +77,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
 
-    private static final double ADX_MIN = 20.0;
+    private static final double ADX_MIN = 25.0;
 
     // RSI zones
     private static final double RSI_LONG_MIN  = 42.0;
