@@ -54,7 +54,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 600.0;
-    private static final int    LEVERAGE   = 10;
+    private static final int    LEVERAGE   = 5;
 
     private static final int    MAX_ENTRY_PRICE_CHECKS = 12;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
@@ -89,9 +89,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_SL_BUFFER_ATR = 0.3;
 
     // TP RR multipliers
-    private static final double RR_STRONG = 1.3; // ADX >= 35
-    private static final double RR_MEDIUM = 1.1; // ADX >= 25
-    private static final double RR_WEAK   = 1.0; // ADX < 25
+    private static final double RR_STRONG = 1.5; // ADX >= 35
+    private static final double RR_MEDIUM = 1.4; // ADX >= 25
+    private static final double RR_WEAK   = 1.3; // ADX < 25
 
     // Entry filters
     private static final double EMA9_PULLBACK_MAX    = 1.2;
@@ -143,8 +143,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Coin list
     // =========================================================================
     private static final String[] COIN_SYMBOLS = {
-        "ETH", "SOL", "ZEC", "XRP", "DOGE", "BNB", "TAO", "1000PEPE", "ADA", "SUI",
-        "BCH", "LINK", "AVAX", "FIL", "OP", "NEAR", "TRX", "TRUMP", "ARB", "WLD",
+        "ETH", "ZEC", "XRP", "DOGE", "BNB", "TAO", "1000PEPE", "ADA", "SUI",
+        "BCH", "LINK", "FIL", "OP", "TRX", "TRUMP", "ARB", "WLD",
         "FET", "ETC", "AAVE", "WIF", "INJ", "TIA", "LTC", "ONDO", "ORDI", "TON",
         "HBAR", "IMX", "ATOM", "RUNE", "KAS", "UNI", "ICP", "SEI", "PENDLE", "1000SHIB",
         "1000BONK", "CRV", "JUP", "RENDER", "MKR", "LDO", "STX", "XLM", "PYTH", "VIRTUAL",
