@@ -54,7 +54,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 600.0;
-    private static final int    LEVERAGE   = 5;
+    private static final int    LEVERAGE   = 15;
 
     private static final int    MAX_ENTRY_PRICE_CHECKS = 12;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
@@ -77,10 +77,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
 
-    private static final double ADX_MIN = 25.0;
+    private static final double ADX_MIN = 21.0;
 
     // RSI zones
-    private static final double RSI_LONG_MIN  = 42.0;
+    private static final double RSI_LONG_MIN  = 45.0;
     private static final double RSI_LONG_MAX  = 65.0;
     private static final double RSI_SHORT_MIN = 35.0;
     private static final double RSI_SHORT_MAX = 58.0;
@@ -89,9 +89,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_SL_BUFFER_ATR = 0.3;
 
     // TP RR multipliers
-    private static final double RR_STRONG = 1.5; // ADX >= 35
-    private static final double RR_MEDIUM = 1.4; // ADX >= 25
-    private static final double RR_WEAK   = 1.3; // ADX < 25
+    private static final double RR_STRONG = 0.9; // ADX >= 35
+    private static final double RR_MEDIUM = 0.9; // ADX >= 25
+    private static final double RR_WEAK   = 0.9; // ADX < 25
 
     // Entry filters
     private static final double EMA9_PULLBACK_MAX    = 1.2;
@@ -103,7 +103,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double CLOSE_NEAR_EXTREME_RATIO = 0.45;
 
     // Volatility
-    private static final double MAX_ATR_PERCENT = 3.5;
+    private static final double MAX_ATR_PERCENT = 3.0;
 
     // ─────────────────────────────────────────────────────────────────────────
     // NEW 1: SL% CAP
@@ -111,7 +111,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // If ST band is too wide, trade is skipped.
     // 3.0% at 15x leverage = ~45% of margin at risk max per trade.
     // ─────────────────────────────────────────────────────────────────────────
-    private static final double MAX_SL_PCT = 3.0;
+    private static final double MAX_SL_PCT = 2.5;
 
     // ─────────────────────────────────────────────────────────────────────────
     // NEW 2: VOLUME SOFT FILTER
@@ -120,7 +120,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Period = last 20 closed candles average
     // SOFT = only reject when BOTH softRsi AND softCandle also fail
     // ─────────────────────────────────────────────────────────────────────────
-    private static final double VOL_MULTIPLIER  = 1.2;
+    private static final double VOL_MULTIPLIER  = 1.3;
     private static final int    VOL_AVG_PERIOD  = 20;
 
     // Candle fetch counts
