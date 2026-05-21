@@ -1057,13 +1057,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return null;
     }
 
+    // private static double calcQuantity(double price, String pair, double usdtInrRate) {
+    //     double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+    //     double finalQty = INTEGER_QTY_PAIRS.contains(pair)
+    //             ? Math.floor(qty)
+    //             : Math.floor(qty * 100) / 100.0;
+    //     return Math.max(finalQty, 0);
+    // }
+
     private static double calcQuantity(double price, String pair, double usdtInrRate) {
-        double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
-        double finalQty = INTEGER_QTY_PAIRS.contains(pair)
-                ? Math.floor(qty)
-                : Math.floor(qty * 100) / 100.0;
-        return Math.max(finalQty, 0);
-    }
+
+    // Total position size will NEVER exceed MAX_MARGIN
+    double qty = MAX_MARGIN / (price * usdtInrRate);
+
+    double finalQty = INTEGER_QTY_PAIRS.contains(pair)
+            ? Math.floor(qty)
+            : Math.floor(qty * 100) / 100.0;
+
+    return Math.max(finalQty, 0);
+}
 
     public static double getLastPrice(String pair) {
         try {
