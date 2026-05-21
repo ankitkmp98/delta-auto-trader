@@ -89,8 +89,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_SL_BUFFER_ATR = 0.3;
 
     // TP RR multipliers
-    private static final double RR_STRONG = 0.9; // ADX >= 35
-    private static final double RR_MEDIUM = 0.9; // ADX >= 25
+    private static final double RR_STRONG = 1.1; // ADX >= 35
+    private static final double RR_MEDIUM = 1.0; // ADX >= 25
     private static final double RR_WEAK   = 0.9; // ADX < 25
 
     // Entry filters
