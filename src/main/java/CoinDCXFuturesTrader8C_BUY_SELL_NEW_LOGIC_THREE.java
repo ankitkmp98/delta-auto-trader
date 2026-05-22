@@ -133,7 +133,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double DAILY_LOSS_LIMIT  = 5000.0;
     private static final double DAILY_PROFIT_LOCK = 8000.0;
 
-    private static final String BTC_PAIR = "B-BTC_USDT";
+    // private static final String BTC_PAIR = "B-BTC_USDT";
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -205,31 +205,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
 
         // BTC trend filter
-        boolean btcBull    = false;
-        boolean btcBear    = false;
-        boolean btcTrendOk = false;
-        try {
-            JSONArray btcRaw15m = getCandlestickData(BTC_PAIR, "15", 40);
-            if (btcRaw15m != null && btcRaw15m.length() >= 30) {
-                double[] btcCl  = extractCloses(btcRaw15m);
-                double btcEma9  = calcEMA(btcCl, EMA_FAST);
-                double btcEma21 = calcEMA(btcCl, EMA_MID);
-                btcBull    = btcEma9 > btcEma21;
-                btcBear    = btcEma9 < btcEma21;
-                btcTrendOk = true;
-                System.out.printf("BTC Trend: EMA9=%.2f EMA21=%.2f → %s%n",
-                        btcEma9, btcEma21,
-                        btcBull ? "BULL — only LONG alts" : "BEAR — only SHORT alts");
-            } else {
-                System.out.println("BTC data unavailable — BTC filter disabled this scan");
-            }
-        } catch (Exception e) {
-            System.err.println("BTC trend fetch failed: " + e.getMessage());
-        }
+        // boolean btcBull    = false;
+        // boolean btcBear    = false;
+        // boolean btcTrendOk = false;
+        // try {
+        //     JSONArray btcRaw15m = getCandlestickData(BTC_PAIR, "15", 40);
+        //     if (btcRaw15m != null && btcRaw15m.length() >= 30) {
+        //         double[] btcCl  = extractCloses(btcRaw15m);
+        //         double btcEma9  = calcEMA(btcCl, EMA_FAST);
+        //         double btcEma21 = calcEMA(btcCl, EMA_MID);
+        //         btcBull    = btcEma9 > btcEma21;
+        //         btcBear    = btcEma9 < btcEma21;
+        //         btcTrendOk = true;
+        //         System.out.printf("BTC Trend: EMA9=%.2f EMA21=%.2f → %s%n",
+        //                 btcEma9, btcEma21,
+        //                 btcBull ? "BULL — only LONG alts" : "BEAR — only SHORT alts");
+        //     } else {
+        //         System.out.println("BTC data unavailable — BTC filter disabled this scan");
+        //     }
+        // } catch (Exception e) {
+        //     System.err.println("BTC trend fetch failed: " + e.getMessage());
+        // }
 
         for (String pair : COINS_TO_TRADE) {
             try {
-                if (pair.equals(BTC_PAIR)) continue;
+                // if (pair.equals(BTC_PAIR)) continue;
 
                 if (active.contains(pair)) {
                     System.out.println("Skip " + pair + " — active position");
@@ -408,20 +408,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  Q1 OK — ADX=%.1f%n", adx);
 
                 // QUALITY Q2: BTC Correlation
-                if (btcTrendOk) {
-                    boolean btcAligned = (trendUp && btcBull) || (trendDown && btcBear);
-                    System.out.printf("  [Q2] BTC=%s Trade=%s -> %s%n",
-                            btcBull ? "BULL" : "BEAR",
-                            trendUp ? "LONG" : "SHORT",
-                            btcAligned ? "PASS" : "FAIL");
-                    if (!btcAligned) {
-                        System.out.println("  Q2 FAIL — BTC opposite direction — skip");
-                        continue;
-                    }
-                    System.out.println("  Q2 OK — BTC aligned");
-                } else {
-                    System.out.println("  [Q2] BTC N/A — skipped");
-                }
+                // if (btcTrendOk) {
+                //     boolean btcAligned = (trendUp && btcBull) || (trendDown && btcBear);
+                //     System.out.printf("  [Q2] BTC=%s Trade=%s -> %s%n",
+                //             btcBull ? "BULL" : "BEAR",
+                //             trendUp ? "LONG" : "SHORT",
+                //             btcAligned ? "PASS" : "FAIL");
+                //     if (!btcAligned) {
+                //         System.out.println("  Q2 FAIL — BTC opposite direction — skip");
+                //         continue;
+                //     }
+                //     System.out.println("  Q2 OK — BTC aligned");
+                // } else {
+                //     System.out.println("  [Q2] BTC N/A — skipped");
+                // }
 
                 // ENTRY ZONE E1: EMA9 distance
                 double distFromEma9   = Math.abs(lastClose - ema9);
@@ -1254,6 +1254,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 }
+
+
+
+
+
 
 
 
