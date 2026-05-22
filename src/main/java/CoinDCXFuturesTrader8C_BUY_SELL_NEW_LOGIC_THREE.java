@@ -463,20 +463,61 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
 
                 // ── QUALITY Q2: BTC Correlation ───────────────────────────────
-                if (btcTrendOk) {
-                    boolean btcAligned = (trendUp && btcBull) || (trendDown && btcBear);
-                    System.out.printf("  [Q2] BTC=%s Trade=%s -> %s%n",
-                            btcBull ? "BULL" : "BEAR",
-                            trendUp ? "LONG" : "SHORT",
-                            btcAligned ? "PASS" : "FAIL");
-                    if (!btcAligned) {
-                        System.out.println("  Q2 FAIL — BTC opposite direction — skip");
-                        continue;
-                    }
-                    System.out.println("  Q2 OK — BTC aligned");
-                } else {
-                    System.out.println("  [Q2] BTC N/A — skipped");
-                }
+              // ── QUALITY Q2: BTC Correlation — SOFT (not hard block) ──────────────────
+boolean btcAligned = true;
+
+if (btcTrendOk) {
+
+    boolean aligned =
+            (trendUp && btcBull) ||
+            (trendDown && btcBear);
+
+    if (!aligned) {
+
+        // BTC opposite — allow only if ADX is strong
+        if (adx >= 35) {
+
+            System.out.printf(
+                    "  [Q2] BTC=%s Trade=%s ADX=%.1f -> OVERRIDE (ADX>=35)%n",
+                    btcBull ? "BULL" : "BEAR",
+                    trendUp ? "LONG" : "SHORT",
+                    adx
+            );
+
+            btcAligned = true;
+
+        } else {
+
+            System.out.printf(
+                    "  [Q2] BTC=%s Trade=%s ADX=%.1f -> FAIL (need ADX>=35)%n",
+                    btcBull ? "BULL" : "BEAR",
+                    trendUp ? "LONG" : "SHORT",
+                    adx
+            );
+
+            btcAligned = false;
+        }
+
+    } else {
+
+        System.out.printf(
+                "  [Q2] BTC=%s Trade=%s -> PASS%n",
+                btcBull ? "BULL" : "BEAR",
+                trendUp ? "LONG" : "SHORT"
+        );
+    }
+
+} else {
+
+    System.out.println("  [Q2] BTC N/A — skipped");
+}
+
+if (!btcAligned) {
+    System.out.println("  Q2 FAIL — BTC opposite, ADX<35 — skip");
+    continue;
+}
+
+System.out.println("  Q2 OK");
 
                 // ── ENTRY ZONE E1: EMA9 distance (FIX 5: tightened to 0.8) ──
                 double distFromEma9   = Math.abs(lastClose - ema9);
