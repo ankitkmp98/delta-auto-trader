@@ -521,7 +521,12 @@ System.out.println("  Q2 OK");
 
                 // ── ENTRY ZONE E1: EMA9 distance (FIX 5: tightened to 0.8) ──
                 double distFromEma9   = Math.abs(lastClose - ema9);
-                double maxAllowedDist = EMA9_PULLBACK_MAX * atr15m; // 0.8 ATR now
+                double pullbackMax =
+        trendUp
+                ? EMA9_PULLBACK_MAX
+                : 1.2;
+
+double maxAllowedDist = pullbackMax * atr15m;
                 boolean nearEma9      = distFromEma9 <= maxAllowedDist;
 
                 System.out.printf("  [E1] Price=%.6f EMA9=%.6f Dist=%.6f Max=%.6f (%.1fxATR) -> %s%n",
