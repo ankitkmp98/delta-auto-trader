@@ -62,7 +62,7 @@ import java.util.stream.Stream;
  *    - All API/auth logic
  * ═══════════════════════════════════════════════════════════════════════════
  */
-public class CoinDCXFuturesTrader_UPDATED {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // API Configuration
