@@ -90,7 +90,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 10;
+    private static final int    LEVERAGE   = 20;
 
     private static final int    MAX_ENTRY_PRICE_CHECKS = 12;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
@@ -966,9 +966,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
      * Position size = MAX_MARGIN * LEVERAGE / (price * INR_rate)
      */
     private static double calcQuantity(double price, String pair, double usdtInrRate) {
-        // Total position value in USDT = (MAX_MARGIN * LEVERAGE) / usdtInrRate
+        // Total position value in USDT = MAX_MARGIN / usdtInrRate
         // Qty = total_position_usdt / price
-        double positionUsdt = (MAX_MARGIN * LEVERAGE) / usdtInrRate;
+        double positionUsdt = MAX_MARGIN / usdtInrRate;
         double qty = positionUsdt / price;
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
