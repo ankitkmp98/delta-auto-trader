@@ -62,10 +62,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // TP / SL Config
     // =========================================================================
     // SL = recent swing low/high + ATR buffer (NOT supertrend band)
-    private static final double SWING_SL_ATR_BUFFER = 0.25; // 0.25x ATR below swing low
+    private static final double SWING_SL_ATR_BUFFER = 0.35; // 0.25x ATR below swing low
 
     // SL cap: max 2.0% from entry (tighter than before)
-    private static final double MAX_SL_PCT         = 2.0;
+    private static final double MAX_SL_PCT         = 2.5;
     private static final double SL_SLIPPAGE_BUFFER = 0.10;  // pre-check buffer
 
     // RR: dynamic based on ADX. Formula: rr = clamp(adx/20, 1.1, 1.8)
