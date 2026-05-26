@@ -102,7 +102,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 16;
+    private static final int    LEVERAGE   = 20;
 
     private static final int    MAX_ENTRY_PRICE_CHECKS = 12;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
@@ -143,13 +143,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ── TP:SL ratios ─────────────────────────────────────────────────────────
     // M0_strong = both 4H EMA conditions met
     // M0_weak   = only one 4H condition met
-    private static final double RR_4H_STRONG_ADX35 = 0.9;
-    private static final double RR_4H_STRONG_ADX25 = 0.8;
-    private static final double RR_4H_STRONG_WEAK  = 0.7;
-    private static final double RR_4H_WEAK_ADX35   = 0.8;
-    private static final double RR_4H_WEAK_ADX25   = 0.7;
-    private static final double RR_4H_WEAK_WEAK    = 0.7;
-    private static final double RR_CONTRA          = 0.7; // macro-contra trades max
+    private static final double RR_4H_STRONG_ADX35 = 1.6;
+    private static final double RR_4H_STRONG_ADX25 = 1.4;
+    private static final double RR_4H_STRONG_WEAK  = 1.2;
+    private static final double RR_4H_WEAK_ADX35   = 1.4;
+    private static final double RR_4H_WEAK_ADX25   = 1.3;
+    private static final double RR_4H_WEAK_WEAK    = 1.2;
+    private static final double RR_CONTRA          = 1.2; // macro-contra trades max
 
     // ── Entry filters ────────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX    = 1.2;
@@ -1070,7 +1070,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
      *          at ETH = 2000 USDT, INR_rate = 84 → positionUsdt = 40000/84 = 476 USDT → qty = 476/2000 = 0.238 ETH
      */
     private static double calcQuantity(double price, String pair, double usdtInrRate) {
-        double positionUsdt = MAX_MARGIN / usdtInrRate;
+        double positionUsdt = (MAX_MARGIN * LEVERAGE) / usdtInrRate;
         double qty = positionUsdt / price;
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
