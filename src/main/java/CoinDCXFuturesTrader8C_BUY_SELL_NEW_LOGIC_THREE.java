@@ -335,8 +335,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         // We check last vs last-3 and last-2 (wider than just last-2 to reduce noise)
         double areaHigh = Math.max(hi15[last - 3], hi15[last - 2]);
         double areaLow  = Math.min(lo15[last - 3], lo15[last - 2]);
-        boolean structureBull = hi15[last] > areaHigh && lo15[last] > areaLow;
-        boolean structureBear = hi15[last] < areaHigh && lo15[last] < areaLow;
+        
+        boolean structureBull =
+        cl15[last] > cl15[last - 1] &&
+        lo15[last] > lo15[last - 2];
+
+        boolean structureBear =
+        cl15[last] < cl15[last - 1] &&
+        hi15[last] < hi15[last - 2];
 
         System.out.printf("  [STR] areaHH=%.6f areaLL=%.6f | thisHH=%.6f thisLL=%.6f -> %s%n",
                 areaHigh, areaLow, hi15[last], lo15[last],
