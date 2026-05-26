@@ -471,8 +471,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double bodyR  = r5 > 0 ? body5 / r5 : 0;
         double cpos5  = r5 > 0 ? (cl5m[last5] - lo5m[last5]) / r5 : 0.5;
         boolean ok5m  = trendUp
-                ? (cl5m[last5] > op5m[last5] && bodyR >= 0.35 && cpos5 >= 0.55)
-                : (cl5m[last5] < op5m[last5] && bodyR >= 0.35 && cpos5 <= 0.45);
+                ? (cl5m[last5] > op5m[last5] && bodyR >= 0.25 && cpos5 >= 0.50)
+                : (cl5m[last5] < op5m[last5] && bodyR >= 0.25 && cpos5 <= 0.45);
         System.out.printf("  [5m] body=%.0f%% cpos=%.0f%% -> %s%n",
                 bodyR * 100, cpos5 * 100, ok5m ? "OK" : "FAIL");
         if (!ok5m) { System.out.println("  5m FAIL — skip"); return; }
