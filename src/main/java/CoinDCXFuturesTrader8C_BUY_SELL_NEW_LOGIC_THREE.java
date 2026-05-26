@@ -588,7 +588,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 int L = c.length - 2;
                 double[] s50 = calcEMASeries(c, EMA_MACRO);
                 // 1H trend = EMA50 rising (compare last two values)
-                btcBull1h = s50[L] > s50[L - 1];
+                btcBull1h = c[L] > s50[L];
             }
             btcCacheTime = System.currentTimeMillis();
             System.out.printf("[BTC] refreshed: 15m=%s 1H=%s%n",
