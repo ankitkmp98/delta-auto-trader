@@ -337,12 +337,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double areaLow  = Math.min(lo15[last - 3], lo15[last - 2]);
         
         boolean structureBull =
-        cl15[last] > cl15[last - 1] &&
-        lo15[last] > lo15[last - 2];
+    hi15[last] > hi15[last - 2] &&
+    lo15[last] > lo15[last - 2];
 
-        boolean structureBear =
-        cl15[last] < cl15[last - 1] &&
-        hi15[last] < hi15[last - 2];
+boolean structureBear =
+    hi15[last] < hi15[last - 2] &&
+    lo15[last] < lo15[last - 2];
 
         System.out.printf("  [STR] areaHH=%.6f areaLL=%.6f | thisHH=%.6f thisLL=%.6f -> %s%n",
                 areaHigh, areaLow, hi15[last], lo15[last],
