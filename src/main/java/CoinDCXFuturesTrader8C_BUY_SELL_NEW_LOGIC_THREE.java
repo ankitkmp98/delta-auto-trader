@@ -102,7 +102,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double MAX_ATR_PERCENT = 3.0;
 
     // Volume: directional confirmation (bull candle + high vol, or bear+high vol)
-    private static final double VOL_DIRECTIONAL_MULT = 1.3;
+    private static final double VOL_DIRECTIONAL_MULT = 1.1;
     private static final int    VOL_MEDIAN_PERIOD    = 20;
 
     // Min tick gap between entry and SL/TP
