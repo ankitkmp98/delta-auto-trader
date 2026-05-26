@@ -408,7 +408,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         // ── FILTER 12: VWAP approximation ────────────────────────────────────
         // VWAP = sum(close * volume) / sum(volume) over last VWAP_PERIOD candles
         double vwap = calcVWAP(cl15, vol15, last, VWAP_PERIOD);
-        boolean vwapOk = trendUp ? lastClose > vwap : lastClose < vwap;
+        boolean vwapOk = trendUp
+    ? lastClose > (vwap - atr15m * 0.2)
+    : lastClose < (vwap + atr15m * 0.2);
         System.out.printf("  [VWAP] VWAP=%.6f price=%.6f -> %s%n", vwap, lastClose, vwapOk ? "OK" : "FAIL");
         if (!vwapOk) { System.out.println("  VWAP FAIL — institutional bias against — skip"); return; }
         System.out.println("  VWAP OK");
