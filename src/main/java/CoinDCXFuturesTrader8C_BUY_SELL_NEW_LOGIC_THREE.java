@@ -79,8 +79,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // ADX: dynamic — strong 4H = lower requirement, weak 4H = higher
     // m0Strong → 22, m0Weak → 26, m0Fail → blocked earlier
-    private static final double ADX_STRONG_4H = 22.0;
-    private static final double ADX_WEAK_4H   = 26.0;
+    private static final double ADX_STRONG_4H = 18.0;
+    private static final double ADX_WEAK_4H   = 21.0;
 
     // Williams %R
     private static final double WR_LONG_MIN  = -80.0;
