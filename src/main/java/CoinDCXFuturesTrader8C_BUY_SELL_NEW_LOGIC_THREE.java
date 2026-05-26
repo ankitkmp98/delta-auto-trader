@@ -79,8 +79,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // ADX: dynamic — strong 4H = lower requirement, weak 4H = higher
     // m0Strong → 22, m0Weak → 26, m0Fail → blocked earlier
-    private static final double ADX_STRONG_4H = 18.0;
-    private static final double ADX_WEAK_4H   = 21.0;
+    private static final double ADX_STRONG_4H = 15.0;
+    private static final double ADX_WEAK_4H   = 18.0;
 
     // Williams %R
     private static final double WR_LONG_MIN  = -80.0;
@@ -336,13 +336,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double areaHigh = Math.max(hi15[last - 3], hi15[last - 2]);
         double areaLow  = Math.min(lo15[last - 3], lo15[last - 2]);
         
-        boolean structureBull =
-    hi15[last] > hi15[last - 2] &&
-    lo15[last] > lo15[last - 2];
-
-boolean structureBear =
-    hi15[last] < hi15[last - 2] &&
-    lo15[last] < lo15[last - 2];
+boolean structureBull = cl15[last] > ema21;
+boolean structureBear = cl15[last] < ema21;
 
         System.out.printf("  [STR] areaHH=%.6f areaLL=%.6f | thisHH=%.6f thisLL=%.6f -> %s%n",
                 areaHigh, areaLow, hi15[last], lo15[last],
