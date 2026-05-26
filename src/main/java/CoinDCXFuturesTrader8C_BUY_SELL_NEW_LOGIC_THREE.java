@@ -93,7 +93,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // Entry tightness: price must be within 0.5x ATR of EMA9 (pullback only)
-    private static final double EMA9_ENTRY_BUFFER = 0.5;
+    private static final double EMA9_ENTRY_BUFFER = 0.8;
 
     // Candle size max
     private static final double MAX_CANDLE_ATR_RATIO = 1.6;
