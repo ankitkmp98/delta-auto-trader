@@ -510,7 +510,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         JSONObject resp = placeFuturesMarketOrder(side, pair, qty, LEVERAGE,
                 "email_notification", "isolated", "INR");
-        if (resp == null || !resp.has("id")) { System.out.println("  Order failed: " + resp); return; }
+        if (resp == null || !resp.has("id")) 
+        { 
+            System.out.println("FULL ORDER RESPONSE:");
+            System.out.println(resp.toString(2));
+            return;
+        }
         System.out.println("  Placed! id=" + resp.getString("id"));
         lastTradeTime.put(pair, System.currentTimeMillis());
 
