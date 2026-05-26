@@ -93,7 +93,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // Entry tightness: price must be within 0.5x ATR of EMA9 (pullback only)
-    private static final double EMA9_ENTRY_BUFFER = 0.8;
+    private static final double EMA9_ENTRY_BUFFER = 1.8;
 
     // Candle size max
     private static final double MAX_CANDLE_ATR_RATIO = 1.6;
@@ -102,7 +102,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double MAX_ATR_PERCENT = 3.0;
 
     // Volume: directional confirmation (bull candle + high vol, or bear+high vol)
-    private static final double VOL_DIRECTIONAL_MULT = 1.1;
+    private static final double VOL_DIRECTIONAL_MULT = 0.9;
     private static final int    VOL_MEDIAN_PERIOD    = 20;
 
     // Min tick gap between entry and SL/TP
@@ -401,9 +401,11 @@ boolean structureBear =
         System.out.printf("  [RSI] RSI=%.2f prevRSI=%.2f | zone=%s slope=%s%n",
                 rsi, prevRsi, rsiInZone ? "OK" : "fail", rsiSlopeOk ? "OK" : "fail");
         // Both zone and slope must pass
-        if (!rsiInZone)  { System.out.println("  RSI FAIL — out of zone — skip"); return; }
-        if (!rsiSlopeOk) { System.out.println("  RSI FAIL — slope wrong direction — skip"); return; }
-        System.out.println("  RSI OK");
+       if (!rsiInZone) 
+       {
+           System.out.println("  RSI FAIL");
+           return;
+       }
 
         // ── FILTER 12: VWAP approximation ────────────────────────────────────
         // VWAP = sum(close * volume) / sum(volume) over last VWAP_PERIOD candles
