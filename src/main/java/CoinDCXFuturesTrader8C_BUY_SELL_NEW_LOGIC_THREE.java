@@ -143,13 +143,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ── TP:SL ratios ─────────────────────────────────────────────────────────
     // M0_strong = both 4H EMA conditions met
     // M0_weak   = only one 4H condition met
-    private static final double RR_4H_STRONG_ADX35 = 1.6;
-    private static final double RR_4H_STRONG_ADX25 = 1.4;
-    private static final double RR_4H_STRONG_WEAK  = 1.2;
-    private static final double RR_4H_WEAK_ADX35   = 1.4;
-    private static final double RR_4H_WEAK_ADX25   = 1.3;
-    private static final double RR_4H_WEAK_WEAK    = 1.2;
-    private static final double RR_CONTRA          = 1.2; // macro-contra trades max
+    private static final double RR_4H_STRONG_ADX35 = 0.9;
+    private static final double RR_4H_STRONG_ADX25 = 0.8;
+    private static final double RR_4H_STRONG_WEAK  = 0.7;
+    private static final double RR_4H_WEAK_ADX35   = 0.8;
+    private static final double RR_4H_WEAK_ADX25   = 0.7;
+    private static final double RR_4H_WEAK_WEAK    = 0.7;
+    private static final double RR_CONTRA          = 0.7; // macro-contra trades max
 
     // ── Entry filters ────────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX    = 1.2;
