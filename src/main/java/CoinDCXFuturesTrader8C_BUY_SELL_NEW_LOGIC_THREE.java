@@ -1070,7 +1070,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
      *          at ETH = 2000 USDT, INR_rate = 84 → positionUsdt = 40000/84 = 476 USDT → qty = 476/2000 = 0.238 ETH
      */
     private static double calcQuantity(double price, String pair, double usdtInrRate) {
-        double positionUsdt = (MAX_MARGIN * LEVERAGE) / usdtInrRate;
+        double positionUsdt = MAX_MARGIN / usdtInrRate;
         double qty = positionUsdt / price;
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
