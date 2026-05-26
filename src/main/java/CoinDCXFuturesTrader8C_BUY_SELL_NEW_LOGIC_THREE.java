@@ -321,10 +321,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.printf("  T1+M0+M1 OK — direction=%s%n", trendUp ? "LONG" : "SHORT");
 
         // ── BTC Filter applied now that direction is known ────────────────────
-        if (trendUp  && !btcBull15m && !btcBull1h) {
+        if (trendUp && !btcBull1h) {
             System.out.println("  BTC FAIL — BTC bearish on both TFs — skip LONG"); return;
         }
-        if (trendDown && btcBull15m && btcBull1h) {
+        if (trendDown && btcBull1h) {
             System.out.println("  BTC FAIL — BTC bullish on both TFs — skip SHORT"); return;
         }
         System.out.printf("  BTC OK — 15m=%s 1H=%s%n",
@@ -472,7 +472,7 @@ boolean structureBear =
         double body5  = Math.abs(cl5m[last5] - op5m[last5]);
         double bodyR  = r5 > 0 ? body5 / r5 : 0;
         double cpos5  = r5 > 0 ? (cl5m[last5] - lo5m[last5]) / r5 : 0.5;
-        boolean ok5m  = trendUp
+        boolean ok5m  = true
                 ? (cl5m[last5] > op5m[last5] && bodyR >= 0.25 && cpos5 >= 0.50)
                 : (cl5m[last5] < op5m[last5] && bodyR >= 0.25 && cpos5 <= 0.45);
         System.out.printf("  [5m] body=%.0f%% cpos=%.0f%% -> %s%n",
