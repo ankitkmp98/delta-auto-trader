@@ -140,14 +140,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ── SL parameters (FIX #8: tighter clamp — was 2.0/3.5, now 1.5/2.5) ────
     private static final double SL_SWING_BUFFER = 0.6;
     private static final double NOISE_BUFFER    = 0.6;
-    private static final double SL_MIN_ATR      = 1.0;   // was 2.0
-    private static final double SL_MAX_ATR      = 2.5;   // was 3.5
+    private static final double SL_MIN_ATR      = 1.5;   // was 2.0
+    private static final double SL_MAX_ATR      = 3.0;   // was 3.5
 
     // ── Dynamic RR (FIX #5) ───────────────────────────────────────────────────
     // RR is now based on ADX strength — strong trend gets bigger target
-    private static final double RR_STRONG = 0.9;  // ADX >= 40
-    private static final double RR_MEDIUM = 0.8;  // ADX >= 30
-    private static final double RR_WEAK   = 0.7;  // ADX < 30
+    private static final double RR_STRONG = 0.8;  // ADX >= 40
+    private static final double RR_MEDIUM = 0.7;  // ADX >= 30
+    private static final double RR_WEAK   = 0.6;  // ADX < 30
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX       = 1.4;  // max dist from EMA9 (ATR units)
