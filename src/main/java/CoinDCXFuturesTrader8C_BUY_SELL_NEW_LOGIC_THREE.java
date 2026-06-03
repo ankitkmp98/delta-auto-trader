@@ -126,7 +126,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── Supertrend ────────────────────────────────────────────────────────────
     private static final int    ST_PERIOD     = 10;
-    private static final double ST_MULTIPLIER = 2.5;
+    private static final double ST_MULTIPLIER = 3.5;
 
     // ── ADX threshold ────────────────────────────────────────────────────────
     private static final double ADX_MIN = 18.0;
@@ -145,9 +145,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── Dynamic RR (FIX #5) ───────────────────────────────────────────────────
     // RR is now based on ADX strength — strong trend gets bigger target
-    private static final double RR_STRONG = 1.3;  // ADX >= 40
-    private static final double RR_MEDIUM = 1.2;  // ADX >= 30
-    private static final double RR_WEAK   = 1.1;  // ADX < 30
+    private static final double RR_STRONG = 1.5;  // ADX >= 40
+    private static final double RR_MEDIUM = 1.4;  // ADX >= 30
+    private static final double RR_WEAK   = 1.3;  // ADX < 30
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX       = 1.4;  // max dist from EMA9 (ATR units)
