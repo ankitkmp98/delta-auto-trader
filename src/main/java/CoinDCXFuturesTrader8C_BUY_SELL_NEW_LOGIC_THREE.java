@@ -140,9 +140,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR   = 2.7;
 
     // ── Dynamic RR based on ADX ───────────────────────────────────────────────
-    private static final double RR_STRONG = 1.5;
-    private static final double RR_MEDIUM = 1.4;
-    private static final double RR_WEAK   = 1.3;
+    private static final double RR_STRONG = 1.1;
+    private static final double RR_MEDIUM = 0.9;
+    private static final double RR_WEAK   = 0.8;
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX        = 1.4;
