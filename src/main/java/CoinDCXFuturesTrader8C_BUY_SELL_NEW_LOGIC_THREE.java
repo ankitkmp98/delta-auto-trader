@@ -16,67 +16,59 @@ import java.util.stream.Stream;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * CoinDCX Futures Trader — v16 (EMA-Only Confluence, 1H-ST SL)
+ * CoinDCX Futures Trader — v17 (EMA-Only, Relaxed Pullback)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * FIXES FROM v15:
- *   - resolution=120 (2H) and resolution=240 (4H) return HTTP 400 on CoinDCX.
- *     Only resolution=60 (1H) is confirmed stable.
- *     v16 builds 2H and 4H by aggregating 1H candles:
- *       4H candle  = every 4 consecutive 1H candles merged
- *       2H candle  = every 2 consecutive 1H candles merged
+ * CHANGES FROM v16:
+ *   v16 PROBLEM: 1H "opposite" pullback condition was too strict.
+ *     When 4H+2H are bullish, 1H is almost always bullish too → zero trades.
  *
- * ARCHITECTURE (v16):
+ *   v17 FIX:
+ *     1H is now a CONFIRMATION layer (must agree with direction).
+ *     30m is now the PULLBACK layer (must be OPPOSITE to direction).
+ *     15m + 5m are REVERSAL + ENTRY (must agree with direction).
  *
- *   DATA SOURCE:
- *     All timeframes derived from 1H candles only (resolution=60).
- *     Fetch 200 × 1H candles → aggregate into 2H (100 bars) and 4H (50 bars).
- *     5m and 15m fetched normally (resolution=5 and resolution=15).
- *     30m fetched normally (resolution=30) — only used for EMA SL reference.
+ * ARCHITECTURE (v17):
  *
- *   SUPERTREND: COMPLETELY REMOVED from signal logic.
- *     Only used ONCE: to set the Stop Loss on 1H candles.
+ *   DATA SOURCE: Same as v16.
+ *     Fetch 220 × 1H candles → aggregate to 2H (110 bars) and 4H (55 bars).
+ *     5m, 15m, 30m fetched directly.
  *
- *   SIGNAL = EMA9 vs EMA21 ONLY on each timeframe.
+ *   SUPERTREND: Only for SL on 1H. Not used in signal logic.
  *
- *   STEP 1 — DIRECTION (4H + 2H EMA, BOTH must agree)
- *     4H EMA9 > EMA21 → BULL | EMA9 < EMA21 → BEAR
- *     2H EMA9 > EMA21 → BULL | EMA9 < EMA21 → BEAR
- *     Both must point same direction → trade direction confirmed.
+ *   SIGNAL = EMA9 vs EMA21 on each timeframe.
  *
- *   STEP 2 — PULLBACK (1H EMA must be OPPOSITE to direction)
- *     If trade = BULL → 1H EMA9 < EMA21 (price pulling back)
- *     If trade = BEAR → 1H EMA9 > EMA21 (price pulling back up)
- *     1H acting as the pullback confirmation layer.
+ *   STEP 1 — DIRECTION (4H + 2H must BOTH agree)
+ *     4H EMA9 > EMA21 = BULL | < = BEAR
+ *     2H EMA9 > EMA21 = BULL | < = BEAR
+ *     Both must match → direction locked.
  *
- *   STEP 3 — REVERSAL (30m EMA turning back in trade direction)
- *     If trade = BULL → 30m EMA9 > EMA21
- *     If trade = BEAR → 30m EMA9 < EMA21
- *     30m must be flipping back in trade direction.
+ *   STEP 2 — TREND CONFIRM (1H must agree with direction)
+ *     1H EMA9 > EMA21 for BULL | < for BEAR
+ *     Confirms higher-TF trend is intact on 1H too.
+ *
+ *   STEP 3 — PULLBACK (30m must be OPPOSITE to direction)
+ *     BULL trade → 30m EMA9 < EMA21 (price pulling back on 30m)
+ *     BEAR trade → 30m EMA9 > EMA21 (price pulling back up on 30m)
  *
  *   STEP 4 — ENTRY (15m + 5m both confirm direction)
  *     15m EMA9 vs EMA21 must match trade direction.
  *     5m  EMA9 vs EMA21 must match trade direction.
- *     Both required (strict entry).
  *
- *   QUALITY FILTER:
- *     ADX > 20 on 1H (trend strength)
- *     ATR% < 4.5% on 1H (not too volatile)
+ *   QUALITY:
+ *     ADX > 20 on 1H | ATR% < 4.5% on 1H
  *
- *   SL = 1H Supertrend band
- *     LONG:  SL = 1H ST lower band − 0.3×ATR(1H), clamped 2.1–3.0×ATR
- *     SHORT: SL = 1H ST upper band + 0.3×ATR(1H), clamped 2.1–3.0×ATR
- *
- *   TP = Entry ± 2.0 × Risk  (fixed 2R)
+ *   SL = 1H Supertrend band ± 0.3×ATR, clamped 2.1–3.0×ATR(1H)
+ *   TP = 2R fixed
  *
  * FLOW SUMMARY:
  *   4H EMA ─┐
  *            ├─ Direction (both must agree)
  *   2H EMA ─┘
- *   1H EMA ─── Pullback (opposite to direction)
- *   30m EMA ── Reversal (back in direction)
+ *   1H EMA ─── Trend confirm (same as direction)
+ *   30m EMA ── Pullback (OPPOSITE to direction)
  *   15m EMA ─┐
- *             ├─ Entry trigger (both must agree)
+ *             ├─ Reversal + Entry (both must agree with direction)
  *   5m  EMA ─┘
  *   SL = 1H Supertrend | TP = 2R
  * ═══════════════════════════════════════════════════════════════════════════
@@ -92,7 +84,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN             = 300.0;
-    private static final int    LEVERAGE               = 6;
+    private static final int    LEVERAGE               = 5;
     private static final int    MAX_ENTRY_PRICE_CHECKS = 10;
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
@@ -372,9 +364,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  DIR OK — 4H+2H = %s%n", trendUp ? "BULLISH▲" : "BEARISH▼");
 
                 // ─────────────────────────────────────────────────────────────
-                // STEP 2: PULLBACK — 1H EMA must be OPPOSITE to direction
+                // STEP 2: TREND CONFIRM — 1H EMA must agree with direction
+                // (Higher TF trend is intact; 1H riding with 4H+2H)
                 // ─────────────────────────────────────────────────────────────
-                System.out.println("  ── STEP 2: Pullback (1H EMA opposite) ──────────");
+                System.out.println("  ── STEP 2: Trend Confirm (1H EMA) ──────────────");
                 double ema9_1h  = calcEMA(cl1h, EMA_FAST);
                 double ema21_1h = calcEMA(cl1h, EMA_MID);
                 boolean dir1hBull = ema9_1h > ema21_1h;
@@ -382,20 +375,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  [1H] EMA9=%.6f EMA21=%.6f → %s%n",
                         ema9_1h, ema21_1h, dir1hBull ? "BULL▲" : "BEAR▼");
 
-                boolean pullbackOk = (trendUp && !dir1hBull) || (!trendUp && dir1hBull);
-                System.out.printf("  [PULLBACK] Need 1H=%s Got 1H=%s → %s%n",
-                        trendUp ? "BEAR(pullback)" : "BULL(pullback)",
+                boolean trendConfirmOk = (trendUp && dir1hBull) || (!trendUp && !dir1hBull);
+                System.out.printf("  [TREND-CONFIRM] Need 1H=%s Got 1H=%s → %s%n",
+                        trendUp ? "BULL" : "BEAR",
                         dir1hBull ? "BULL" : "BEAR",
-                        pullbackOk ? "PASS" : "FAIL");
-                if (!pullbackOk) {
-                    System.out.println("  PULLBACK FAIL — 1H not pulling back — skip"); continue;
+                        trendConfirmOk ? "PASS" : "FAIL");
+                if (!trendConfirmOk) {
+                    System.out.println("  TREND-CONFIRM FAIL — 1H EMA conflicts with direction — skip"); continue;
                 }
-                System.out.println("  PULLBACK OK — 1H confirming pullback");
+                System.out.println("  TREND-CONFIRM OK — 1H aligned with 4H+2H direction");
 
                 // ─────────────────────────────────────────────────────────────
-                // STEP 3: REVERSAL — 30m EMA turning back in trade direction
+                // STEP 3: PULLBACK — 30m EMA must be OPPOSITE to direction
+                // (Price pulling back on 30m before we enter)
                 // ─────────────────────────────────────────────────────────────
-                System.out.println("  ── STEP 3: Reversal (30m EMA) ──────────────────");
+                System.out.println("  ── STEP 3: Pullback (30m EMA opposite) ─────────");
                 double ema9_30  = calcEMA(cl30, EMA_FAST);
                 double ema21_30 = calcEMA(cl30, EMA_MID);
                 boolean dir30Bull = ema9_30 > ema21_30;
@@ -403,18 +397,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf("  [30m] EMA9=%.6f EMA21=%.6f → %s%n",
                         ema9_30, ema21_30, dir30Bull ? "BULL▲" : "BEAR▼");
 
-                boolean reversalOk = (trendUp && dir30Bull) || (!trendUp && !dir30Bull);
-                System.out.printf("  [REVERSAL] Need 30m=%s Got 30m=%s → %s%n",
-                        trendUp ? "BULL" : "BEAR",
+                boolean pullback30Ok = (trendUp && !dir30Bull) || (!trendUp && dir30Bull);
+                System.out.printf("  [PULLBACK-30m] Need 30m=%s Got 30m=%s → %s%n",
+                        trendUp ? "BEAR(pullback)" : "BULL(pullback)",
                         dir30Bull ? "BULL" : "BEAR",
-                        reversalOk ? "PASS" : "FAIL");
-                if (!reversalOk) {
-                    System.out.println("  REVERSAL FAIL — 30m not yet reversing — skip"); continue;
+                        pullback30Ok ? "PASS" : "FAIL");
+                if (!pullback30Ok) {
+                    System.out.println("  PULLBACK FAIL — 30m not pulling back — skip"); continue;
                 }
-                System.out.println("  REVERSAL OK — 30m flipping in trade direction");
+                System.out.println("  PULLBACK OK — 30m confirming pullback against trend");
 
                 // ─────────────────────────────────────────────────────────────
                 // STEP 4: ENTRY TRIGGER — 15m AND 5m both confirm direction
+                // (Reversal confirmed on lower TFs, entry aligned)
                 // ─────────────────────────────────────────────────────────────
                 System.out.println("  ── STEP 4: Entry Trigger (15m + 5m EMA) ────────");
                 double ema9_15  = calcEMA(cl15, EMA_FAST);
@@ -452,14 +447,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String side = trendUp ? "buy" : "sell";
                 System.out.println("\n  ╔══════════════════════════════════════════════════════╗");
                 System.out.println("  ║  ALL FILTERS PASSED → " + side.toUpperCase() + " " + pair);
-                System.out.printf ("  ║  4H=%s 2H=%s | 1H=PULLBACK | 30m=%s%n",
+                System.out.printf ("  ║  4H=%s 2H=%s 1H=%s(confirm)%n",
                         dir4hBull ? "BULL▲" : "BEAR▼",
                         dir2hBull ? "BULL▲" : "BEAR▼",
-                        dir30Bull ? "BULL▲" : "BEAR▼");
-                System.out.printf ("  ║  15m=%s 5m=%s | ADX=%.1f ATR%%=%.2f%% | TP=2R%n",
+                        dir1hBull ? "BULL▲" : "BEAR▼");
+                System.out.printf ("  ║  30m=%s(pullback) 15m=%s 5m=%s%n",
+                        dir30Bull ? "BULL▲" : "BEAR▼",
                         dir15Bull ? "BULL▲" : "BEAR▼",
-                        dir5Bull  ? "BULL▲" : "BEAR▼",
-                        adx, atrPct);
+                        dir5Bull  ? "BULL▲" : "BEAR▼");
+                System.out.printf ("  ║  ADX=%.1f ATR%%=%.2f%% | TP=2R%n", adx, atrPct);
                 System.out.println("  ╚══════════════════════════════════════════════════════╝");
 
                 // ── Place order ───────────────────────────────────────────────
