@@ -109,11 +109,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── SL parameters (1H Supertrend) ────────────────────────────────────────
     private static final double ST_SL_BUFFER = 0.3;  // ATR units beyond ST band
-    private static final double SL_MIN_ATR   = 2.7;  // clamp: min SL distance
-    private static final double SL_MAX_ATR   = 3.0;  // clamp: max SL distance
+    private static final double SL_MIN_ATR   = 3.0;  // clamp: min SL distance
+    private static final double SL_MAX_ATR   = 5.0;  // clamp: max SL distance
 
     // ── TP: fixed 2R ─────────────────────────────────────────────────────────
-    private static final double REWARD_RATIO = 1.2;
+    private static final double REWARD_RATIO = 0.9;
 
     // ── Entry zone ────────────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX    = 1.4;
