@@ -113,7 +113,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR   = 5.0;  // clamp: max SL distance
 
     // ── TP: fixed 2R ─────────────────────────────────────────────────────────
-    private static final double REWARD_RATIO = 0.9;
+    private static final double REWARD_RATIO = 1.1;
 
     // ── Entry zone ────────────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX    = 1.4;
