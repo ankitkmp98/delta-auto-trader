@@ -317,10 +317,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
 
                 // ── MANDATORY GATE 2: Volume must be >= average ────────────────
-                double currentVol = vo30.length > 0 ? vo30[vo30.length - 1] : 0;
+                double currentVol = vo30.length > 0 ? vo30[vo30.length - 2] : 0;
                 double avgVol     = calcAvgVolume(vo30, VOLUME_AVG_PERIOD);
                 double volRatio   = avgVol > 0 ? currentVol / avgVol : 0;
-                if (volRatio < 1.0) {
+                if (volRatio < 0.50){
                     System.out.printf("  [GATE] Volume ratio=%.2f < 1.0 — below avg — skip%n", volRatio);
                     continue;
                 }
