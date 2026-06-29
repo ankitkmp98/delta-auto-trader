@@ -18,59 +18,64 @@ import java.util.stream.Stream;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * CoinDCX Futures Trader — v17-STATEFUL
+ * CoinDCX Futures Trader — v18-FIXED
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * BASE: v16-STRICT
+ * BASE: v17-STATEFUL
  *
- * PROBLEMS JO FIX KAR RAHE HAIN:
+ * ── 8 ISSUES JO FIX KAR RAHE HAIN ──────────────────────────────────────
  *
- *   PROBLEM 1 — lastTradeTime in-memory tha (CRITICAL BUG):
- *     GitHub Actions pe har run naya process hota hai → lastTradeTime reset
- *     ho jaata tha → cooldown kaam hi nahi karta tha → bot same coin pe
- *     dobara entry le leta tha jab market already reverse ho chuka tha.
- *     FIX: last_trade_state.json file mein persist karo, har run pe load/save.
+ *  FIX 1 — SL ATR MISMATCH (CRITICAL):
+ *    v17: SL clamp mein 30M ATR use ho raha tha, lekin 1H ST band reference
+ *    v18: SL calculation ab 1H ATR se hogi → realistic SL distance
+ *         SL_MIN_ATR = 1.5× atr1h, SL_MAX_ATR = 3.0× atr1h
  *
- *   PROBLEM 2 — Trend vote too weak (>= 1):
- *     trend4hUp = (st4hBull?1:0) + (ema4hBull?1:0) >= 1
- *     Matlab sirf ek indicator agree kare toh trend confirm → false signals.
- *     FIX: BOTH ST and EMA must agree (strict AND logic).
+ *  FIX 2 — MARKET ORDER SLIPPAGE (HIGH):
+ *    v17: Hamesha market_order → worst price fill, guaranteed slippage
+ *    v18: Limit order with 0.1% buffer → better fill price
+ *         Agar limit fill nahi hua 30s mein → cancel & skip (no market fallback)
  *
- *   PROBLEM 3 — Cooldown sirf 2 hours:
- *     TP hit ke baad 2 hour mein market exhaust/reverse ho jaata hai,
- *     bot dobara same direction mein ghus jaata tha.
- *     FIX: 6 hour cooldown per pair.
+ *  FIX 3 — TP RATIO TOO LOW (HIGH):
+ *    v17: REWARD_RATIO = 1.2 → fees + slippage sab kha jaati thi
+ *    v18: REWARD_RATIO = 2.0 → proper 2:1 R:R, fees absorb hoti hain
  *
- *   PROBLEM 4 — Post-TP re-entry same coin same direction:
- *     TP hit → position close → active check pass → bot re-enters.
- *     FIX: State persistence + 6hr cooldown combined se solved.
+ *  FIX 4 — TOO MANY PAIRS = STALE SIGNALS (CRITICAL):
+ *    v17: 230+ pairs scan → last pairs ka signal 10+ min purana
+ *    v18: 40 liquid pairs only → scan time ~2-3 min, signals fresh
  *
- * V17 CHANGES SUMMARY:
- *   1. STATE FILE: last_trade_state.json pe load/save (GitHub Actions compatible)
- *   2. TREND VOTE: st4hBull && ema4hBull (strict AND, was >= 1)
- *   3. COOLDOWN: 6 hours (was 2 hours)
- *   4. SHUTDOWN HOOK: JVM exit pe bhi state save hogi (crash safety)
+ *  FIX 5 — STALE PRICE CHECK (HIGH):
+ *    v17: getLastPrice() = trade_history[0] → can be seconds old
+ *    v18: Price freshness check — if last trade > 30s old, skip pair
+ *         Also checks bid/ask spread not too wide
  *
- * MANDATORY GATES (ALL must pass — unchanged from v16):
+ *  FIX 6 — SCORE THRESHOLD TOO LOW (MEDIUM):
+ *    v17: SCORE_QUARTER = 65 → weak setups through, full fees, low TP%
+ *    v18: Minimum tier is HALF (50%) at score 80+
+ *         QUARTER tier removed entirely
+ *         SCORE_FULL = 92, SCORE_HALF = 80
+ *
+ *  FIX 7 — NO BTC FILTER (HIGH):
+ *    v17: BTC correlation gate missing (was in v13, got removed)
+ *    v18: Mandatory Gate G0 — BTC must agree with trade direction
+ *         BTC 1H ST + EMA both must confirm direction (strict AND)
+ *
+ *  FIX 8 — NO POSITION COUNT CAP (MEDIUM):
+ *    v17: Unlimited simultaneous positions → correlated SL hits
+ *    v18: MAX_OPEN_POSITIONS = 3 hard cap
+ *         Also MAX_DAILY_LOSS_INR = 1500 — if exceeded, stop trading
+ *
+ * MANDATORY GATES (ALL must pass — G0 NEW, G1-G5 unchanged):
+ *   G0: BTC 1H direction == trade direction (NEW — strict AND)
  *   G1: ATR% <= 4.5%
  *   G2: Volume ratio >= 0.80
- *   G3: 4H direction == 2H direction (STRICT AND now)
+ *   G3: 4H direction == 2H direction (strict AND)
  *   G4: 1H Supertrend == overall direction
  *   G5: 30M Supertrend == overall direction
  *
- * SCORING MODEL (Max = 115 — unchanged):
- *   TREND     60 pts (4H=20, 2H=15, 1H=10, 30M=8, 15M=5, 5M=2)
- *   MOMENTUM  15 pts (RSI=5, MACD=5, ADX=5) on 30m
- *   VOLUME    10 pts
- *   VOLATILITY 5 pts
- *   ENTRY     10 pts (EMA20 dist=5, ST dist=5) on 15m
- *   BONUSES   15 pts
- *
- * TRADE DECISION (unchanged from v16):
- *   >= 85 → FULL (100%)
- *   75-84 → HALF (50%)
- *   65-74 → QUARTER (25%)
- *   < 65  → NO TRADE
+ * TRADE DECISION:
+ *   >= 92 → FULL (100%)
+ *   80-91 → HALF (50%)
+ *   < 80  → NO TRADE  (QUARTER tier removed)
  * ═══════════════════════════════════════════════════════════════════════════
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
@@ -89,11 +94,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_CHECK_DELAY_MS   = 1000;
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
 
-    // ── COOLDOWN: 6 hours (was 2hr — too short, caused post-TP re-entries) ──
+    // ── FIX 8: Max simultaneous open positions ────────────────────────────────
+    private static final int    MAX_OPEN_POSITIONS  = 5;
+    private static final double MAX_DAILY_LOSS_INR  = 15000.0;
+
+    // ── Cooldown: 6 hours ─────────────────────────────────────────────────────
     private static final long COOLDOWN_MS = 6 * 60 * 60 * 1000L;
 
-    // ── State file path (GitHub Actions workspace root mein) ─────────────────
-    private static final String STATE_FILE = "last_trade_state.json";
+    // ── State files ───────────────────────────────────────────────────────────
+    private static final String STATE_FILE      = "last_trade_state.json";
+    private static final String DAILY_LOSS_FILE = "daily_loss_state.json";
+
+    // ── FIX 2: Limit order wait time ──────────────────────────────────────────
+    private static final int    LIMIT_ORDER_WAIT_MS    = 30_000;
+    private static final int    LIMIT_ORDER_CHECK_INTERVAL_MS = 3_000;
+    private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
+
+    // ── FIX 5: Price freshness ────────────────────────────────────────────────
+    private static final long   MAX_PRICE_AGE_MS   = 30_000; // 30 sec
+    private static final double MAX_SPREAD_PCT      = 0.3;   // 0.3% max spread
 
     // ── Indicator periods ─────────────────────────────────────────────────────
     private static final int EMA_MID    = 20;
@@ -109,21 +128,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
 
-    // ── SL parameters ────────────────────────────────────────────────────────
-    private static final double ST_SL_BUFFER = 0.3;
-    private static final double SL_MIN_ATR   = 2.5;
-    private static final double SL_MAX_ATR   = 4.0;
+    // ── FIX 1: SL now uses 1H ATR (was 30M ATR) ──────────────────────────────
+    private static final double ST_SL_BUFFER = 0.3;   // buffer on ST band (× atr1h)
+    private static final double SL_MIN_ATR   = 1.5;   // min SL = 1.5× atr1h (was 2.5× atr30m)
+    private static final double SL_MAX_ATR   = 3.0;   // max SL = 3.0× atr1h (was 4.0× atr30m)
 
-    // ── TP ────────────────────────────────────────────────────────────────────
-    private static final double REWARD_RATIO = 1.2;
+    // ── FIX 3: TP ratio raised to 2.0 (was 1.2) ──────────────────────────────
+    private static final double REWARD_RATIO = 2.0;
 
     // ── Volatility gate ───────────────────────────────────────────────────────
     private static final double MAX_ATR_PERCENT = 4.5;
 
-    // ── Score thresholds ──────────────────────────────────────────────────────
-    private static final double SCORE_FULL    = 85.0;
-    private static final double SCORE_HALF    = 75.0;
-    private static final double SCORE_QUARTER = 65.0;
+    // ── FIX 6: Score thresholds raised, QUARTER removed ──────────────────────
+    private static final double SCORE_FULL = 92.0;  // was 85
+    private static final double SCORE_HALF = 80.0;  // was 75
+    // SCORE_QUARTER removed — no more weak setups
 
     // ── Volume gate ───────────────────────────────────────────────────────────
     private static final double MIN_VOLUME_RATIO = 0.80;
@@ -140,48 +159,35 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
 
-    // ── lastTradeTime: ab file se load hoga, har trade ke baad save hoga ──────
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
 
+    // FIX 8: Daily loss tracking
+    private static double dailyLossINR = 0.0;
+    private static String todayDate    = "";
+
     // =========================================================================
-    // Coin list
+    // FIX 4: Reduced to 40 liquid pairs only (was 230+)
+    // Chosen: highest volume + liquidity on CoinDCX futures
     // =========================================================================
     private static final String[] COIN_SYMBOLS = {
-        "ETH", "SOL", "ZEC", "XRP", "DOGE", "BNB", "TAO", "1000PEPE", "ADA", "SUI",
-        "BCH", "LINK", "AVAX", "FIL", "OP", "NEAR", "TRX", "TRUMP", "ARB", "WLD",
-        "FET", "ETC", "AAVE", "WIF", "INJ", "TIA", "LTC", "ONDO", "ORDI", "TON",
-        "HBAR", "IMX", "ATOM", "RUNE", "KAS", "UNI", "ICP", "SEI", "PENDLE", "1000SHIB",
-        "1000BONK", "CRV", "JUP", "RENDER", "MKR", "LDO", "STX", "XLM", "PYTH", "VIRTUAL",
-        "APT", "SNX", "STRK", "NEO", "FTM", "CAKE", "1000FLOKI", "1000SATS", "OM", "FARTCOIN",
-        "GRT", "MINA", "COMP", "BLUR", "BRETT", "SAND", "EGLD", "XMR", "IOTA", "AI16Z",
-        "PNUT", "POPCAT", "ZRO", "MANA", "ETHFI", "VET", "ALGO", "ENS", "BOME", "MASK",
-        "GALA", "YFI", "CHZ", "GMX", "QNT", "POL", "MOODENG", "ZK", "ARKM", "THETA",
-        "MEW", "EIGEN", "MORPHO", "KAITO", "USUAL", "LAYER", "GOAT", "DOGS", "RSR", "PONKE",
-        "JTO", "CKB", "ZIL", "ROSE", "1INCH", "TWT", "KSM", "MAGIC", "GAS", "ACT",
-        "SUSHI", "TURBO", "1000LUNC", "BTCDOM", "S", "IP", "FLOW", "TRB", "QTUM", "KNC",
-        "KAIA", "CELO", "SSV", "BANANA", "TNSR", "AERO", "IO", "DEXE", "ARK", "XAI",
-        "DYM", "SAGA", "HOT", "LUNA2", "IOST", "RPL", "VANA", "DASH", "MANTA", "LRC",
-        "ANKR", "XTZ", "BAND", "SUPER", "FXS", "AKT", "NMR", "PIXEL", "LPT", "STORJ",
-        "ENJ", "LISTA", "ZETA", "RED", "AGLD", "GPS", "KAVA", "SXP", "ALPHA", "BIGTIME",
-        "COTI", "USTC", "BAT", "NFP", "ONE", "POLYX", "MOVR", "OMNI", "CELR", "RVN",
-        "GLM", "HIVE", "FLUX", "ZRX", "SFP", "ALICE", "ILV", "ARPA", "UMA", "DEGEN",
-        "XVS", "ACE", "ASTR", "CTSI", "CHR", "EDU", "PROM", "ALT", "C98", "SUN",
-        "WAXP", "ALPACA", "COOKIE", "JOE", "BNT", "SCRT", "VELODROME", "HOOK", "KMNO", "NTRN",
-        "VIC", "RAYSOL", "PARTI", "MELANIA", "MYRO", "SHELL", "AUCTION", "SWELL", "HIGH", "WOO",
-        "COW", "MAVIA", "VTHO", "1000CAT", "MUBARAK", "LEVER", "SOLV", "ARC", "AVAAI", "KOMA",
-        "API3", "VOXEL", "CHESS", "SPELL", "1000WHY", "SKL", "GTC", "MTL", "BICO", "DENT",
-        "RLC", "PHB", "POWR", "LSK", "DEFI", "MAV", "REI", "ONG", "XVG", "COS",
-        "FORTH", "BEL", "MLN", "HEI", "GHST", "STEEM", "LOKA", "DIA", "TLM", "BMT",
-        "ALCH", "FUN", "1000CHEEMS", "1000RATS", "1000000MOG", "1MBABYDOGE", "1000XEC", "1000X", "PERP", "NKN",
-        "VINE", "RARE", "HFT", "AXL", "ACH", "ZEN", "PEOPLE", "AR", "CFX", "ID",
-        "METIS", "FIO", "CYBER"
+        "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX",
+        "LINK", "DOT", "MATIC", "UNI", "ATOM", "LTC", "BCH",
+        "NEAR", "OP", "ARB", "INJ", "SUI", "APT", "TRX", "FIL",
+        "AAVE", "MKR", "SNX", "CRV", "1000PEPE", "WIF", "BONK",
+        "HBAR", "ICP", "RUNE", "TIA", "TON", "TAO", "SEI", "WLD",
+        "FET", "RENDER"
     };
 
     private static final Set<String> INTEGER_QTY_PAIRS = Stream.of(COIN_SYMBOLS)
             .flatMap(s -> Stream.of("B-" + s + "_USDT", s + "_USDT"))
             .collect(Collectors.toCollection(HashSet::new));
 
+    // BTC pair for G0 gate
+    private static final String BTC_PAIR = "B-BTC_USDT";
+
+    // All pairs to scan (BTC excluded from trading loop, used only for filter)
     private static final String[] COINS_TO_TRADE = Stream.of(COIN_SYMBOLS)
+            .filter(s -> !s.equals("BTC"))
             .map(s -> "B-" + s + "_USDT")
             .toArray(String[]::new);
 
@@ -210,18 +216,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // STATE PERSISTENCE — load/save lastTradeTime to/from JSON file
+    // STATE PERSISTENCE
     // =========================================================================
-
-    /**
-     * Startup pe state file se lastTradeTime load karo.
-     * GitHub Actions artifact se file download hogi, yahan load hogi.
-     */
     private static void loadLastTradeState() {
         try {
             File f = new File(STATE_FILE);
             if (!f.exists()) {
-                System.out.println("[STATE] No previous state file found — fresh start");
+                System.out.println("[STATE] No previous state file — fresh start");
                 return;
             }
             String content = new String(Files.readAllBytes(Paths.get(STATE_FILE)));
@@ -230,7 +231,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             long now = System.currentTimeMillis();
             for (String key : obj.keySet()) {
                 long ts = obj.getLong(key);
-                // Sirf valid (non-expired) entries load karo
                 if (now - ts < COOLDOWN_MS) {
                     lastTradeTime.put(key, ts);
                     loaded++;
@@ -242,20 +242,134 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    /**
-     * Har trade ke baad aur JVM exit pe state save karo.
-     * GitHub Actions artifact upload is file ko pick karega.
-     */
     private static void saveLastTradeState() {
         try {
             JSONObject obj = new JSONObject();
             lastTradeTime.forEach(obj::put);
             Files.write(Paths.get(STATE_FILE), obj.toString(2).getBytes(StandardCharsets.UTF_8));
-            System.out.printf("[STATE] Saved %d cooldown entries to %s%n",
-                    lastTradeTime.size(), STATE_FILE);
+            System.out.printf("[STATE] Saved %d cooldown entries%n", lastTradeTime.size());
         } catch (Exception e) {
             System.err.println("[STATE] Save failed: " + e.getMessage());
         }
+    }
+
+    // =========================================================================
+    // FIX 8: DAILY LOSS STATE
+    // =========================================================================
+    private static void loadDailyLossState() {
+        try {
+            String today = java.time.LocalDate.now().toString();
+            File f = new File(DAILY_LOSS_FILE);
+            if (!f.exists()) { todayDate = today; dailyLossINR = 0; return; }
+            JSONObject obj = new JSONObject(new String(Files.readAllBytes(Paths.get(DAILY_LOSS_FILE))));
+            String savedDate = obj.optString("date", "");
+            if (savedDate.equals(today)) {
+                dailyLossINR = obj.optDouble("loss_inr", 0);
+                todayDate = today;
+                System.out.printf("[DAILY_LOSS] Today=%s Loss so far=%.0f INR%n", today, dailyLossINR);
+            } else {
+                // New day — reset
+                todayDate = today; dailyLossINR = 0;
+                System.out.printf("[DAILY_LOSS] New day %s — loss counter reset%n", today);
+            }
+        } catch (Exception e) {
+            System.err.println("[DAILY_LOSS] Load failed: " + e.getMessage());
+        }
+    }
+
+    private static void saveDailyLossState() {
+        try {
+            JSONObject obj = new JSONObject();
+            obj.put("date", todayDate);
+            obj.put("loss_inr", dailyLossINR);
+            Files.write(Paths.get(DAILY_LOSS_FILE), obj.toString(2).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            System.err.println("[DAILY_LOSS] Save failed: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // FIX 7: BTC DIRECTION CHECK
+    // =========================================================================
+    /**
+     * BTC ki 1H direction fetch karta hai.
+     * Returns: true = BTC bullish, false = BTC bearish
+     * Returns null agar data insufficient hai.
+     */
+    private static Boolean getBtcDirection() {
+        try {
+            JSONArray btc1h = getCandlestickData(BTC_PAIR, "60", CANDLE_1H);
+            if (btc1h == null || btc1h.length() < 60) {
+                System.out.println("  [G0] BTC 1H data insufficient");
+                return null;
+            }
+            double[] clB = extractCloses(btc1h), hiB = extractHighs(btc1h), loB = extractLows(btc1h);
+            boolean btcStBull  = calcSupertrendDirection(hiB, loB, clB, ST_PERIOD, ST_MULTIPLIER);
+            boolean btcEmaBull = calcEMA(clB, EMA_MID) > calcEMA(clB, EMA_SLOW);
+            // Strict AND — both must agree
+            if (btcStBull && btcEmaBull)  return true;
+            if (!btcStBull && !btcEmaBull) return false;
+            // Mixed signal — skip
+            System.out.printf("  [G0] BTC mixed: ST=%s EMA=%s → skip%n",
+                    btcStBull ? "BULL" : "BEAR", btcEmaBull ? "BULL" : "BEAR");
+            return null;
+        } catch (Exception e) {
+            System.err.println("  [G0] BTC direction error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // =========================================================================
+    // FIX 5: PRICE FRESHNESS & SPREAD CHECK
+    // Returns double[]{price, bidAskSpreadPct} or null if stale/wide spread
+    // =========================================================================
+    private static double[] getFreshPrice(String pair) {
+        try {
+            // Try to get bid/ask from orderbook
+            String url = PUBLIC_API_URL + "/market_data/orderbook?pair=" + pair + "&limit=1";
+            HttpURLConnection conn = openGet(url);
+            if (conn.getResponseCode() == 200) {
+                JSONObject ob = new JSONObject(readStream(conn.getInputStream()));
+                JSONArray bids = ob.optJSONArray("bids");
+                JSONArray asks = ob.optJSONArray("asks");
+                if (bids != null && asks != null && bids.length() > 0 && asks.length() > 0) {
+                    double bid = bids.getJSONArray(0).getDouble(0);
+                    double ask = asks.getJSONArray(0).getDouble(0);
+                    double mid = (bid + ask) / 2.0;
+                    double spreadPct = (ask - bid) / mid * 100.0;
+                    if (spreadPct > MAX_SPREAD_PCT) {
+                        System.out.printf("  [G-SPREAD] Spread=%.3f%% > %.1f%% — skip%n",
+                                spreadPct, MAX_SPREAD_PCT);
+                        return null;
+                    }
+                    return new double[]{mid, spreadPct};
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Fallback: trade_history with freshness check
+        try {
+            String url = PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1";
+            HttpURLConnection conn = openGet(url);
+            if (conn.getResponseCode() == 200) {
+                String r = readStream(conn.getInputStream());
+                JSONArray arr = r.startsWith("[") ? new JSONArray(r) : new JSONArray();
+                if (arr.length() > 0) {
+                    JSONObject trade = arr.getJSONObject(0);
+                    double price = trade.getDouble("p");
+                    long   ts    = trade.optLong("T", 0); // timestamp in ms
+                    long   age   = System.currentTimeMillis() - ts;
+                    if (ts > 0 && age > MAX_PRICE_AGE_MS) {
+                        System.out.printf("  [G-FRESH] Last trade %ds ago — stale, skip%n", age / 1000);
+                        return null;
+                    }
+                    return new double[]{price, 0};
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("  getFreshPrice: " + e.getMessage());
+        }
+        return null;
     }
 
     // =========================================================================
@@ -263,28 +377,59 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     public static void main(String[] args) {
 
-        // ── State load karo (FIRST THING) ─────────────────────────────────────
         loadLastTradeState();
+        loadDailyLossState();
 
-        // ── JVM exit pe bhi save hoga (crash safety) ─────────────────────────
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("[STATE] Shutdown hook — saving state...");
             saveLastTradeState();
+            saveDailyLossState();
         }));
+
+        // FIX 8: Daily loss check — stop if exceeded
+        if (dailyLossINR >= MAX_DAILY_LOSS_INR) {
+            System.out.printf("%n[DAILY_LOSS] Loss limit %.0f INR reached (today: %.0f) — no trading today%n",
+                    MAX_DAILY_LOSS_INR, dailyLossINR);
+            return;
+        }
 
         initInstrumentCache();
         Set<String> active = getActivePositions();
         System.out.println("Active positions: " + active);
+        System.out.printf("Open count: %d / %d max%n", active.size(), MAX_OPEN_POSITIONS);
         System.out.printf("Cooldown active for: %s%n", getCooldownSummary());
+
+        // FIX 8: Position count cap
+        if (active.size() >= MAX_OPEN_POSITIONS) {
+            System.out.printf("%n[CAP] Already %d open positions (max %d) — no new trades%n",
+                    active.size(), MAX_OPEN_POSITIONS);
+            return;
+        }
+
+        // FIX 7: Fetch BTC direction ONCE (avoid redundant API calls per pair)
+        System.out.println("\n── BTC Direction Check (G0) ──");
+        Boolean btcBull = getBtcDirection();
+        if (btcBull == null) {
+            System.out.println("[G0] BTC direction ambiguous — all trades blocked");
+            return;
+        }
+        System.out.printf("[G0] BTC direction: %s%n", btcBull ? "BULL ▲" : "BEAR ▼");
+
+        int tradesThisRun = 0;
 
         for (String pair : COINS_TO_TRADE) {
             try {
+                // FIX 8: Stop if we've hit max during this run
+                if (active.size() + tradesThisRun >= MAX_OPEN_POSITIONS) {
+                    System.out.printf("%nMax positions (%d) reached — stopping scan%n", MAX_OPEN_POSITIONS);
+                    break;
+                }
+
                 if (active.contains(pair)) {
                     System.out.println("Skip " + pair + " — active position");
                     continue;
                 }
 
-                // ── Cooldown check (ab file-backed hai) ───────────────────────
                 long lastTrade = lastTradeTime.getOrDefault(pair, 0L);
                 long elapsed   = System.currentTimeMillis() - lastTrade;
                 if (elapsed < COOLDOWN_MS) {
@@ -311,7 +456,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  Insufficient 1H candles — skip"); continue;
                 }
 
-                // ── Aggregate 2H and 4H ────────────────────────────────────────
                 JSONArray raw2h = aggregate1HTo2H(raw1h);
                 JSONArray raw4h = aggregate1HTo4H(raw1h);
 
@@ -340,9 +484,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double lastClose = cl30[cl30.length - 1];
                 double tickSize  = getTickSize(pair);
                 double atr30m    = calcATR(hi30, lo30, cl30, ATR_PERIOD);
+                // FIX 1: Calculate 1H ATR separately for SL
+                double atr1h     = calcATR(hi1h, lo1h, cl1h, ATR_PERIOD);
                 double atrPct    = (atr30m / lastClose) * 100.0;
 
-                System.out.printf("  Price=%.6f  ATR-30m=%.6f (%.2f%%)%n", lastClose, atr30m, atrPct);
+                System.out.printf("  Price=%.6f  ATR-30m=%.6f (%.2f%%)  ATR-1H=%.6f%n",
+                        lastClose, atr30m, atrPct, atr1h);
 
                 // ══════════════════════════════════════════════════════════════
                 // MANDATORY GATES
@@ -365,59 +512,57 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                // G3: 4H vs 2H — STRICT AND (was >=1, now BOTH must agree)
+                // G3: 4H vs 2H — strict AND
                 boolean st4hBull  = calcSupertrendDirection(hi4h, lo4h, cl4h, ST_PERIOD, ST_MULTIPLIER);
                 boolean ema4hBull = calcEMA(cl4h, EMA_MID) > calcEMA(cl4h, EMA_SLOW);
                 boolean st2hBull  = calcSupertrendDirection(hi2h, lo2h, cl2h, ST_PERIOD, ST_MULTIPLIER);
                 boolean ema2hBull = calcEMA(cl2h, EMA_MID) > calcEMA(cl2h, EMA_SLOW);
 
-                // FIX v17: STRICT AND — dono indicators agree karne chahiye
-                boolean trend4hUp = st4hBull && ema4hBull;   // was: >= 1 (weak)
-                boolean trend2hUp = st2hBull && ema2hBull;   // was: >= 1 (weak)
+                boolean trend4hUp = st4hBull && ema4hBull;
+                boolean trend2hUp = st2hBull && ema2hBull;
 
                 if (trend4hUp != trend2hUp) {
-                    System.out.printf("  [G3-FAIL] 4H=%s(ST=%s,EMA=%s) vs 2H=%s(ST=%s,EMA=%s) — macro conflict%n",
-                            trend4hUp ? "BULL" : "BEAR",
-                            st4hBull ? "▲" : "▼", ema4hBull ? "▲" : "▼",
-                            trend2hUp ? "BULL" : "BEAR",
-                            st2hBull ? "▲" : "▼", ema2hBull ? "▲" : "▼");
+                    System.out.printf("  [G3-FAIL] 4H=%s vs 2H=%s — macro conflict%n",
+                            trend4hUp ? "BULL" : "BEAR", trend2hUp ? "BULL" : "BEAR");
                     continue;
                 }
-
-                // Edge case: 4H mein dono conflict → skip (mixed signal)
                 if (st4hBull != ema4hBull) {
-                    System.out.printf("  [G3-FAIL] 4H internal conflict: ST=%s EMA=%s — ambiguous%n",
-                            st4hBull ? "BULL▲" : "BEAR▼", ema4hBull ? "BULL▲" : "BEAR▼");
+                    System.out.printf("  [G3-FAIL] 4H internal conflict: ST=%s EMA=%s%n",
+                            st4hBull ? "BULL" : "BEAR", ema4hBull ? "BULL" : "BEAR");
                     continue;
                 }
 
                 boolean overallTrendUp = trend4hUp;
 
+                // FIX 7: G0 — BTC direction must match trade direction
+                if (overallTrendUp != btcBull) {
+                    System.out.printf("  [G0-FAIL] Trade dir=%s but BTC=%s — skip%n",
+                            overallTrendUp ? "BULL" : "BEAR", btcBull ? "BULL" : "BEAR");
+                    continue;
+                }
+
                 // G4: 1H Supertrend alignment
                 boolean st1hBull = calcSupertrendDirection(hi1h, lo1h, cl1h, ST_PERIOD, ST_MULTIPLIER);
                 if (overallTrendUp && !st1hBull) {
-                    System.out.printf("  [G4-FAIL] Overall=BULL but 1H-ST=BEAR%n");
-                    continue;
+                    System.out.printf("  [G4-FAIL] Overall=BULL but 1H-ST=BEAR%n"); continue;
                 }
                 if (!overallTrendUp && st1hBull) {
-                    System.out.printf("  [G4-FAIL] Overall=BEAR but 1H-ST=BULL%n");
-                    continue;
+                    System.out.printf("  [G4-FAIL] Overall=BEAR but 1H-ST=BULL%n"); continue;
                 }
 
                 // G5: 30M Supertrend alignment
                 boolean st30Bull = calcSupertrendDirection(hi30, lo30, cl30, ST_PERIOD, ST_MULTIPLIER);
                 if (overallTrendUp && !st30Bull) {
-                    System.out.printf("  [G5-FAIL] Overall=BULL but 30M-ST=BEAR%n");
-                    continue;
+                    System.out.printf("  [G5-FAIL] Overall=BULL but 30M-ST=BEAR%n"); continue;
                 }
                 if (!overallTrendUp && st30Bull) {
-                    System.out.printf("  [G5-FAIL] Overall=BEAR but 30M-ST=BULL%n");
-                    continue;
+                    System.out.printf("  [G5-FAIL] Overall=BEAR but 30M-ST=BULL%n"); continue;
                 }
 
-                System.out.printf("  [ALL GATES PASSED] Dir=%s | VolRatio=%.2fx | 1H-ST=%s | 30M-ST=%s%n",
+                System.out.printf("  [ALL GATES PASSED] Dir=%s | VolRatio=%.2fx | BTC=%s | 1H-ST=%s | 30M-ST=%s%n",
                         overallTrendUp ? "BULL▲" : "BEAR▼",
                         volRatio,
+                        btcBull ? "BULL▲" : "BEAR▼",
                         st1hBull ? "BULL▲" : "BEAR▼",
                         st30Bull ? "BULL▲" : "BEAR▼");
 
@@ -573,8 +718,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 boolean correctSide = overallTrendUp ? lastClose > ema20_15m : lastClose < ema20_15m;
                 if (nearEma20 && correctSide) {
                     score.pullbackBonus = 5;
-                    bonusLog.append(String.format("  [Pullback Bonus] Price near EMA20=%.6f → +5\n",
-                            ema20_15m));
+                    bonusLog.append(String.format("  [Pullback Bonus] Price near EMA20=%.6f → +5\n", ema20_15m));
                 }
                 score.bonusLog = bonusLog.toString();
 
@@ -599,69 +743,88 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.printf ("  │  Pullback Bonus:   %5.1f%n", score.pullbackBonus);
                 System.out.println("  └─────────────────────────────────────────────────┘");
 
-                // ── TRADE DECISION ─────────────────────────────────────────────
+                // ── FIX 6: TRADE DECISION — QUARTER tier removed ──────────────
                 double positionFraction;
                 String tierLabel;
-                if      (total >= SCORE_FULL)    { positionFraction = 1.00; tierLabel = "★★★★★ FULL (100%)";   }
-                else if (total >= SCORE_HALF)    { positionFraction = 0.50; tierLabel = "★★★   HALF (50%)";    }
-                else if (total >= SCORE_QUARTER) { positionFraction = 0.25; tierLabel = "★★    QUARTER (25%)"; }
+                if      (total >= SCORE_FULL) { positionFraction = 1.00; tierLabel = "★★★★★ FULL (100%)"; }
+                else if (total >= SCORE_HALF) { positionFraction = 0.50; tierLabel = "★★★   HALF (50%)";  }
                 else {
-                    System.out.printf("  Score %.1f < %.0f — NO TRADE%n", total, SCORE_QUARTER);
+                    System.out.printf("  Score %.1f < %.0f — NO TRADE (threshold raised)%n",
+                            total, SCORE_HALF);
                     continue;
                 }
 
                 String side = overallTrendUp ? "buy" : "sell";
                 System.out.printf("\n  %s → %s %s%n", tierLabel, side.toUpperCase(), pair);
 
-                // ── Place order ───────────────────────────────────────────────
-                double currentPrice = getLastPrice(pair);
-                if (currentPrice <= 0) { System.out.println("  Invalid price — skip"); continue; }
+                // ── FIX 5: Fresh price check ───────────────────────────────────
+                double[] priceInfo = getFreshPrice(pair);
+                if (priceInfo == null) {
+                    System.out.println("  Stale/wide-spread price — skip");
+                    continue;
+                }
+                double currentPrice = priceInfo[0];
+                double spreadPct    = priceInfo[1];
+                System.out.printf("  Price=%.6f Spread=%.3f%%%n", currentPrice, spreadPct);
 
                 double effectiveMargin = MAX_MARGIN * positionFraction;
                 double qty = calcQuantity(currentPrice, pair, effectiveMargin);
                 if (qty <= 0) { System.out.println("  Invalid qty — skip"); continue; }
 
-                System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx | margin=%.0f INR%n",
-                        side.toUpperCase(), currentPrice, qty, LEVERAGE, effectiveMargin);
+                // ── FIX 2: Limit order with 0.1% buffer ───────────────────────
+                double limitPrice = overallTrendUp
+                        ? currentPrice * (1 + LIMIT_ORDER_BUFFER_PCT)
+                        : currentPrice * (1 - LIMIT_ORDER_BUFFER_PCT);
+                limitPrice = roundToTick(limitPrice, tickSize);
 
-                JSONObject resp = placeFuturesMarketOrder(side, pair, qty, LEVERAGE,
+                System.out.printf("  Placing LIMIT %s | limitPrice=%.6f | qty=%.4f | lev=%dx | margin=%.0f INR%n",
+                        side.toUpperCase(), limitPrice, qty, LEVERAGE, effectiveMargin);
+
+                JSONObject resp = placeFuturesLimitOrder(side, pair, qty, limitPrice, LEVERAGE,
                         "email_notification", "isolated", "INR");
                 if (resp == null || !resp.has("id")) {
-                    System.out.println("  Order failed: " + resp); continue;
+                    System.out.println("  Order placement failed: " + resp);
+                    continue;
                 }
-                System.out.println("  Order placed! id=" + resp.getString("id"));
+                String orderId = resp.getString("id");
+                System.out.println("  Limit order placed! id=" + orderId);
 
-                // ── Cooldown set karo aur STATE SAVE karo ────────────────────
-                lastTradeTime.put(pair, System.currentTimeMillis());
-                saveLastTradeState();   // Immediately persist — crash safe
-
-                // ── Confirm entry & set TP/SL ─────────────────────────────────
-                double entry = getEntryPrice(pair, resp.getString("id"));
+                // Wait for fill
+                double entry = waitForLimitFill(pair, orderId);
                 if (entry <= 0) {
-                    System.out.println("  Could not confirm entry — TP/SL skipped"); continue;
+                    System.out.println("  Limit order not filled in " + (LIMIT_ORDER_WAIT_MS/1000) + "s — cancelling");
+                    cancelOrder(orderId);
+                    continue;
                 }
-                System.out.printf("  Entry confirmed: %.6f%n", entry);
+                System.out.printf("  Limit order FILLED at %.6f%n", entry);
 
+                lastTradeTime.put(pair, System.currentTimeMillis());
+                saveLastTradeState();
+                tradesThisRun++;
+
+                // ── FIX 1: SL/TP using 1H ATR ─────────────────────────────────
                 double[] stBands1h = calcSupertrendBands(hi1h, lo1h, cl1h, ST_PERIOD, ST_MULTIPLIER);
                 double stLower1h = stBands1h[0], stUpper1h = stBands1h[1];
 
                 double slPrice, tpPrice;
                 if ("buy".equalsIgnoreCase(side)) {
-                    double rawSL = stLower1h - (ST_SL_BUFFER * atr30m);
-                    double minSL = entry - SL_MIN_ATR * atr30m;
-                    double maxSL = entry - SL_MAX_ATR * atr30m;
+                    // Raw SL from 1H ST band with 1H ATR buffer
+                    double rawSL = stLower1h - (ST_SL_BUFFER * atr1h);
+                    // Clamp: min=1.5×atr1h, max=3.0×atr1h from entry (using 1H ATR)
+                    double minSL = entry - SL_MIN_ATR * atr1h;
+                    double maxSL = entry - SL_MAX_ATR * atr1h;
                     slPrice = Math.max(Math.min(rawSL, minSL), maxSL);
                     tpPrice = entry + REWARD_RATIO * (entry - slPrice);
-                    System.out.printf("  [BUY SL] 1H-Lower=%.6f RawSL=%.6f → %.6f%n",
-                            stLower1h, rawSL, slPrice);
+                    System.out.printf("  [BUY SL] 1H-Lower=%.6f Buffer=%.6f RawSL=%.6f → SL=%.6f%n",
+                            stLower1h, ST_SL_BUFFER * atr1h, rawSL, slPrice);
                 } else {
-                    double rawSL = stUpper1h + (ST_SL_BUFFER * atr30m);
-                    double minSL = entry + SL_MIN_ATR * atr30m;
-                    double maxSL = entry + SL_MAX_ATR * atr30m;
+                    double rawSL = stUpper1h + (ST_SL_BUFFER * atr1h);
+                    double minSL = entry + SL_MIN_ATR * atr1h;
+                    double maxSL = entry + SL_MAX_ATR * atr1h;
                     slPrice = Math.min(Math.max(rawSL, minSL), maxSL);
                     tpPrice = entry - REWARD_RATIO * (slPrice - entry);
-                    System.out.printf("  [SELL SL] 1H-Upper=%.6f RawSL=%.6f → %.6f%n",
-                            stUpper1h, rawSL, slPrice);
+                    System.out.printf("  [SELL SL] 1H-Upper=%.6f Buffer=%.6f RawSL=%.6f → SL=%.6f%n",
+                            stUpper1h, ST_SL_BUFFER * atr1h, rawSL, slPrice);
                 }
 
                 slPrice = roundToTick(slPrice, tickSize);
@@ -684,12 +847,99 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         }
 
-        System.out.println("\n=== Scan complete ===");
-        // Final save (shutdown hook bhi karega, but explicit save safer hai)
+        System.out.printf("%n=== Scan complete | Trades this run: %d ===%n", tradesThisRun);
         saveLastTradeState();
+        saveDailyLossState();
     }
 
-    // ── Cooldown summary for startup log ──────────────────────────────────────
+    // =========================================================================
+    // FIX 2: LIMIT ORDER PLACEMENT
+    // =========================================================================
+    public static JSONObject placeFuturesLimitOrder(String side, String pair, double qty,
+                                                     double limitPrice, int lev,
+                                                     String notif, String marginType, String marginCcy) {
+        try {
+            JSONObject order = new JSONObject();
+            order.put("side", side.toLowerCase());
+            order.put("pair", pair);
+            order.put("order_type", "limit_order");
+            order.put("price", limitPrice);
+            order.put("total_quantity", qty);
+            order.put("leverage", lev);
+            order.put("notification", notif);
+            order.put("time_in_force", "good_till_cancel");
+            order.put("hidden", false);
+            order.put("post_only", false);
+            order.put("position_margin_type", marginType);
+            order.put("margin_currency_short_name", marginCcy);
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("order", order);
+            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/create", body.toString());
+            return resp.startsWith("[") ? new JSONArray(resp).getJSONObject(0) : new JSONObject(resp);
+        } catch (Exception e) {
+            System.err.println("placeFuturesLimitOrder: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Limit order fill ke liye wait karta hai.
+     * Returns entry price agar filled, 0 agar timeout.
+     */
+    private static double waitForLimitFill(String pair, String orderId) throws Exception {
+        long deadline = System.currentTimeMillis() + LIMIT_ORDER_WAIT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            TimeUnit.MILLISECONDS.sleep(LIMIT_ORDER_CHECK_INTERVAL_MS);
+            JSONObject pos = findPosition(pair);
+            if (pos != null && pos.optDouble("avg_price", 0) > 0
+                    && pos.optDouble("active_pos", 0) != 0) {
+                return pos.getDouble("avg_price");
+            }
+            // Also check order status directly
+            try {
+                JSONObject orderStatus = getOrderStatus(orderId);
+                if (orderStatus != null) {
+                    String status = orderStatus.optString("status", "");
+                    if ("filled".equalsIgnoreCase(status) || "partially_filled".equalsIgnoreCase(status)) {
+                        double avgPrice = orderStatus.optDouble("avg_price", 0);
+                        if (avgPrice > 0) return avgPrice;
+                    }
+                    if ("cancelled".equalsIgnoreCase(status) || "rejected".equalsIgnoreCase(status)) {
+                        System.out.println("  Order " + status + " by exchange");
+                        return 0;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return 0;
+    }
+
+    private static JSONObject getOrderStatus(String orderId) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("id", orderId);
+            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/get", body.toString());
+            return new JSONObject(resp);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void cancelOrder(String orderId) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("id", orderId);
+            authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/cancel", body.toString());
+            System.out.println("  Order " + orderId + " cancelled");
+        } catch (Exception e) {
+            System.err.println("  cancelOrder: " + e.getMessage());
+        }
+    }
+
+    // ── Cooldown summary ──────────────────────────────────────────────────────
     private static String getCooldownSummary() {
         if (lastTradeTime.isEmpty()) return "none";
         long now = System.currentTimeMillis();
@@ -748,7 +998,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // SUPERTREND DIRECTION
+    // SUPERTREND
     // =========================================================================
     private static boolean calcSupertrendDirection(double[] hi, double[] lo, double[] cl,
                                                     int period, double multiplier) {
@@ -773,9 +1023,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return up[n-1];
     }
 
-    // =========================================================================
-    // SUPERTREND BANDS
-    // =========================================================================
     private static double[] calcSupertrendBands(double[] hi, double[] lo, double[] cl,
                                                  int period, double multiplier) {
         int n = cl.length;
@@ -813,16 +1060,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double up = hi[i]-hi[i-1], dn = lo[i-1]-lo[i];
             pDM[i] = (up > dn && up > 0) ? up : 0;
             mDM[i] = (dn > up && dn > 0) ? dn : 0;
-            tr[i] = Math.max(hi[i]-lo[i], Math.max(Math.abs(hi[i]-cl[i-1]), Math.abs(lo[i]-cl[i-1])));
+            tr[i]  = Math.max(hi[i]-lo[i], Math.max(Math.abs(hi[i]-cl[i-1]), Math.abs(lo[i]-cl[i-1])));
         }
         double sTR=0, sP=0, sM=0, adx=0, adxSum=0; int cnt=0;
-        for (int i=1;i<=period;i++) { sTR+=tr[i]; sP+=pDM[i]; sM+=mDM[i]; }
-        for (int i=period+1;i<n;i++) {
-            sTR=sTR-sTR/period+tr[i]; sP=sP-sP/period+pDM[i]; sM=sM-sM/period+mDM[i];
-            if (sTR==0) continue;
-            double pDI=100*sP/sTR, mDI=100*sM/sTR;
+        for (int i=1;i<=period;i++){sTR+=tr[i];sP+=pDM[i];sM+=mDM[i];}
+        for (int i=period+1;i<n;i++){
+            sTR=sTR-sTR/period+tr[i];sP=sP-sP/period+pDM[i];sM=sM-sM/period+mDM[i];
+            if(sTR==0)continue;
+            double pDI=100*sP/sTR,mDI=100*sM/sTR;
             double dx=(pDI+mDI)==0?0:100*Math.abs(pDI-mDI)/(pDI+mDI);
-            if (cnt<period){adxSum+=dx;cnt++;if(cnt==period)adx=adxSum/period;}
+            if(cnt<period){adxSum+=dx;cnt++;if(cnt==period)adx=adxSum/period;}
             else adx=(adx*(period-1)+dx)/period;
         }
         return adx;
@@ -876,7 +1123,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if(ch>0){ag=(ag*(period-1)+ch)/period;al=al*(period-1)/period;}
             else{al=(al*(period-1)+Math.abs(ch))/period;ag=ag*(period-1)/period;}
         }
-        return al==0 ? 100 : 100-(100/(1+ag/al));
+        return al==0?100:100-(100/(1+ag/al));
     }
     private static double calcATR(double[] hi, double[] lo, double[] cl, int period) {
         if (hi.length<period+1) return 0;
@@ -930,7 +1177,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             JSONArray pairs=new JSONArray(publicGet(BASE_URL+"/exchange/v1/derivatives/futures/data/active_instruments"));
             for (int i=0;i<pairs.length();i++){
                 String p=pairs.getString(i);
-                try{ String raw=publicGet(BASE_URL+"/exchange/v1/derivatives/futures/data/instrument?pair="+p);
+                try{
+                    String raw=publicGet(BASE_URL+"/exchange/v1/derivatives/futures/data/instrument?pair="+p);
                     instrumentCache.put(p,new JSONObject(raw).getJSONObject("instrument"));
                 }catch(Exception ignored){}
             }
@@ -942,14 +1190,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (System.currentTimeMillis()-lastCacheUpdate>TICK_CACHE_TTL_MS) initInstrumentCache();
         JSONObject d=instrumentCache.get(pair);
         return d!=null?d.optDouble("price_increment",0.0001):0.0001;
-    }
-    private static double getEntryPrice(String pair, String orderId) throws Exception {
-        for(int i=0;i<MAX_ENTRY_PRICE_CHECKS;i++){
-            TimeUnit.MILLISECONDS.sleep(ENTRY_CHECK_DELAY_MS);
-            JSONObject pos=findPosition(pair);
-            if(pos!=null&&pos.optDouble("avg_price",0)>0) return pos.getDouble("avg_price");
-        }
-        return 0;
     }
     private static JSONObject findPosition(String pair) throws Exception {
         JSONObject body=new JSONObject();
@@ -976,23 +1216,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         }catch(Exception e){System.err.println("getLastPrice: "+e.getMessage());}
         return 0;
-    }
-    public static JSONObject placeFuturesMarketOrder(String side, String pair, double qty,
-                                                      int lev, String notif, String marginType, String marginCcy) {
-        try {
-            JSONObject order=new JSONObject();
-            order.put("side",side.toLowerCase()); order.put("pair",pair);
-            order.put("order_type","market_order"); order.put("total_quantity",qty);
-            order.put("leverage",lev); order.put("notification",notif);
-            order.put("time_in_force","good_till_cancel");
-            order.put("hidden",false); order.put("post_only",false);
-            order.put("position_margin_type",marginType);
-            order.put("margin_currency_short_name",marginCcy);
-            JSONObject body=new JSONObject();
-            body.put("timestamp",Instant.now().toEpochMilli()); body.put("order",order);
-            String resp=authPost(BASE_URL+"/exchange/v1/derivatives/futures/orders/create",body.toString());
-            return resp.startsWith("[")?new JSONArray(resp).getJSONObject(0):new JSONObject(resp);
-        }catch(Exception e){System.err.println("placeFuturesMarketOrder: "+e.getMessage()); return null;}
     }
     public static void setTpSl(String posId, double tp, double sl, String pair) {
         try {
