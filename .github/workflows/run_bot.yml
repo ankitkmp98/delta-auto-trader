@@ -1,32 +1,56 @@
 name: Delta Exchange Auto-Trader
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Runs every 15 minutes
-  workflow_dispatch:
+    - cron: '*/10 * * * *'   # Har 10 min pe run hoga
+  workflow_dispatch:          # Manual trigger bhi possible
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
+      # ── 1. Code checkout ──────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── 2. Java setup ─────────────────────────────────────────────────────
       - name: Set up Java 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4        # v3 → v4 (Node 20 warning fix)
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build and package
-        run: mvn clean package
+      # ── 3. Previous trade state download karo (cooldown ke liye) ──────────
+      #    First run pe file nahi hogi → continue-on-error: true
+      - name: Download previous trade state
+        uses: actions/download-artifact@v4
+        with:
+          name: trade-state
+          path: .
+        continue-on-error: true            # First run pe error aata hai — ignore karo
 
+      # ── 4. Build ──────────────────────────────────────────────────────────
+      - name: Build and package
+        run: mvn clean package -q
+
+      # ── 5. Bot run karo ───────────────────────────────────────────────────
       - name: Run trading bot
         env:
           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
-        run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar  # Fixed JAR name
+        run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar
 
+      # ── 6. Updated state upload karo (success + failure dono mein) ────────
+      - name: Upload trade state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-state
+          path: last_trade_state.json
+          retention-days: 7
+          overwrite: true
+
+      # ── 7. Failure pe logs upload ─────────────────────────────────────────
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -35,3 +59,45 @@ jobs:
           path: |
             target/*.log
             target/surefire-reports/
+
+
+
+
+
+# name: Delta Exchange Auto-Trader
+# on:
+#   schedule:
+#     - cron: '*/10 * * * *'  # Runs every 15 minutes
+#   workflow_dispatch:
+
+# jobs:
+#   run-bot:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up Java 17
+#         uses: actions/setup-java@v3
+#         with:
+#           java-version: '17'
+#           distribution: 'temurin'
+#           cache: 'maven'
+
+#       - name: Build and package
+#         run: mvn clean package
+
+#       - name: Run trading bot
+#         env:
+#           DELTA_API_KEY: ${{ secrets.DELTA_API_KEY }}
+#           DELTA_API_SECRET: ${{ secrets.DELTA_API_SECRET }}
+#         run: java -jar target/short-order-bot-1.0-SNAPSHOT-jar-with-dependencies.jar  # Fixed JAR name
+
+#       - name: Upload logs on failure
+#         if: failure()
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: error-logs
+#           path: |
+#             target/*.log
+#             target/surefire-reports/
