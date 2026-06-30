@@ -134,7 +134,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR   = 3.0;   // max SL = 3.0× atr1h (was 4.0× atr30m)
 
     // ── FIX 3: TP ratio raised to 2.0 (was 1.2) ──────────────────────────────
-    private static final double REWARD_RATIO = 1.67;
+    private static final double REWARD_RATIO = 0.69;
 
     // ── Volatility gate ───────────────────────────────────────────────────────
     private static final double MAX_ATR_PERCENT = 4.5;
