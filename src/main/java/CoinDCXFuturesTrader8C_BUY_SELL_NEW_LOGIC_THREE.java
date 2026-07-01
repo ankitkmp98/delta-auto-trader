@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long   TICK_CACHE_TTL_MS      = 3_600_000L;
 
     // ── FIX 8: Max simultaneous open positions ────────────────────────────────
-    private static final int    MAX_OPEN_POSITIONS  = 8;
+    private static final int    MAX_OPEN_POSITIONS  = 10;
     private static final double MAX_DAILY_LOSS_INR  = 15000.0;
 
     // ── Cooldown: 6 hours ─────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR   = 3.0;   // max SL = 3.0× atr1h (was 4.0× atr30m)
 
     // ── FIX 3: TP ratio raised to 2.0 (was 1.2) ──────────────────────────────
-    private static final double REWARD_RATIO = 0.69;
+    private static final double REWARD_RATIO = 1.69;
 
     // ── Volatility gate ───────────────────────────────────────────────────────
     private static final double MAX_ATR_PERCENT = 4.5;
