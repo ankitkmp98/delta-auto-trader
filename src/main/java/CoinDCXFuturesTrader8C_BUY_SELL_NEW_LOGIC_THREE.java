@@ -88,7 +88,7 @@ import java.util.stream.Stream;
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
-public class CoinDCXFuturesTrader_v15_SCORE {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // API Configuration
