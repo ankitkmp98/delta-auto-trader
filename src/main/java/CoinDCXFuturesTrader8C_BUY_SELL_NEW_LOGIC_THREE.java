@@ -112,9 +112,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_ATR   = 6.0;  // maximum SL distance in ATR
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
-    private static final double RR_STRONG = 1.8;  // ADX >= 40  (was 1.5)
-    private static final double RR_MEDIUM = 1.5;  // ADX >= 30  (was 1.4)
-    private static final double RR_WEAK   = 1.2;  // ADX < 30   (was 1.3)
+    private static final double RR_STRONG = 2.1;  // ADX >= 40  (was 1.5)
+    private static final double RR_MEDIUM = 1.8;  // ADX >= 30  (was 1.4)
+    private static final double RR_WEAK   = 1.5;  // ADX < 30   (was 1.3)
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX        = 1.4;
