@@ -78,7 +78,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long   COOLDOWN_MS            = 2 * 60 * 60 * 1000L;
 
     // ── FIX #6: Max simultaneous open positions ─────────────────────────────
-    private static final int MAX_OPEN_POSITIONS = 5;
+    private static final int MAX_OPEN_POSITIONS = 15;
 
     // ── Indicator periods ─────────────────────────────────────────────────────
     private static final int EMA_FAST  = 9;
