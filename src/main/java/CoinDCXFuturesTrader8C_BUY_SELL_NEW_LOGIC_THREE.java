@@ -107,9 +107,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // ── SL parameters ────────────────────────────────────────────────────────
-    private static final double ST_SL_BUFFER = 0.3;  // ATR units added beyond ST band
-    private static final double SL_MIN_ATR   = 2.7;  // minimum SL distance in ATR
-    private static final double SL_MAX_ATR   = 3.0;  // maximum SL distance in ATR
+    private static final double ST_SL_BUFFER = 0.6;  // ATR units added beyond ST band
+    private static final double SL_MIN_ATR   = 5.4;  // minimum SL distance in ATR
+    private static final double SL_MAX_ATR   = 6.0;  // maximum SL distance in ATR
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
     private static final double RR_STRONG = 1.6;  // ADX >= 40  (was 1.5)
