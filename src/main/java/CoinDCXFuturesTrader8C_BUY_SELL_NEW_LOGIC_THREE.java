@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.5;
 
     // ── MTF EMA9/21 + Supertrend confluence ───────────────────────────────────
-    private static final int MTF_MIN_ALIGNED = 4; // out of 5 TFs
+    private static final int MTF_MIN_ALIGNED = 5; // out of 5 TFs
 
     // ── ADX threshold ────────────────────────────────────────────────────────
     private static final double ADX_MIN = 20.0;
