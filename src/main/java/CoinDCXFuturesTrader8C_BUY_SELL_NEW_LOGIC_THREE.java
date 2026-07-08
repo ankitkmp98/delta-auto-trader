@@ -300,7 +300,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 JSONArray raw15m = getCandlestickData(pair, "15",  CANDLE_15M);
                 JSONArray raw30m = getCandlestickData(pair, "30",  CANDLE_30M);
                 JSONArray raw1h  = getCandlestickData(pair, "60",  CANDLE_1H);
-                JSONArray raw2h  = getCandlestickData(pair, "120", CANDLE_2H);
+                // Fetch 1H candles (2x count needed) and aggregate into 2H — CoinDCX doesn't
+                // support resolution="120" natively (only '1','5','60','1D' per API docs)
+                JSONArray raw1hFor2h = getCandlestickData(pair, "60", (CANDLE_2H * 2) + 10);
+                JSONArray raw2h      = aggregateCandles(raw1hFor2h, 2);
 
                 // Minimum data checks
                 if (raw30m == null || raw30m.length() < 60) {
@@ -1241,6 +1244,37 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static String generateHmacSHA256(String secret, String payload) {
         return sign(payload);
     }
+
+    // =========================================================================
+// AGGREGATE CANDLES: merges N consecutive smaller candles into 1 bigger candle
+// Used for 2H (since CoinDCX API doesn't support resolution="120" natively)
+// =========================================================================
+private static JSONArray aggregateCandles(JSONArray source, int groupSize) {
+    if (source == null || source.length() < groupSize) return null;
+    int n = source.length();
+    int usableCount = (n / groupSize) * groupSize;
+    int startIdx = n - usableCount; // align to most recent bars, discard oldest leftover
+    JSONArray result = new JSONArray();
+    for (int i = startIdx; i < n; i += groupSize) {
+        double open  = source.getJSONObject(i).getDouble("open");
+        double close = source.getJSONObject(i + groupSize - 1).getDouble("close");
+        double high  = Double.NEGATIVE_INFINITY;
+        double low   = Double.POSITIVE_INFINITY;
+        for (int j = i; j < i + groupSize; j++) {
+            JSONObject c = source.getJSONObject(j);
+            high = Math.max(high, c.getDouble("high"));
+            low  = Math.min(low,  c.getDouble("low"));
+        }
+        JSONObject merged = new JSONObject();
+        merged.put("open", open);
+        merged.put("close", close);
+        merged.put("high", high);
+        merged.put("low", low);
+        result.put(merged);
+    }
+    return result;
+}
+    
 }
 
 
