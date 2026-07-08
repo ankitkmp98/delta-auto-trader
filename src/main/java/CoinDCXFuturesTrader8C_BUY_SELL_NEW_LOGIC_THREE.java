@@ -107,16 +107,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // ── SL parameters ────────────────────────────────────────────────────────
-    private static final double ST_SL_BUFFER = 0.5;  // ATR units added beyond ST band
-    private static final double SL_MIN_ATR   = 1.8;  // minimum SL distance in ATR
-    private static final double SL_MAX_ATR   = 2.4;  // maximum SL distance in ATR
+    private static final double ST_SL_BUFFER = 0.7;  // ATR units added beyond ST band
+    private static final double SL_MIN_ATR   = 2.2;  // minimum SL distance in ATR
+    private static final double SL_MAX_ATR   = 2.8;  // maximum SL distance in ATR
 
-    private static final double SL_MAX_PERCENT = 4.5; // hard cap — liquidation safety net for 6x leverage
+    private static final double SL_MAX_PERCENT = 5.0; // hard cap — liquidation safety net for 6x leverage
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
-    private static final double RR_STRONG = 2.1;  // ADX >= 40  (was 1.5)
-    private static final double RR_MEDIUM = 1.8;  // ADX >= 30  (was 1.4)
-    private static final double RR_WEAK   = 1.5;  // ADX < 30   (was 1.3)
+    private static final double RR_STRONG = 1.9;  // ADX >= 40  (was 1.5)
+    private static final double RR_MEDIUM = 1.6;  // ADX >= 30  (was 1.4)
+    private static final double RR_WEAK   = 1.4;  // ADX < 30   (was 1.3)
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX        = 1.4;
