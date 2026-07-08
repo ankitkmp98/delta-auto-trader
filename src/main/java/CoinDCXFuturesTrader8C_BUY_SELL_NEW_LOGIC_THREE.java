@@ -98,7 +98,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MTF_MIN_ALIGNED = 5; // out of 5 TFs
 
     // ── ADX threshold ────────────────────────────────────────────────────────
-    private static final double ADX_MIN = 20.0;
+    private static final double ADX_MIN = 22.0;
 
     // ── RSI zones ────────────────────────────────────────────────────────────
     private static final double RSI_LONG_MIN  = 42.0;
