@@ -107,9 +107,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // ── SL parameters ────────────────────────────────────────────────────────
-    private static final double ST_SL_BUFFER = 0.9;  // ATR units added beyond ST band
-    private static final double SL_MIN_ATR   = 5.4;  // minimum SL distance in ATR
-    private static final double SL_MAX_ATR   = 6.0;  // maximum SL distance in ATR
+    private static final double ST_SL_BUFFER = 0.5;  // ATR units added beyond ST band
+    private static final double SL_MIN_ATR   = 1.8;  // minimum SL distance in ATR
+    private static final double SL_MAX_ATR   = 2.4;  // maximum SL distance in ATR
+
+    private static final double SL_MAX_PERCENT = 4.5; // hard cap — liquidation safety net for 6x leverage
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
     private static final double RR_STRONG = 2.1;  // ADX >= 40  (was 1.5)
@@ -683,24 +685,42 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     double minSL = entry - SL_MIN_ATR * slAtr;
                     double maxSL = entry - SL_MAX_ATR * slAtr;
                     slPrice      = Math.max(Math.min(rawSL, minSL), maxSL);
-                    double risk  = entry - slPrice;
-                    tpPrice      = entry + dynamicRR * risk;
                     System.out.printf("  [BUY] ST-Lower=%.6f RawSL=%.6f → Clamped SL=%.6f%n",
                             stLower, rawSL, slPrice);
+
+                    // ── Hard % cap safety net — prevents liquidation risk on ATR spikes ──
+                    double hardFloor = entry * (1 - SL_MAX_PERCENT / 100.0);
+                    if (slPrice < hardFloor) {
+                        System.out.printf("  [BUY] SL %.6f breached hard cap (%.1f%%) → clamped to %.6f%n",
+                                slPrice, SL_MAX_PERCENT, hardFloor);
+                        slPrice = hardFloor;
+                    }
+
+                    double risk = entry - slPrice;
+                    tpPrice     = entry + dynamicRR * risk;
                 } else {
                     double rawSL = stUpper + (ST_SL_BUFFER * slAtr);
                     double minSL = entry + SL_MIN_ATR * slAtr;
                     double maxSL = entry + SL_MAX_ATR * slAtr;
                     slPrice      = Math.min(Math.max(rawSL, minSL), maxSL);
-                    double risk  = slPrice - entry;
-                    tpPrice      = entry - dynamicRR * risk;
                     System.out.printf("  [SELL] ST-Upper=%.6f RawSL=%.6f → Clamped SL=%.6f%n",
                             stUpper, rawSL, slPrice);
+
+                    // ── Hard % cap safety net — prevents liquidation risk on ATR spikes ──
+                    double hardCeil = entry * (1 + SL_MAX_PERCENT / 100.0);
+                    if (slPrice > hardCeil) {
+                        System.out.printf("  [SELL] SL %.6f breached hard cap (%.1f%%) → clamped to %.6f%n",
+                                slPrice, SL_MAX_PERCENT, hardCeil);
+                        slPrice = hardCeil;
+                    }
+
+                    double risk = slPrice - entry;
+                    tpPrice     = entry - dynamicRR * risk;
                 }
 
                 slPrice = roundToTick(slPrice, tickSize);
                 tpPrice = roundToTick(tpPrice, tickSize);
-
+                
                 double slPct = Math.abs(entry - slPrice) / entry * 100;
                 double tpPct = Math.abs(tpPrice - entry) / entry * 100;
                 System.out.printf("  SL=%.6f (%.2f%%) | TP=%.6f (%.2f%%) | R:R=1:%.1f%n",
