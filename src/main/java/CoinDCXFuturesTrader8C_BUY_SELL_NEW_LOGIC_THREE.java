@@ -114,9 +114,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_MAX_PERCENT = 4.5; // hard cap — liquidation safety net for 6x leverage
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
-    private static final double RR_STRONG = 1.6;  // ADX >= 40  (was 1.5)
-    private static final double RR_MEDIUM = 1.4;  // ADX >= 30  (was 1.4)
-    private static final double RR_WEAK   = 1.2;  // ADX < 30   (was 1.3)
+    private static final double RR_STRONG = 1.3;  // ADX >= 40  (was 1.5)
+    private static final double RR_MEDIUM = 1.2;  // ADX >= 30  (was 1.4)
+    private static final double RR_WEAK   = 1.1;  // ADX < 30   (was 1.3)
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX        = 1.4;
