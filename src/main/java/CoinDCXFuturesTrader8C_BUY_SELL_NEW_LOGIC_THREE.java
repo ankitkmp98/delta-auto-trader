@@ -95,10 +95,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.5;
 
     // ── MTF EMA9/21 + Supertrend confluence ───────────────────────────────────
-    private static final int MTF_MIN_ALIGNED = 4; // out of 5 TFs
+    private static final int MTF_MIN_ALIGNED = 5; // out of 5 TFs
 
     // ── ADX threshold ────────────────────────────────────────────────────────
-    private static final double ADX_MIN = 22.0;
+    private static final double ADX_MIN = 20.0;
 
     // ── RSI zones ────────────────────────────────────────────────────────────
     private static final double RSI_LONG_MIN  = 42.0;
@@ -107,16 +107,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double RSI_SHORT_MAX = 58.0;
 
     // ── SL parameters ────────────────────────────────────────────────────────
-    private static final double ST_SL_BUFFER = 0.7;  // ATR units added beyond ST band
-    private static final double SL_MIN_ATR   = 2.2;  // minimum SL distance in ATR
-    private static final double SL_MAX_ATR   = 2.8;  // maximum SL distance in ATR
+    private static final double ST_SL_BUFFER = 0.6;  // ATR units added beyond ST band
+    private static final double SL_MIN_ATR   = 2.4;  // minimum SL distance in ATR
+    private static final double SL_MAX_ATR   = 2.7;  // maximum SL distance in ATR
 
-    private static final double SL_MAX_PERCENT = 5.0; // hard cap — liquidation safety net for 6x leverage
+    private static final double SL_MAX_PERCENT = 4.5; // hard cap — liquidation safety net for 6x leverage
 
     // ── FIX #4: Dynamic RR based on ADX — raised to properly absorb fees/slippage
-    private static final double RR_STRONG = 1.9;  // ADX >= 40  (was 1.5)
-    private static final double RR_MEDIUM = 1.6;  // ADX >= 30  (was 1.4)
-    private static final double RR_WEAK   = 1.4;  // ADX < 30   (was 1.3)
+    private static final double RR_STRONG = 1.6;  // ADX >= 40  (was 1.5)
+    private static final double RR_MEDIUM = 1.4;  // ADX >= 30  (was 1.4)
+    private static final double RR_WEAK   = 1.2;  // ADX < 30   (was 1.3)
 
     // ── Entry zone filters ────────────────────────────────────────────────────
     private static final double EMA9_PULLBACK_MAX        = 1.4;
