@@ -107,7 +107,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── NEW: requirement-based TP parameter ──────────────────────────────────
     // Document says R:R 1.5:1 to 2:1 — using the midpoint as a fixed target.
-    private static final double RR_TARGET = 1.5;
+    private static final double RR_TARGET = 1.4;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
 
