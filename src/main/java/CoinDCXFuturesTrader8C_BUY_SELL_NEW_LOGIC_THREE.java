@@ -118,7 +118,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ST_MULTIPLIER = 3.5;
 
     // ── requirement-based entry parameters (UNCHANGED from v19) ─────────────
-    private static final double PULLBACK_MAX_ATR = 0.6;
+    private static final double PULLBACK_MAX_ATR = 0.8;
 
     // ── requirement-based SL parameters (UNCHANGED from v19) ────────────────
     private static final double SL_ATR_BUFFER   = 0.35;
@@ -251,55 +251,122 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         boolean priceAboveSt   = r.price > r.stBands[0];
         boolean priceBelowSt   = r.price < r.stBands[1];
 
-        r.bullish = r.stGreen && priceAboveSt && (r.ema9 > r.ema21) && priceAboveEmas;
-        r.bearish = (!r.stGreen) && priceBelowSt && (r.ema9 < r.ema21) && priceBelowEmas;
+        // r.bullish = r.stGreen && priceAboveSt && (r.ema9 > r.ema21) && priceAboveEmas;
+        // r.bearish = (!r.stGreen) && priceBelowSt && (r.ema9 < r.ema21) && priceBelowEmas;
+
+        // 4H EMA condition — relaxed: allow if EMAs are ALMOST crossing
+boolean emaBullCross = r.ema9 > r.ema21;
+boolean emaBearCross = r.ema9 < r.ema21;
+double emaDiffPercent = Math.abs(r.ema9 - r.ema21) / r.price * 100;
+boolean emaNearCross = emaDiffPercent < 0.2; // within 0.2% of each other
+
+// Bullish: ST green + price above ST + price above EMAs + (EMA9 > EMA21 OR near cross)
+r.bullish = r.stGreen && priceAboveSt && priceAboveEmas && (emaBullCross || emaNearCross);
+
+// Bearish: ST red + price below ST + price below EMAs + (EMA9 < EMA21 OR near cross)
+r.bearish = (!r.stGreen) && priceBelowSt && priceBelowEmas && (emaBearCross || emaNearCross);
+        
         return r;
     }
 
     // =========================================================================
     // 15M rejection-candle patterns — UNCHANGED
     // =========================================================================
+    // private static boolean isBullishRejection(double open, double high, double low, double close,
+    //                                            double prevOpen, double prevClose) {
+    //     double range = high - low;
+    //     if (range <= 0) return false;
+    //     double body       = Math.abs(close - open);
+    //     double lowerWick   = Math.min(open, close) - low;
+    //     double upperWick   = high - Math.max(open, close);
+    //     boolean isBull     = close > open;
+
+    //     boolean hammer = body > 0 && lowerWick >= 2 * body && upperWick <= body * 0.6;
+
+    //     boolean bullishEngulf = prevClose < prevOpen && isBull
+    //             && close >= prevOpen && open <= prevClose;
+
+    //     double bodyRatio = body / range;
+    //     double closePos  = (close - low) / range;
+    //     boolean strongBull = isBull && bodyRatio >= 0.55 && closePos >= 0.7;
+
+    //     return hammer || bullishEngulf || strongBull;
+    // }
+
     private static boolean isBullishRejection(double open, double high, double low, double close,
-                                               double prevOpen, double prevClose) {
-        double range = high - low;
-        if (range <= 0) return false;
-        double body       = Math.abs(close - open);
-        double lowerWick   = Math.min(open, close) - low;
-        double upperWick   = high - Math.max(open, close);
-        boolean isBull     = close > open;
+                                           double prevOpen, double prevClose) {
+    double range = high - low;
+    if (range <= 0) return false;
+    double body = Math.abs(close - open);
+    double lowerWick = Math.min(open, close) - low;
+    double upperWick = high - Math.max(open, close);
+    boolean isBull = close > open;
+    
+    // Condition 1: Hammer (relaxed)
+    boolean hammer = body > 0 && lowerWick >= 1.5 * body && upperWick <= body * 0.8;
+    
+    // Condition 2: Bullish Engulfing (unchanged)
+    boolean bullishEngulf = prevClose < prevOpen && isBull
+            && close >= prevOpen && open <= prevClose;
+    
+    // Condition 3: Strong Bullish (relaxed)
+    double bodyRatio = body / range;
+    double closePos = (close - low) / range;
+    boolean strongBull = isBull && bodyRatio >= 0.4 && closePos >= 0.65;
+    
+    // NEW: Condition 4: Simple bullish close with lower wick
+    boolean simpleBull = isBull && lowerWick >= body * 0.5 && upperWick <= body * 1.2;
+    
+    return hammer || bullishEngulf || strongBull || simpleBull;
+}
 
-        boolean hammer = body > 0 && lowerWick >= 2 * body && upperWick <= body * 0.6;
+    // private static boolean isBearishRejection(double open, double high, double low, double close,
+    //                                            double prevOpen, double prevClose) {
+    //     double range = high - low;
+    //     if (range <= 0) return false;
+    //     double body       = Math.abs(close - open);
+    //     double lowerWick   = Math.min(open, close) - low;
+    //     double upperWick   = high - Math.max(open, close);
+    //     boolean isBear     = close < open;
 
-        boolean bullishEngulf = prevClose < prevOpen && isBull
-                && close >= prevOpen && open <= prevClose;
+    //     boolean shootingStar = body > 0 && upperWick >= 2 * body && lowerWick <= body * 0.6;
 
-        double bodyRatio = body / range;
-        double closePos  = (close - low) / range;
-        boolean strongBull = isBull && bodyRatio >= 0.55 && closePos >= 0.7;
+    //     boolean bearishEngulf = prevClose > prevOpen && isBear
+    //             && open >= prevClose && close <= prevOpen;
 
-        return hammer || bullishEngulf || strongBull;
-    }
+    //     double bodyRatio = body / range;
+    //     double closePos  = (close - low) / range;
+    //     boolean strongBear = isBear && bodyRatio >= 0.55 && closePos <= 0.3;
+
+    //     return shootingStar || bearishEngulf || strongBear;
+    // }
 
     private static boolean isBearishRejection(double open, double high, double low, double close,
-                                               double prevOpen, double prevClose) {
-        double range = high - low;
-        if (range <= 0) return false;
-        double body       = Math.abs(close - open);
-        double lowerWick   = Math.min(open, close) - low;
-        double upperWick   = high - Math.max(open, close);
-        boolean isBear     = close < open;
-
-        boolean shootingStar = body > 0 && upperWick >= 2 * body && lowerWick <= body * 0.6;
-
-        boolean bearishEngulf = prevClose > prevOpen && isBear
-                && open >= prevClose && close <= prevOpen;
-
-        double bodyRatio = body / range;
-        double closePos  = (close - low) / range;
-        boolean strongBear = isBear && bodyRatio >= 0.55 && closePos <= 0.3;
-
-        return shootingStar || bearishEngulf || strongBear;
-    }
+                                           double prevOpen, double prevClose) {
+    double range = high - low;
+    if (range <= 0) return false;
+    double body = Math.abs(close - open);
+    double lowerWick = Math.min(open, close) - low;
+    double upperWick = high - Math.max(open, close);
+    boolean isBear = close < open;
+    
+    // Condition 1: Shooting Star (relaxed)
+    boolean shootingStar = body > 0 && upperWick >= 1.5 * body && lowerWick <= body * 0.8;
+    
+    // Condition 2: Bearish Engulfing (unchanged)
+    boolean bearishEngulf = prevClose > prevOpen && isBear
+            && open >= prevClose && close <= prevOpen;
+    
+    // Condition 3: Strong Bearish (relaxed)
+    double bodyRatio = body / range;
+    double closePos = (close - low) / range;
+    boolean strongBear = isBear && bodyRatio >= 0.4 && closePos <= 0.35;
+    
+    // NEW: Condition 4: Simple bearish close with upper wick
+    boolean simpleBear = isBear && upperWick >= body * 0.5 && lowerWick <= body * 1.2;
+    
+    return shootingStar || bearishEngulf || strongBear || simpleBear;
+}
 
     // =========================================================================
     // swing low / swing high helper — UNCHANGED (reused by both SL calc
@@ -738,13 +805,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // The candle before the entry candle (n-3) must also close in
                 // the same direction — no strength requirement, just agreement.
                 // ─────────────────────────────────────────────────────────────
-                boolean priorCandleAligned = trendUp ? (prevClose > prevOpen) : (prevClose < prevOpen);
-                System.out.printf("  [G-MULTI] Prior candle (n-3) closed %s → %s%n",
-                        prevClose > prevOpen ? "bullish" : "bearish",
-                        priorCandleAligned ? "PASS" : "FAIL");
-                if (!priorCandleAligned) {
-                    System.out.println("  FAIL — prior candle direction mismatch — skip"); continue;
-                }
+                // boolean priorCandleAligned = trendUp ? (prevClose > prevOpen) : (prevClose < prevOpen);
+                // System.out.printf("  [G-MULTI] Prior candle (n-3) closed %s → %s%n",
+                //         prevClose > prevOpen ? "bullish" : "bearish",
+                //         priorCandleAligned ? "PASS" : "FAIL");
+                // if (!priorCandleAligned) {
+                //     System.out.println("  FAIL — prior candle direction mismatch — skip"); continue;
+                // }
+
+                // ─────────────────────────────────────────────────────────────
+// FIX #12 — Multi-candle confirmation (RELAXED)
+// ─────────────────────────────────────────────────────────────
+// Check if prior candle is bullish, bearish, or neutral (doji)
+boolean priorCandleBullish = prevClose > prevOpen;
+double priorBody = Math.abs(prevClose - prevOpen);
+double priorRange = hi15[n - 3] - lo15[n - 3];
+double priorBodyRatio = priorRange > 0 ? priorBody / priorRange : 0;
+boolean priorCandleNeutral = priorBodyRatio < 0.25; // Doji / small body
+
+boolean priorCandleAligned;
+if (trendUp) {
+    // For long: prior candle should be bullish OR neutral
+    priorCandleAligned = priorCandleBullish || priorCandleNeutral;
+} else {
+    // For short: prior candle should be bearish OR neutral
+    priorCandleAligned = (!priorCandleBullish) || priorCandleNeutral;
+}
+
+System.out.printf("  [G-MULTI] Prior candle (n-3) %s (bodyRatio=%.2f) → %s%n",
+        priorCandleBullish ? "bullish" : priorCandleNeutral ? "neutral" : "bearish",
+        priorBodyRatio,
+        priorCandleAligned ? "PASS" : "FAIL");
+if (!priorCandleAligned) {
+    System.out.println("  FAIL — prior candle direction mismatch — skip"); continue;
+}
 
                 // ─────────────────────────────────────────────────────────────
                 // NEW FIX#7 — Volume confirmation gate
