@@ -819,7 +819,7 @@ r.bearish = (!r.stGreen) && priceBelowSt && priceBelowEmas && (emaBearCross || e
 // Check if prior candle is bullish, bearish, or neutral (doji)
 boolean priorCandleBullish = prevClose > prevOpen;
 double priorBody = Math.abs(prevClose - prevOpen);
-double priorRange = hi15[n - 3] - lo15[n - 3];
+double priorRange = hi15[n15 - 3] - lo15[n15 - 3];  // <-- n15 sahi hai
 double priorBodyRatio = priorRange > 0 ? priorBody / priorRange : 0;
 boolean priorCandleNeutral = priorBodyRatio < 0.25; // Doji / small body
 
