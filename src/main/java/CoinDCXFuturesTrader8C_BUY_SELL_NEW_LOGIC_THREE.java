@@ -128,7 +128,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
     // ── requirement-based TP parameter (UNCHANGED from v19) ──────────────────
-    private static final double RR_TARGET = 0.9;
+    private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
 
