@@ -25,7 +25,7 @@ import java.util.stream.Stream;
  *   4H  -> Macro trend filter (Supertrend + EMA9/21 + price vs both)
  *   1H  -> Trend confirmation (must match 4H exactly)
  *   30M -> Entry signal timeframe (EMA9/21 + Supertrend + MACD + ADX + RSI + Choppiness + Volume + ATR% + EMA-distance)
- *   15M -> Entry trigger timeframe (pullback + rejection candle)
+ *   15M -> Entry trigger timeframe (pullback + momentum confirmation)
  * 
  * TP: Fixed at 1% from entry
  * SL: Dynamic (min of 30M swing low & ST lower band) - 0.2*ATR
@@ -35,7 +35,7 @@ import java.util.stream.Stream;
  *   - 9EMA crosses above 21EMA but Supertrend still RED -> CANNOT pass
  *   - 9EMA crosses below 21EMA but Supertrend still GREEN -> CANNOT pass
  * 
- * MODIFIED: Relaxed filters for better trade capture in current market conditions
+ * MODIFIED: Relaxed filters AND 15M trigger now uses momentum instead of rejection candles
  * ═══════════════════════════════════════════════════════════════════════════
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
@@ -82,8 +82,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    SR_LOOKBACK      = 50;   // 30M candles
     private static final double SR_MIN_DIST_MULT = 1.2;  // nearest S/R must be >= 1.2x TP distance away
 
-    // ── 15M pullback + rejection trigger ────────────────────────────────────
-    private static final double PULLBACK_MAX_ATR = 0.6;
+    // ── 15M pullback + momentum trigger ────────────────────────────────────
+    private static final double PULLBACK_MAX_ATR = 0.8;  // Relaxed from 0.6
 
     // ── 30M entry-quality gates (RELAXED) ──────────────────────────────────
     private static final double EMA_DIST_MAX_PCT   = 1.0;  // Relaxed from 0.5%
@@ -216,54 +216,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // 15M rejection-candle patterns
+    // 15M momentum and pullback helpers
     // =========================================================================
-    private static boolean isBullishRejection(double open, double high, double low, double close,
-                                               double prevOpen, double prevClose) {
-        double range = high - low;
-        if (range <= 0) return false;
-        double body       = Math.abs(close - open);
-        double lowerWick   = Math.min(open, close) - low;
-        double upperWick   = high - Math.max(open, close);
-        boolean isBull     = close > open;
-
-        // Hammer: long lower wick, small body
-        boolean hammer = body > 0 && lowerWick >= 2 * body && upperWick <= body * 0.6;
-        
-        // Bullish Engulfing
-        boolean bullishEngulf = prevClose < prevOpen && isBull
-                && close >= prevOpen && open <= prevClose;
-        
-        // Strong bullish momentum candle
-        double bodyRatio = body / range;
-        double closePos  = (close - low) / range;
-        boolean strongBull = isBull && bodyRatio >= 0.55 && closePos >= 0.7;
-
-        return hammer || bullishEngulf || strongBull;
-    }
-
-    private static boolean isBearishRejection(double open, double high, double low, double close,
-                                               double prevOpen, double prevClose) {
-        double range = high - low;
-        if (range <= 0) return false;
-        double body       = Math.abs(close - open);
-        double lowerWick   = Math.min(open, close) - low;
-        double upperWick   = high - Math.max(open, close);
-        boolean isBear     = close < open;
-
-        // Shooting Star: long upper wick, small body
-        boolean shootingStar = body > 0 && upperWick >= 2 * body && lowerWick <= body * 0.6;
-        
-        // Bearish Engulfing
-        boolean bearishEngulf = prevClose > prevOpen && isBear
-                && open >= prevClose && close <= prevOpen;
-        
-        // Strong bearish momentum candle
-        double bodyRatio = body / range;
-        double closePos  = (close - low) / range;
-        boolean strongBear = isBear && bodyRatio >= 0.55 && closePos <= 0.3;
-
-        return shootingStar || bearishEngulf || strongBear;
+    
+    /**
+     * Checks if the entry candle has momentum in the trade direction.
+     * For longs: Bullish candle with close above 9 EMA
+     * For shorts: Bearish candle with close below 9 EMA
+     */
+    private static boolean hasMomentum(boolean isLong, double open, double close, double ema9) {
+        if (isLong) {
+            return close > open && close > ema9;
+        } else {
+            return close < open && close < ema9;
+        }
     }
 
     // =========================================================================
@@ -616,7 +582,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("  4H+1H OK — " + (trendUp ? "BULLISH" : "BEARISH"));
 
-                // ── STEP 3: 30M entry signal (MODIFIED WITH RELAXED FILTERS) ──
+                // ── STEP 3: 30M entry signal ──────────────────────────────────
                 TFResult tf30 = analyzeTF(raw30m);
                 if (!tf30.valid) { System.out.println("  [30M] insufficient data — skip"); continue; }
                 System.out.printf("  [30M] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
@@ -629,14 +595,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                // ── 30M EMA distance (RELAXED) ──────────────────────────────
+                // ── 30M EMA distance ──────────────────────────────────────────
                 double emaDistPct = Math.abs(tf30.price - tf30.ema9) / tf30.price * 100.0;
                 boolean emaDistOk = emaDistPct <= EMA_DIST_MAX_PCT;
                 System.out.printf("  [30M-EMA-Dist] %.3f%% (max=%.1f%%) → %s%n",
                         emaDistPct, EMA_DIST_MAX_PCT, emaDistOk ? "PASS" : "FAIL");
                 if (!emaDistOk) { System.out.println("  30M FAIL — price overextended — skip"); continue; }
 
-                // ── 30M ATR% (RELAXED) ──────────────────────────────────────
+                // ── 30M ATR% ──────────────────────────────────────────────────
                 double atrPct = tf30.atr / tf30.price * 100.0;
                 boolean atrOk = atrPct >= ATR_PCT_MIN && atrPct <= ATR_PCT_MAX;
                 System.out.printf("  [30M-ATR%%] %.3f%% (need %.1f%%-%.1f%%) → %s%n",
@@ -645,19 +611,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double[] hi30 = tf30.hi, lo30 = tf30.lo, cl30 = tf30.cl;
 
-                // ── 30M ADX (RELAXED) ────────────────────────────────────────
+                // ── 30M ADX ────────────────────────────────────────────────────
                 double adx = calcADX(hi30, lo30, cl30, ADX_PERIOD);
                 boolean adxOk = adx >= ADX_MIN;
                 System.out.printf("  [30M-ADX] %.2f (min=%.1f) → %s%n", adx, ADX_MIN, adxOk ? "PASS" : "FAIL");
                 if (!adxOk) { System.out.println("  30M FAIL — trend too weak (ADX) — skip"); continue; }
 
-                // ── 30M Choppiness (RELAXED) ────────────────────────────────
+                // ── 30M Choppiness ────────────────────────────────────────────
                 double chop = calcChoppinessIndex(hi30, lo30, cl30, CHOP_PERIOD);
                 boolean chopOk = chop <= CHOPPINESS_MAX;
                 System.out.printf("  [30M-CHOP] %.2f (max=%.1f) → %s%n", chop, CHOPPINESS_MAX, chopOk ? "PASS" : "FAIL");
                 if (!chopOk) { System.out.println("  30M FAIL — market too choppy — skip"); continue; }
 
-                // ── 30M RSI (RELAXED) ────────────────────────────────────────
+                // ── 30M RSI ────────────────────────────────────────────────────
                 double[] rsiSeries = calcRSISeries(cl30, RSI_PERIOD);
                 double rsi = rsiSeries[rsiSeries.length - 1];
                 boolean rsiOk = trendUp ? (rsi >= RSI_LONG_MIN && rsi <= RSI_LONG_MAX)
@@ -677,17 +643,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         macdLine, signalLine, histLast, histPrev, macdOk ? "PASS" : "FAIL");
                 if (!macdOk) { System.out.println("  30M FAIL — MACD not confirmed — skip"); continue; }
 
-                // ── 30M Volume (RELAXED) ─────────────────────────────────────
+                // ── 30M Volume ─────────────────────────────────────────────────
                 if (!checkVolumeGate(raw30m)) { System.out.println("  30M FAIL — G-VOL — skip"); continue; }
 
                 System.out.println("  30M OK — all entry-quality gates passed");
 
-                // ── STEP 4: 15M pullback + rejection trigger ─────────────────
+                // ── STEP 4: 15M pullback + momentum trigger ───────────────────
                 double[] cl15 = extractCloses(raw15m);
                 double[] op15 = extractOpens(raw15m);
                 double[] hi15 = extractHighs(raw15m);
                 double[] lo15 = extractLows(raw15m);
                 int n15 = cl15.length;
+
+                if (n15 < 3) { System.out.println("  Not enough 15m candles — skip"); continue; }
 
                 double ema9_15  = calcEMA(cl15, EMA_FAST);
                 double ema21_15 = calcEMA(cl15, EMA_MID);
@@ -703,12 +671,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         stBull15 ? "GREEN" : "RED", ema9_15, ema21_15, tf15Aligned ? "ALIGNED" : "NOT");
                 if (!tf15Aligned) { System.out.println("  15M FAIL — not aligned — skip"); continue; }
 
-                // Pullback check: price must be reasonably close to key levels
-                if (n15 < 3) { System.out.println("  Not enough 15m candles — skip"); continue; }
+                // Entry candle (second last candle)
                 double entryClose = cl15[n15 - 2], entryOpen = op15[n15 - 2];
                 double entryHigh  = hi15[n15 - 2], entryLow  = lo15[n15 - 2];
-                double prevClose  = cl15[n15 - 3], prevOpen  = op15[n15 - 3];
 
+                // Pullback check
                 double distEma9  = Math.abs(entryClose - ema9_15);
                 double distEma21 = Math.abs(entryClose - ema21_15);
                 double distSt    = trendUp ? Math.abs(entryClose - stBands15[0]) : Math.abs(entryClose - stBands15[1]);
@@ -720,14 +687,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         distEma9, distEma21, distSt, maxDist, pullbackOk ? "PASS" : "FAIL");
                 if (!pullbackOk) { System.out.println("  15M FAIL — no valid pullback — skip"); continue; }
 
-                // Rejection candle check
-                boolean rejectionOk = trendUp
-                        ? isBullishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose)
-                        : isBearishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose);
-                System.out.printf("  [15M-Rejection] %s candle → %s%n",
-                        trendUp ? "Bullish" : "Bearish", rejectionOk ? "CONFIRMED" : "not present");
-                if (!rejectionOk) { System.out.println("  15M FAIL — no rejection candle — skip"); continue; }
-                System.out.println("  15M OK — pullback + rejection confirmed");
+                // ── MODIFIED: Use momentum instead of rejection candle ──────
+                boolean momentumOk = hasMomentum(trendUp, entryOpen, entryClose, ema9_15);
+                System.out.printf("  [15M-Momentum] %s candle with close %s EMA9 → %s%n",
+                        trendUp ? "Bullish" : "Bearish",
+                        trendUp ? "above" : "below",
+                        momentumOk ? "CONFIRMED" : "not present");
+                if (!momentumOk) { 
+                    System.out.println("  15M FAIL — no momentum confirmation — skip"); 
+                    continue; 
+                }
+                System.out.println("  15M OK — pullback + momentum confirmed");
 
                 // ── STEP 5: S/R clearance ─────────────────────────────────────
                 double refPrice = getLastPrice(pair);
