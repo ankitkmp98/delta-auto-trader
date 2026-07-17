@@ -34,6 +34,8 @@ import java.util.stream.Stream;
  * AVOID-TRADE RULES (automatically enforced):
  *   - 9EMA crosses above 21EMA but Supertrend still RED -> CANNOT pass
  *   - 9EMA crosses below 21EMA but Supertrend still GREEN -> CANNOT pass
+ * 
+ * MODIFIED: Relaxed filters for better trade capture in current market conditions
  * ═══════════════════════════════════════════════════════════════════════════
  */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
@@ -70,7 +72,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── FIXED TP / CAPPED-DYNAMIC SL ────────────────────────────────────────
     private static final double TP_FIXED_PCT   = 1.0;   // TP is ALWAYS this far from entry
-    private static final double SL_MAX_PERCENT = 0.8;   // if computed SL% exceeds this -> SKIP trade
+    private static final double SL_MAX_PERCENT = 1.0;   // Relaxed from 0.8%
     private static final double SL_ATR_BUFFER  = 0.2;   // buffer beyond swing/ST, in ATR units
 
     private static final int    SWING_LOOKBACK_SL   = 20; // 30M candles, for SL swing calc
@@ -83,19 +85,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ── 15M pullback + rejection trigger ────────────────────────────────────
     private static final double PULLBACK_MAX_ATR = 0.6;
 
-    // ── 30M entry-quality gates ─────────────────────────────────────────────
-    private static final double EMA_DIST_MAX_PCT   = 0.5;  // price shouldn't be overextended from EMA9
-    private static final double ATR_PCT_MIN        = 0.6;  // volatility floor (30M ATR as % of price)
-    private static final double ATR_PCT_MAX        = 2.5;  // volatility ceiling
-    private static final double CHOPPINESS_MAX      = 55.0; // above this = range-bound, skip
+    // ── 30M entry-quality gates (RELAXED) ──────────────────────────────────
+    private static final double EMA_DIST_MAX_PCT   = 1.0;  // Relaxed from 0.5%
+    private static final double ATR_PCT_MIN        = 0.4;  // Relaxed from 0.6%
+    private static final double ATR_PCT_MAX        = 3.0;  // Relaxed from 2.5%
+    private static final double CHOPPINESS_MAX      = 65.0; // Relaxed from 55.0
     private static final int    CHOP_PERIOD         = 14;
-    private static final double ADX_MIN             = 20.0;
+    private static final double ADX_MIN             = 15.0; // Relaxed from 20.0
     private static final int    ADX_PERIOD          = 14;
     private static final int    RSI_PERIOD          = 14;
-    private static final double RSI_LONG_MIN  = 55, RSI_LONG_MAX  = 70;
-    private static final double RSI_SHORT_MIN = 30, RSI_SHORT_MAX = 45;
+    private static final double RSI_LONG_MIN  = 50;    // Relaxed from 55
+    private static final double RSI_LONG_MAX  = 75;    // Relaxed from 70
+    private static final double RSI_SHORT_MIN = 25;    // Relaxed from 30
+    private static final double RSI_SHORT_MAX = 45;    // Unchanged
     private static final int    MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9;
-    private static final double MIN_VOLUME_RATIO = 1.0;   // current 30M volume >= avg of lookback
+    private static final double MIN_VOLUME_RATIO = 0.8; // Relaxed from 1.0
     private static final int    VOLUME_LOOKBACK  = 20;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
@@ -612,7 +616,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("  4H+1H OK — " + (trendUp ? "BULLISH" : "BEARISH"));
 
-                // ── STEP 3: 30M entry signal ──────────────────────────────────
+                // ── STEP 3: 30M entry signal (MODIFIED WITH RELAXED FILTERS) ──
                 TFResult tf30 = analyzeTF(raw30m);
                 if (!tf30.valid) { System.out.println("  [30M] insufficient data — skip"); continue; }
                 System.out.printf("  [30M] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
@@ -625,14 +629,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                // ── 30M EMA distance ──────────────────────────────────────────
+                // ── 30M EMA distance (RELAXED) ──────────────────────────────
                 double emaDistPct = Math.abs(tf30.price - tf30.ema9) / tf30.price * 100.0;
                 boolean emaDistOk = emaDistPct <= EMA_DIST_MAX_PCT;
                 System.out.printf("  [30M-EMA-Dist] %.3f%% (max=%.1f%%) → %s%n",
                         emaDistPct, EMA_DIST_MAX_PCT, emaDistOk ? "PASS" : "FAIL");
                 if (!emaDistOk) { System.out.println("  30M FAIL — price overextended — skip"); continue; }
 
-                // ── 30M ATR% ──────────────────────────────────────────────────
+                // ── 30M ATR% (RELAXED) ──────────────────────────────────────
                 double atrPct = tf30.atr / tf30.price * 100.0;
                 boolean atrOk = atrPct >= ATR_PCT_MIN && atrPct <= ATR_PCT_MAX;
                 System.out.printf("  [30M-ATR%%] %.3f%% (need %.1f%%-%.1f%%) → %s%n",
@@ -641,19 +645,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double[] hi30 = tf30.hi, lo30 = tf30.lo, cl30 = tf30.cl;
 
-                // ── 30M ADX ────────────────────────────────────────────────────
+                // ── 30M ADX (RELAXED) ────────────────────────────────────────
                 double adx = calcADX(hi30, lo30, cl30, ADX_PERIOD);
                 boolean adxOk = adx >= ADX_MIN;
                 System.out.printf("  [30M-ADX] %.2f (min=%.1f) → %s%n", adx, ADX_MIN, adxOk ? "PASS" : "FAIL");
                 if (!adxOk) { System.out.println("  30M FAIL — trend too weak (ADX) — skip"); continue; }
 
-                // ── 30M Choppiness ────────────────────────────────────────────
+                // ── 30M Choppiness (RELAXED) ────────────────────────────────
                 double chop = calcChoppinessIndex(hi30, lo30, cl30, CHOP_PERIOD);
                 boolean chopOk = chop <= CHOPPINESS_MAX;
                 System.out.printf("  [30M-CHOP] %.2f (max=%.1f) → %s%n", chop, CHOPPINESS_MAX, chopOk ? "PASS" : "FAIL");
                 if (!chopOk) { System.out.println("  30M FAIL — market too choppy — skip"); continue; }
 
-                // ── 30M RSI ────────────────────────────────────────────────────
+                // ── 30M RSI (RELAXED) ────────────────────────────────────────
                 double[] rsiSeries = calcRSISeries(cl30, RSI_PERIOD);
                 double rsi = rsiSeries[rsiSeries.length - 1];
                 boolean rsiOk = trendUp ? (rsi >= RSI_LONG_MIN && rsi <= RSI_LONG_MAX)
@@ -673,7 +677,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         macdLine, signalLine, histLast, histPrev, macdOk ? "PASS" : "FAIL");
                 if (!macdOk) { System.out.println("  30M FAIL — MACD not confirmed — skip"); continue; }
 
-                // ── 30M Volume ─────────────────────────────────────────────────
+                // ── 30M Volume (RELAXED) ─────────────────────────────────────
                 if (!checkVolumeGate(raw30m)) { System.out.println("  30M FAIL — G-VOL — skip"); continue; }
 
                 System.out.println("  30M OK — all entry-quality gates passed");
