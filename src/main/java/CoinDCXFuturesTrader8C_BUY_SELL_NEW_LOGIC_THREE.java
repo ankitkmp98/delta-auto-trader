@@ -759,6 +759,7 @@ r.bearish = (!r.stGreen) && priceBelowSt && priceBelowEmas && (emaBearCross || e
                 double ema21_15 = calcEMA(cl15, EMA_MID);
                 double atr15    = calcATR(hi15, lo15, cl15, ATR_PERIOD);
                 boolean[] st15Series = calcSupertrend(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
+                TFResult tf15 = analyzeTF(raw15m);
                 boolean stBull15 = st15Series[st15Series.length - 1];
                 double[] stBands15 = calcSupertrendBands(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
 
@@ -929,7 +930,7 @@ if (!priorCandleAligned) {
                 }
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-                double[] slTp = computeSlTp(trendUp, entry, tf1h, tickSize);
+                double[] slTp = computeSlTp(trendUp, entry, tf15, tickSize);
                 double slPrice = slTp[0], tpPrice = slTp[1];
                 double slPct = Math.abs(entry - slPrice) / entry * 100;
                 double tpPct = Math.abs(tpPrice - entry) / entry * 100;
@@ -972,6 +973,12 @@ if (!priorCandleAligned) {
                 JSONArray raw1hExtended = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
                 JSONArray raw1h = lastN(raw1hExtended, CANDLE_1H);
                 TFResult tf1h = analyzeTF(raw1h);
+                JSONArray raw15mSweep = getCandlestickData(pair, "15", CANDLE_15M);
+TFResult tf15 = analyzeTF(raw15mSweep);
+if (!tf15.valid) {
+    System.out.println("  [SWEEP] insufficient 15M data for " + pair + " — will retry next run");
+    continue;
+}
                 if (!tf1h.valid) {
                     System.out.println("  [SWEEP] insufficient 1H data for " + pair + " — will retry next run");
                     continue;
@@ -981,7 +988,7 @@ if (!priorCandleAligned) {
                 boolean isLong = posQty >= 0;
 
                 double tick = getTickSize(pair);
-                double[] slTp = computeSlTp(isLong, avgPrice, tf1h, tick);
+                double[] slTp = computeSlTp(isLong, avgPrice, tf15, tick);
                 double sl = slTp[0], tp = slTp[1];
 
                 String posId = pos.optString("id", null);
