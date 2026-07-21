@@ -294,10 +294,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double[][] macd = calcMACD(cl, MACD_FAST, MACD_SLOW, MACD_SIGNAL);
         int nM = macd[0].length;
-        // MACD state (currently above/below signal) rather than requiring a
-        // fresh cross in the same tiny window as the EMA cross and RSI turn.
-        r.macdBullCross = macd[0][nM - 1] > macd[1][nM - 1];
-        r.macdBearCross = macd[0][nM - 1] < macd[1][nM - 1];
+        // Pure MACD-LINE momentum direction (is momentum currently building
+        // up or down), rather than requiring the line to already be on a
+        // specific side of the signal line. Requiring line-vs-signal
+        // agreement with the EMA20/50 trend state at the exact same moment
+        // was almost never satisfied together — MACD is a faster-reacting
+        // momentum read and routinely disagrees with the slower trend state
+        // during normal pullbacks/bounces, even inside a healthy trend.
+        r.macdBullCross = macd[0][nM - 1] > macd[0][nM - 2];
+        r.macdBearCross = macd[0][nM - 1] < macd[0][nM - 2];
 
         r.volOk = volumeAboveAvg(vol, VOL_AVG_PERIOD);
         r.valid = true;
@@ -1095,6 +1100,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return sign(payload);
     }
 }
+
 
 
 
