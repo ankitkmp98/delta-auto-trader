@@ -94,8 +94,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // AND golden-cross" combo almost never fires: golden crosses typically
     // confirm only after RSI has already recovered above 40-50, so the two
     // conditions were structurally contradictory in the original framework.
-    private static final double RSI_LONG_CEILING  = 65;  // long ok as long as RSI hasn't run too hot
-    private static final double RSI_SHORT_FLOOR   = 35;  // short ok as long as RSI hasn't run too cold
+    private static final double RSI_LONG_CEILING  = 80;  // long ok as long as RSI hasn't run too hot (strong trends legitimately sit high)
+    private static final double RSI_SHORT_FLOOR   = 20;  // short ok as long as RSI hasn't run too cold
 
     private static final double DAILY_CHOP_PCT   = 2.0;  // skip if price within 2% of 200-EMA
     private static final double PULLBACK_PCT_1H  = 1.0;  // 1H price must be within 1% of 20-EMA
@@ -284,11 +284,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double[] rsi = calcRSISeries(cl, RSI_PERIOD);
         int n = rsi.length;
-        // Momentum check: RSI should be rising (not falling) for longs and
-        // not already overheated, and the mirror for shorts. No hard
-        // oversold/overbought requirement.
-        r.rsiLongOk  = rsi[n - 1] > rsi[n - 2] && rsi[n - 1] < RSI_LONG_CEILING;
-        r.rsiShortOk = rsi[n - 1] < rsi[n - 2] && rsi[n - 1] > RSI_SHORT_FLOOR;
+        // Overextension guard only — NOT a tick-by-tick "must be rising"
+        // check. RSI naturally sits high/low for extended stretches during
+        // a strong trend continuation; requiring it to tick up on the exact
+        // latest bar was noisy and blocked otherwise-clean setups (e.g. a
+        // trend where RSI is legitimately at 70 and holding, not falling).
+        r.rsiLongOk  = rsi[n - 1] < RSI_LONG_CEILING;
+        r.rsiShortOk = rsi[n - 1] > RSI_SHORT_FLOOR;
 
         double[][] macd = calcMACD(cl, MACD_FAST, MACD_SLOW, MACD_SIGNAL);
         int nM = macd[0].length;
@@ -377,6 +379,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static boolean volumeAboveAvg(double[] vol, int lookback) {
         int n = vol.length;
         if (n < lookback + 2) return false;
+
+        // Safety net: if the candle data doesn't actually contain a usable
+        // volume field (wrong key name / missing from your API response),
+        // every value defaults to 0 and this gate would silently veto every
+        // single trade forever with no visible error. Detect that and
+        // bypass the filter instead, with a loud one-time-per-call warning
+        // so you know to go verify the real field name in your API docs.
+        double total = 0;
+        for (double v : vol) total += v;
+        if (total <= 0) {
+            System.out.println("  [VOLUME] WARNING: candle volume data is all-zero — check the \"volume\" field name in your CoinDCX candlestick response. Bypassing volume filter for this pair.");
+            return true;
+        }
+
         double sum = 0;
         for (int i = n - 1 - lookback; i < n - 1; i++) sum += vol[i];
         double avg = sum / lookback;
@@ -1079,6 +1095,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return sign(payload);
     }
 }
+
 
 
 
