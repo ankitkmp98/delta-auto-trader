@@ -89,18 +89,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9;
     private static final int VOL_AVG_PERIOD = 20;
 
-    private static final double RSI_OVERSOLD   = 30;
-    private static final double RSI_OVERBOUGHT = 70;
+    // RSI is now used as a MOMENTUM filter (rising/falling, not overextended)
+    // rather than a strict oversold/overbought extreme. A literal "RSI<30
+    // AND golden-cross" combo almost never fires: golden crosses typically
+    // confirm only after RSI has already recovered above 40-50, so the two
+    // conditions were structurally contradictory in the original framework.
+    private static final double RSI_LONG_CEILING  = 65;  // long ok as long as RSI hasn't run too hot
+    private static final double RSI_SHORT_FLOOR   = 35;  // short ok as long as RSI hasn't run too cold
 
     private static final double DAILY_CHOP_PCT   = 2.0;  // skip if price within 2% of 200-EMA
     private static final double PULLBACK_PCT_1H  = 1.0;  // 1H price must be within 1% of 20-EMA
 
-    // How many recent candles to scan for a crossover event, instead of
-    // requiring it on the literal latest candle only (crossovers on 3
-    // different timeframes rarely land on the exact same bar — this keeps
-    // the system practical while staying true to the framework's intent).
-    private static final int CROSS_LOOKBACK_4H = 3;
-    private static final int CROSS_LOOKBACK_1H = 2;
+    // 4H golden/death "cross" is now evaluated as a TREND STATE (ema20 vs
+    // ema50 currently, like the Daily gate) instead of requiring a fresh
+    // crossover event on the last N candles. Fresh-cross + RSI-extreme +
+    // fresh-MACD-cross all landing on the same handful of 4H candles was
+    // the reason almost nothing ever triggered. CROSS_LOOKBACK_1H is kept
+    // for the actual 1H entry TRIGGER, which should stay event-based.
+    private static final int CROSS_LOOKBACK_1H = 4;
 
     // ── SL / TP per framework doc ────────────────────────────────────────────
     private static final double SL_ATR_MULT       = 1.5;
@@ -270,17 +276,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double[] ema20s = calcEMASeries(cl, EMA20_4H);
         double[] ema50s = calcEMASeries(cl, EMA50_4H);
-        r.goldenCross = crossedAbove(ema20s, ema50s, CROSS_LOOKBACK_4H);
-        r.deathCross  = crossedBelow(ema20s, ema50s, CROSS_LOOKBACK_4H);
+        int nE = ema20s.length;
+        // STATE, not event: is the 4H trend currently up/down. Much more
+        // achievable than requiring a brand-new crossover on the last few bars.
+        r.goldenCross = ema20s[nE - 1] > ema50s[nE - 1];
+        r.deathCross  = ema20s[nE - 1] < ema50s[nE - 1];
 
         double[] rsi = calcRSISeries(cl, RSI_PERIOD);
         int n = rsi.length;
-        r.rsiLongOk  = rsi[n - 1] < RSI_OVERSOLD   && rsi[n - 1] > rsi[n - 2];
-        r.rsiShortOk = rsi[n - 1] > RSI_OVERBOUGHT && rsi[n - 1] < rsi[n - 2];
+        // Momentum check: RSI should be rising (not falling) for longs and
+        // not already overheated, and the mirror for shorts. No hard
+        // oversold/overbought requirement.
+        r.rsiLongOk  = rsi[n - 1] > rsi[n - 2] && rsi[n - 1] < RSI_LONG_CEILING;
+        r.rsiShortOk = rsi[n - 1] < rsi[n - 2] && rsi[n - 1] > RSI_SHORT_FLOOR;
 
         double[][] macd = calcMACD(cl, MACD_FAST, MACD_SLOW, MACD_SIGNAL);
-        r.macdBullCross = crossedAbove(macd[0], macd[1], CROSS_LOOKBACK_4H);
-        r.macdBearCross = crossedBelow(macd[0], macd[1], CROSS_LOOKBACK_4H);
+        int nM = macd[0].length;
+        // MACD state (currently above/below signal) rather than requiring a
+        // fresh cross in the same tiny window as the EMA cross and RSI turn.
+        r.macdBullCross = macd[0][nM - 1] > macd[1][nM - 1];
+        r.macdBearCross = macd[0][nM - 1] < macd[1][nM - 1];
 
         r.volOk = volumeAboveAvg(vol, VOL_AVG_PERIOD);
         r.valid = true;
@@ -1064,8 +1079,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return sign(payload);
     }
 }
-
-
 
 
 
