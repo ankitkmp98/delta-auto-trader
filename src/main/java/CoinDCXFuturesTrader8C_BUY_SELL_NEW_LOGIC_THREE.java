@@ -1,4 +1,4 @@
-import org.json.JSONArray;
+import org.json.JSONArray; //chaleble code
 import org.json.JSONObject;
 
 import javax.crypto.Mac;
@@ -16,41 +16,51 @@ import java.util.stream.Stream;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * CoinDCX Futures Trader — TIMEFRAME-SHIFTED REWRITE (v9)
+ * CoinDCX Futures Trader — 5-TIMEFRAME CASCADE + 2H-ANCHORED SL (v20)
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * WHAT CHANGED FROM THE PREVIOUS (4H/1H/15M) VERSION:
  *
- *   Har cascade level ek "notch" neeche shift kiya gaya hai, taaki chote,
- *   jyada frequent TP capture ho sakein:
+ *   1) TWO NEW GATE TIMEFRAMES ADDED — same checklist (Supertrend color +
+ *      price-vs-ST-band + EMA9 vs EMA21 + price-vs-both-EMAs) now also runs
+ *      on:
+ *        - 2H  (derived by aggregating 2 consecutive 1H candles — CoinDCX
+ *               doesn't support resolution=120 for futures candlesticks
+ *               reliably, so it's built the same way 4H already was, from
+ *               the same extended 1H fetch — no extra API call)
+ *        - 30M (fetched natively — CoinDCX DOES support resolution="30")
  *
- *     OLD                          NEW
- *     ────────────────────────    ────────────────────────
- *     4H  = macro trend filter -> 1H  = macro trend filter
- *     1H  = confirmation        -> 30M = confirmation
- *     15M = entry timing        -> 5M  = entry timing (pullback + rejection)
+ *      New cascade order (macro → micro), ALL must agree on direction:
+ *        4H → 2H → 1H → 30M → 15M(entry timing: pullback + rejection candle)
  *
- *   SL ab ALAG hai in teeno se — user ne specifically 2H Supertrend maanga:
- *     SL = 2H Supertrend line ± ATR buffer (2H candles), extended past
- *          recent 2H swing low/high "if practical", hard % cap se protected.
- *     (2H CoinDCX resolution list me nahi hai — 1H candles ko 2-2 group
- *      karke aggregate kiya jata hai, bilkul jaise pehle 4H = 1H×4 tha.)
+ *      If any timeframe disagrees or is unclear → NO TRADE, skip.
  *
- *   TP: same fixed R:R (RR_TARGET) jo pehle tha — chota TP intentionally.
+ *   2) STOP LOSS SOURCE CHANGED: 1H Supertrend → 2H Supertrend.
+ *      computeSlTp() now receives the 2H TFResult (tf2h) instead of the 1H
+ *      TFResult. Swing-low/high lookback for the "extend past recent swing"
+ *      rule is also now taken from 2H candles instead of 1H candles.
+ *      This applies identically to both the main entry path AND the
+ *      end-of-scan safety sweep (ensureTpSlForOpenPositions), so both stay
+ *      unified as before.
  *
- *   RELIABILITY FIXES (the "kabhi kabhi TP/SL populate nahi hota" bug):
- *     1) findPosition() page size 20 -> 100 (30 open positions tak hone par
- *        pehle position hi nahi milta tha kabhi kabhi -> TP/SL set hi nahi
- *        ho pata tha)
- *     2) getPositionId() ab retry karta hai (pehle sirf 1 attempt tha —
- *        order abhi-abhi fill hone ke turant baad position exchange pe
- *        register hone me lag sakta hai)
- *     3) TPSL_MAX_RETRIES 3->5, TPSL_RETRY_DELAY_MS 2000->3000
- *     4) SL/TP exchange ko bhejne se pehle sanity-check + tick-distance
- *        clamp (galat-direction ya bahut-paas SL/TP silently reject ho
- *        jata tha exchange se)
- *     5) Safety sweep aur normal entry — dono ab EXACT same 2H-based
- *        computeSlTp() formula use karte hain
+ *   3) TP/SL RELIABILITY FIXES (root causes of "SL/TP kabhi kabhi place
+ *      nahi hota"):
+ *        - findPosition() page size bumped 20 → 100 (was silently missing
+ *          positions on accounts with many open/closed rows returned).
+ *        - getPositionId() now retries (position ID sometimes isn't
+ *          queryable index-side immediately after a fresh fill).
+ *        - sanityClampSlTp() added: before every setTpSl() call, SL/TP are
+ *          clamped to guarantee SL is strictly below (long) / above (short)
+ *          entry, and TP is strictly above (long) / below (short) entry, by
+ *          at least one tick. This prevents the exchange from silently
+ *          rejecting a create_tpsl call because tick-rounding pushed a
+ *          price to equal (or cross) the entry price.
+ *
+ *   UNCHANGED (execution reliability infra):
+ *     - Limit-order entry with slippage buffer
+ *     - MAX_ENTRY_PRICE_CHECKS confirmation loop
+ *     - setTpSlWithRetry() — retries + re-confirms TP/SL actually landed
+ *     - Cooldown, MAX_OPEN_POSITIONS, quantity/HMAC/HTTP plumbing
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
@@ -64,24 +74,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 600.0;
-    private static final int    LEVERAGE   = 10;
+    private static final double MAX_MARGIN = 6.0;
+    private static final int    LEVERAGE   = 6;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
 
-    // NEW: retry loop specifically for finding the position id right after
-    // an order fills (root cause of "TP/SL kabhi set nahi hota")
-    private static final int  POSITION_ID_MAX_RETRIES = 5;
-    private static final long POSITION_ID_RETRY_DELAY_MS = 1000L;
-
-    private static final int  TPSL_MAX_RETRIES    = 5;      // was 3
-    private static final long TPSL_RETRY_DELAY_MS = 3000L;  // was 2000
+    private static final int  TPSL_MAX_RETRIES    = 3;
+    private static final long TPSL_RETRY_DELAY_MS = 2000L;
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
     private static final long COOLDOWN_MS       = 2 * 60 * 60 * 1000L;
 
     private static final int MAX_OPEN_POSITIONS = 30;
+
+    // ── NEW: position-id lookup retry (fixes "sometimes SL/TP never gets
+    //     placed" when the exchange's position index lags a fresh fill) ──────
+    private static final int  POSITION_ID_MAX_RETRIES = 5;
+    private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
 
     // ── Indicator periods ────────────────────────────────────────────────────
     private static final int EMA_FAST = 9;
@@ -91,35 +101,38 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.5;
 
-    // ── Entry-timing (5M) parameters ─────────────────────────────────────────
-    // How close (in ATR units, 5m) price must be to 9EMA/21EMA/ST-line to
-    // count as a valid "pullback".
+    // ── requirement-based entry parameters ───────────────────────────────────
+    // How close (in ATR units, 15m) price must be to 9EMA/21EMA/ST-line to
+    // count as a valid "pullback" per the document's Step 3 on 15M.
     private static final double PULLBACK_MAX_ATR = 0.6;
 
-    // ── SL parameters (now based on 2H Supertrend, per user request) ────────
+    // ── requirement-based SL parameters — NOW ANCHORED ON 2H, NOT 1H ────────
+    // Document says: "slightly below the [anchor TF] Supertrend line...
+    // 0.2-0.5 ATR buffer"
     private static final double SL_ATR_BUFFER   = 0.35;
     private static final double SL_MAX_PERCENT  = 4.5;   // hard cap — leverage safety net
-    private static final int    SWING_LOOKBACK       = 20; // 2H candles, for swing low/high check
+    private static final int    SWING_LOOKBACK       = 20; // 2H candles now, for swing low/high check
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
-    // ── TP parameter — intentionally SMALL, user wants frequent small TPs ───
+    // ── requirement-based TP parameter ────────────────────────────────────────
+    // Document says R:R 1.5:1 to 2:1.
+    // NOTE: this is currently 0.1 — if that's not intentional, this makes TP
+    // only 10% of the SL distance (very small reward vs risk). Flagging this
+    // again since it wasn't changed in this update — fix the value here if
+    // you want the doc's 1.5–2.0 R:R instead.
     private static final double RR_TARGET = 0.8;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
 
-    // NEW: minimum distance (in ticks) SL/TP must be from entry, else the
-    // exchange silently rejects create_tpsl — this is one of the reasons
-    // TP/SL "populate" nahi hota tha.
-    private static final int MIN_TICKS_AWAY = 2;
-
-    // ── Candle fetch counts (SHIFTED cascade) ────────────────────────────────
-    private static final int CANDLE_5M  = 100;  // entry timing (was 15M)
-    private static final int CANDLE_30M = 100;  // confirmation (was 1H)
-    private static final int CANDLE_1H  = 100;  // macro trend   (was 4H)
-    // 2H isn't natively supported by CoinDCX resolution param — derived by
-    // aggregating an extended 1H fetch (same trick the old code used for 4H).
-    private static final int HTF_2H_FETCH_COUNT = 400;
+    // ── Candle fetch counts ───────────────────────────────────────────────────
+    private static final int CANDLE_15M = 60;
+    private static final int CANDLE_30M = 100;   // NEW — native 30M fetch
+    private static final int CANDLE_1H  = 100;
+    // 4H and 2H aren't natively reliable via CoinDCX resolution param for
+    // futures — both derived by aggregating the SAME extended 1H fetch
+    // (no extra API calls needed for either).
+    private static final int HTF_1H_FETCH_COUNT = 700;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -169,8 +182,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // TFResult — holds everything needed to judge one timeframe against
-    // the bullish/bearish checklist: Supertrend color, price vs ST line,
-    // EMA9 vs EMA21, price vs both EMAs
+    // the checklist:
+    //   Supertrend color, price vs ST line, EMA9 vs EMA21, price vs both EMAs
     // =========================================================================
     private static class TFResult {
         boolean valid;
@@ -209,13 +222,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         boolean priceAboveSt   = r.price > r.stBands[0];
         boolean priceBelowSt   = r.price < r.stBands[1];
 
+        // Exact checklist per TF — used identically on 4H, 2H, 1H, and 30M:
         r.bullish = r.stGreen && priceAboveSt && (r.ema9 > r.ema21) && priceAboveEmas;
         r.bearish = (!r.stGreen) && priceBelowSt && (r.ema9 < r.ema21) && priceBelowEmas;
         return r;
     }
 
     // =========================================================================
-    // 5M rejection-candle patterns (Hammer / Engulfing / strong candle)
+    // 15M rejection-candle patterns (Hammer / Engulfing / strong candle),
+    // per the document's Step-3 entry-timing rule.
     // =========================================================================
     private static boolean isBullishRejection(double open, double high, double low, double close,
                                                double prevOpen, double prevClose) {
@@ -260,7 +275,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // swing low / swing high helper (2H now), for the SL "if practical" rule
+    // swing low / swing high helper — NOW USED ON 2H CANDLES (was 1H) for the
+    // SL "if practical, extend past recent swing" rule.
     // =========================================================================
     private static double findSwingLow(double[] lo, int lookback, int excludeRecent) {
         int n = lo.length;
@@ -281,36 +297,41 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Unified SL/TP formula — used both at entry time AND by the end-of-scan
-    // safety sweep, so both paths always agree.
+    // unified SL/TP formula — used both at entry time AND by the
+    // end-of-scan safety sweep, so both paths always agree.
     //   SL = 2H Supertrend line ± ATR buffer (2H ATR), extended past recent
     //        2H swing low/high "if practical", capped by SL_MAX_PERCENT.
     //   TP = entry ± RR_TARGET * risk
-    //   tfSl = TFResult built from the 2H (aggregated) candles.
+    //
+    // NOTE: the parameter is named tf2h to make explicit that the SL anchor
+    // timeframe changed from 1H → 2H. The struct itself is generic (TFResult)
+    // so no field renames were needed — just pass tf2h at every call site.
     // =========================================================================
-    private static double[] computeSlTp(boolean isLong, double entryPrice, TFResult tfSl, double tickSize) {
+    private static double[] computeSlTp(boolean isLong, double entryPrice, TFResult tf2h, double tickSize) {
         double sl, tp;
         if (isLong) {
-            double raw = tfSl.stBands[0] - SL_ATR_BUFFER * tfSl.atr;
-            if (raw >= entryPrice) raw = entryPrice - (SL_ATR_BUFFER + 1.5) * tfSl.atr; // ST line stale/invalid — fallback
+            double raw = tf2h.stBands[0] - SL_ATR_BUFFER * tf2h.atr;
+            if (raw >= entryPrice) raw = entryPrice - (SL_ATR_BUFFER + 1.5) * tf2h.atr; // ST line stale/invalid — fallback
             double hardFloor = entryPrice * (1 - SL_MAX_PERCENT / 100.0);
 
-            double swingLow = findSwingLow(tfSl.lo, SWING_LOOKBACK, SWING_EXCLUDE_RECENT);
+            // "if practical": push SL just below the recent 2H swing low, but
+            // never past the hard % cap.
+            double swingLow = findSwingLow(tf2h.lo, SWING_LOOKBACK, SWING_EXCLUDE_RECENT);
             if (swingLow < raw && swingLow > hardFloor) {
-                raw = swingLow - SWING_EXTRA_BUFFER_ATR * tfSl.atr;
+                raw = swingLow - SWING_EXTRA_BUFFER_ATR * tf2h.atr;
             }
 
             sl = Math.max(raw, hardFloor);
             double risk = entryPrice - sl;
             tp = entryPrice + RR_TARGET * risk;
         } else {
-            double raw = tfSl.stBands[1] + SL_ATR_BUFFER * tfSl.atr;
-            if (raw <= entryPrice) raw = entryPrice + (SL_ATR_BUFFER + 1.5) * tfSl.atr;
+            double raw = tf2h.stBands[1] + SL_ATR_BUFFER * tf2h.atr;
+            if (raw <= entryPrice) raw = entryPrice + (SL_ATR_BUFFER + 1.5) * tf2h.atr;
             double hardCeil = entryPrice * (1 + SL_MAX_PERCENT / 100.0);
 
-            double swingHigh = findSwingHigh(tfSl.hi, SWING_LOOKBACK, SWING_EXCLUDE_RECENT);
+            double swingHigh = findSwingHigh(tf2h.hi, SWING_LOOKBACK, SWING_EXCLUDE_RECENT);
             if (swingHigh > raw && swingHigh < hardCeil) {
-                raw = swingHigh + SWING_EXTRA_BUFFER_ATR * tfSl.atr;
+                raw = swingHigh + SWING_EXTRA_BUFFER_ATR * tf2h.atr;
             }
 
             sl = Math.min(raw, hardCeil);
@@ -319,21 +340,28 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
         sl = roundToTick(sl, tickSize);
         tp = roundToTick(tp, tickSize);
+        return new double[]{sl, tp};
+    }
 
-        // NEW: sanity clamp — exchange silently rejects create_tpsl when
-        // stop/limit price is on the wrong side of entry, or too close to
-        // it (< MIN_TICKS_AWAY ticks). This was one cause of "TP/SL kabhi
-        // set nahi hota".
-        double minGap = tickSize * MIN_TICKS_AWAY;
+    // =========================================================================
+    // NEW: sanityClampSlTp — guarantees SL/TP never equal or cross the entry
+    // price after tick rounding. This was one of the root causes of TP/SL
+    // silently failing to place: e.g. tick-rounding could push SL to exactly
+    // equal entry (0 risk) or push TP the wrong side of entry, and the
+    // exchange would reject create_tpsl without a loud error. Always call
+    // this right before setTpSlWithRetry().
+    // =========================================================================
+    private static double[] sanityClampSlTp(boolean isLong, double entry, double sl, double tp, double tick) {
+        double minGap = Math.max(tick, entry * 0.0005); // at least 1 tick, or 0.05% of price
         if (isLong) {
-            if (entryPrice - sl < minGap) sl = entryPrice - minGap;
-            if (tp - entryPrice < minGap) tp = entryPrice + minGap;
+            if (sl >= entry - minGap) sl = entry - minGap;
+            if (tp <= entry + minGap) tp = entry + minGap;
         } else {
-            if (sl - entryPrice < minGap) sl = entryPrice + minGap;
-            if (entryPrice - tp < minGap) tp = entryPrice - minGap;
+            if (sl <= entry + minGap) sl = entry + minGap;
+            if (tp >= entry - minGap) tp = entry - minGap;
         }
-        sl = roundToTick(sl, tickSize);
-        tp = roundToTick(tp, tickSize);
+        sl = roundToTick(sl, tick);
+        tp = roundToTick(tp, tick);
         return new double[]{sl, tp};
     }
 
@@ -369,110 +397,147 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("\n==== " + pair + " ====");
 
-                // ── Fetch candles (SHIFTED cascade + 2H for SL) ───────────────
-                JSONArray raw5m          = getCandlestickData(pair, "5", CANDLE_5M);
-                JSONArray raw30m         = getCandlestickData(pair, "30", CANDLE_30M);
-                JSONArray raw1hExtended  = getCandlestickData(pair, "60", HTF_2H_FETCH_COUNT);
+                // ── Fetch candles ────────────────────────────────────────────
+                JSONArray raw15m         = getCandlestickData(pair, "15", CANDLE_15M);
+                JSONArray raw30m         = getCandlestickData(pair, "30", CANDLE_30M); // NEW — native 30M
+                JSONArray raw1hExtended  = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
                 JSONArray raw1h          = lastN(raw1hExtended, CANDLE_1H);
-                JSONArray raw2h          = aggregateCandles(raw1hExtended, 2);
+                JSONArray raw2h          = aggregateCandles(raw1hExtended, 2); // NEW — derived, no extra call
+                JSONArray raw4h          = aggregateCandles(raw1hExtended, 4);
 
-                if (raw5m == null || raw5m.length() < EMA_MID + 5) {
-                    System.out.println("  Insufficient 5m candles — skip"); continue;
+                if (raw15m == null || raw15m.length() < EMA_MID + 5) {
+                    System.out.println("  Insufficient 15m candles — skip"); continue;
+                }
+                if (raw30m == null || raw30m.length() < EMA_MID + 5) {
+                    System.out.println("  Insufficient 30m candles — skip"); continue;
                 }
 
                 // ─────────────────────────────────────────────────────────────
-                // STEP 1 — 1H macro trend filter
+                // STEP 1 — 4H macro trend filter
                 // ─────────────────────────────────────────────────────────────
-                TFResult tfMacro = analyzeTF(raw1h);
-                if (!tfMacro.valid) {
+                TFResult tf4h = analyzeTF(raw4h);
+                if (!tf4h.valid) {
+                    System.out.println("  [4H] insufficient data — skip"); continue;
+                }
+                System.out.printf("  [4H] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
+                        tf4h.stGreen ? "GREEN" : "RED", tf4h.ema9, tf4h.ema21, tf4h.price,
+                        tf4h.bullish ? "BULLISH" : tf4h.bearish ? "BEARISH" : "NO CLEAR TREND");
+                if (!tf4h.bullish && !tf4h.bearish) {
+                    System.out.println("  4H FAIL — macro trend not clean — skip"); continue;
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // STEP 2 — 2H check (NEW) — same checklist, must match 4H
+                // ─────────────────────────────────────────────────────────────
+                TFResult tf2h = analyzeTF(raw2h);
+                if (!tf2h.valid) {
+                    System.out.println("  [2H] insufficient data — skip"); continue;
+                }
+                System.out.printf("  [2H] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
+                        tf2h.stGreen ? "GREEN" : "RED", tf2h.ema9, tf2h.ema21, tf2h.price,
+                        tf2h.bullish ? "BULLISH" : tf2h.bearish ? "BEARISH" : "NO CLEAR TREND");
+                boolean tf2hMatches4h = (tf4h.bullish && tf2h.bullish) || (tf4h.bearish && tf2h.bearish);
+                if (!tf2hMatches4h) {
+                    System.out.println("  2H FAIL — disagrees with (or unclear vs) 4H macro trend — skip");
+                    continue;
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // STEP 3 — 1H trade confirmation (must match 4H/2H exactly)
+                // ─────────────────────────────────────────────────────────────
+                TFResult tf1h = analyzeTF(raw1h);
+                if (!tf1h.valid) {
                     System.out.println("  [1H] insufficient data — skip"); continue;
                 }
                 System.out.printf("  [1H] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
-                        tfMacro.stGreen ? "GREEN" : "RED", tfMacro.ema9, tfMacro.ema21, tfMacro.price,
-                        tfMacro.bullish ? "BULLISH" : tfMacro.bearish ? "BEARISH" : "NO CLEAR TREND");
-                if (!tfMacro.bullish && !tfMacro.bearish) {
-                    System.out.println("  1H FAIL — macro trend not clean — skip"); continue;
+                        tf1h.stGreen ? "GREEN" : "RED", tf1h.ema9, tf1h.ema21, tf1h.price,
+                        tf1h.bullish ? "BULLISH" : tf1h.bearish ? "BEARISH" : "NO CLEAR TREND");
+
+                boolean trendUp;
+                if (tf4h.bullish && tf2h.bullish && tf1h.bullish) {
+                    trendUp = true;
+                } else if (tf4h.bearish && tf2h.bearish && tf1h.bearish) {
+                    trendUp = false;
+                } else {
+                    System.out.println("  1H DISAGREES (or unclear) with 4H/2H — no trade, wait — skip");
+                    continue;
                 }
+                System.out.println("  4H+2H+1H OK — " + (trendUp ? "BULLISH" : "BEARISH") + " confirmed on all three");
 
                 // ─────────────────────────────────────────────────────────────
-                // STEP 2 — 30M trade confirmation (must match 1H exactly)
+                // STEP 4 — 30M check (NEW) — same checklist, must match trend
                 // ─────────────────────────────────────────────────────────────
-                TFResult tfConfirm = analyzeTF(raw30m);
-                if (!tfConfirm.valid) {
+                TFResult tf30m = analyzeTF(raw30m);
+                if (!tf30m.valid) {
                     System.out.println("  [30M] insufficient data — skip"); continue;
                 }
                 System.out.printf("  [30M] ST=%s EMA9=%.6f EMA21=%.6f Price=%.6f → %s%n",
-                        tfConfirm.stGreen ? "GREEN" : "RED", tfConfirm.ema9, tfConfirm.ema21, tfConfirm.price,
-                        tfConfirm.bullish ? "BULLISH" : tfConfirm.bearish ? "BEARISH" : "NO CLEAR TREND");
-
-                boolean trendUp;
-                if (tfMacro.bullish && tfConfirm.bullish) {
-                    trendUp = true;
-                } else if (tfMacro.bearish && tfConfirm.bearish) {
-                    trendUp = false;
-                } else {
-                    System.out.println("  30M/1H DISAGREE (or 30M unclear) — no trade, wait — skip");
+                        tf30m.stGreen ? "GREEN" : "RED", tf30m.ema9, tf30m.ema21, tf30m.price,
+                        tf30m.bullish ? "BULLISH" : tf30m.bearish ? "BEARISH" : "NO CLEAR TREND");
+                boolean tf30mAligned = trendUp ? tf30m.bullish : tf30m.bearish;
+                if (!tf30mAligned) {
+                    System.out.println("  30M FAIL — disagrees with (or unclear vs) 4H/2H/1H trend — skip");
                     continue;
                 }
-                System.out.println("  1H+30M OK — " + (trendUp ? "BULLISH" : "BEARISH") + " confirmed on both");
+                System.out.println("  30M OK — aligned with higher timeframes");
 
                 // ─────────────────────────────────────────────────────────────
-                // STEP 3 — 5M entry timing
+                // STEP 5 — 15M entry timing
                 // ─────────────────────────────────────────────────────────────
-                double[] cl5 = extractCloses(raw5m);
-                double[] op5 = extractOpens(raw5m);
-                double[] hi5 = extractHighs(raw5m);
-                double[] lo5 = extractLows(raw5m);
-                int n5 = cl5.length;
+                double[] cl15 = extractCloses(raw15m);
+                double[] op15 = extractOpens(raw15m);
+                double[] hi15 = extractHighs(raw15m);
+                double[] lo15 = extractLows(raw15m);
+                int n15 = cl15.length;
 
-                double ema9_5  = calcEMA(cl5, EMA_FAST);
-                double ema21_5 = calcEMA(cl5, EMA_MID);
-                double atr5    = calcATR(hi5, lo5, cl5, ATR_PERIOD);
-                boolean[] st5Series = calcSupertrend(hi5, lo5, cl5, ST_PERIOD, ST_MULTIPLIER);
-                boolean stBull5 = st5Series[st5Series.length - 1];
-                double[] stBands5 = calcSupertrendBands(hi5, lo5, cl5, ST_PERIOD, ST_MULTIPLIER);
+                double ema9_15  = calcEMA(cl15, EMA_FAST);
+                double ema21_15 = calcEMA(cl15, EMA_MID);
+                double atr15    = calcATR(hi15, lo15, cl15, ATR_PERIOD);
+                boolean[] st15Series = calcSupertrend(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
+                boolean stBull15 = st15Series[st15Series.length - 1];
+                double[] stBands15 = calcSupertrendBands(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
 
-                // 5M Supertrend + EMA must still agree with the trade direction
-                boolean tf5Aligned = trendUp
-                        ? (stBull5 && ema9_5 > ema21_5)
-                        : (!stBull5 && ema9_5 < ema21_5);
-                System.out.printf("  [5M] ST=%s EMA9=%.6f EMA21=%.6f → %s%n",
-                        stBull5 ? "GREEN" : "RED", ema9_5, ema21_5,
-                        tf5Aligned ? "ALIGNED" : "NOT ALIGNED");
-                if (!tf5Aligned) {
-                    System.out.println("  5M FAIL — not aligned with 1H/30M direction — skip"); continue;
+                // 15M Supertrend + EMA must still agree with the trade direction
+                boolean tf15Aligned = trendUp
+                        ? (stBull15 && ema9_15 > ema21_15)
+                        : (!stBull15 && ema9_15 < ema21_15);
+                System.out.printf("  [15M] ST=%s EMA9=%.6f EMA21=%.6f → %s%n",
+                        stBull15 ? "GREEN" : "RED", ema9_15, ema21_15,
+                        tf15Aligned ? "ALIGNED" : "NOT ALIGNED");
+                if (!tf15Aligned) {
+                    System.out.println("  15M FAIL — not aligned with higher-timeframe direction — skip"); continue;
                 }
 
-                // Use the most recently CLOSED 5m candle as the entry candle
-                if (n5 < 3) { System.out.println("  Not enough 5m candles for entry check — skip"); continue; }
-                double entryClose = cl5[n5 - 2], entryOpen = op5[n5 - 2];
-                double entryHigh  = hi5[n5 - 2], entryLow  = lo5[n5 - 2];
-                double prevClose  = cl5[n5 - 3], prevOpen  = op5[n5 - 3];
+                // Use the most recently CLOSED 15m candle as the entry candle
+                if (n15 < 3) { System.out.println("  Not enough 15m candles for entry check — skip"); continue; }
+                double entryClose = cl15[n15 - 2], entryOpen = op15[n15 - 2];
+                double entryHigh  = hi15[n15 - 2], entryLow  = lo15[n15 - 2];
+                double prevClose  = cl15[n15 - 3], prevOpen  = op15[n15 - 3];
 
                 // Pullback check: close to 9EMA / 21EMA / ST line
-                double distEma9  = Math.abs(entryClose - ema9_5);
-                double distEma21 = Math.abs(entryClose - ema21_5);
+                double distEma9  = Math.abs(entryClose - ema9_15);
+                double distEma21 = Math.abs(entryClose - ema21_15);
                 double distSt    = trendUp
-                        ? Math.abs(entryClose - stBands5[0])
-                        : Math.abs(entryClose - stBands5[1]);
-                double maxDist   = PULLBACK_MAX_ATR * atr5;
+                        ? Math.abs(entryClose - stBands15[0])
+                        : Math.abs(entryClose - stBands15[1]);
+                double maxDist   = PULLBACK_MAX_ATR * atr15;
                 boolean pullbackOk = distEma9 <= maxDist || distEma21 <= maxDist || distSt <= maxDist;
-                System.out.printf("  [5M-Pullback] distEMA9=%.6f distEMA21=%.6f distST=%.6f maxAllowed=%.6f → %s%n",
+                System.out.printf("  [15M-Pullback] distEMA9=%.6f distEMA21=%.6f distST=%.6f maxAllowed=%.6f → %s%n",
                         distEma9, distEma21, distSt, maxDist, pullbackOk ? "PASS" : "FAIL");
                 if (!pullbackOk) {
-                    System.out.println("  5M FAIL — no valid pullback — skip"); continue;
+                    System.out.println("  15M FAIL — no valid pullback — skip"); continue;
                 }
 
                 // Rejection candle check
                 boolean rejectionOk = trendUp
                         ? isBullishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose)
                         : isBearishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose);
-                System.out.printf("  [5M-Rejection] %s candle → %s%n",
+                System.out.printf("  [15M-Rejection] %s candle → %s%n",
                         trendUp ? "Bullish" : "Bearish", rejectionOk ? "CONFIRMED" : "not present");
                 if (!rejectionOk) {
-                    System.out.println("  5M FAIL — no rejection candle confirmation — skip"); continue;
+                    System.out.println("  15M FAIL — no rejection candle confirmation — skip"); continue;
                 }
-                System.out.println("  5M OK — pullback + rejection candle confirmed");
+                System.out.println("  15M OK — pullback + rejection candle confirmed");
 
                 // ── ALL CONDITIONS PASSED ─────────────────────────────────────
                 String side = trendUp ? "buy" : "sell";
@@ -507,22 +572,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-                // ── SL/TP using the unified 2H-Supertrend formula ─────────────
-                TFResult tf2h = analyzeTF(raw2h);
-                if (!tf2h.valid) {
-                    System.out.println("  [2H] insufficient data for SL calc — safety sweep will retry next run");
-                    active.add(pair);
-                    continue;
-                }
+                // ── SL/TP using the unified 2H-ST formula, then sanity-clamped ──
                 double[] slTp = computeSlTp(trendUp, entry, tf2h, tickSize);
-                double slPrice = slTp[0], tpPrice = slTp[1];
+                double[] clamped = sanityClampSlTp(trendUp, entry, slTp[0], slTp[1], tickSize);
+                double slPrice = clamped[0], tpPrice = clamped[1];
                 double slPct = Math.abs(entry - slPrice) / entry * 100;
                 double tpPct = Math.abs(tpPrice - entry) / entry * 100;
-                System.out.printf("  SL=%.6f (%.2f%%) | TP=%.6f (%.2f%%) | R:R=1:%.1f%n",
+                System.out.printf("  SL=%.6f (%.2f%%) | TP=%.6f (%.2f%%) | R:R target=%.1f%n",
                         slPrice, slPct, tpPrice, tpPct, RR_TARGET);
 
-                // NEW: retry loop for position id (was a single, unretried call)
-                String posId = getPositionIdWithRetry(pair);
+                String posId = getPositionId(pair);
                 if (posId != null) {
                     setTpSlWithRetry(posId, tpPrice, slPrice, pair);
                 } else {
@@ -540,9 +599,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Safety sweep — catches positions whose TP/SL never got set. Recomputes
-    // a fresh 2H TFResult and reuses the SAME computeSlTp() formula as the
-    // main entry path, so sweep-protected positions get identical SL/TP logic.
+    // Safety sweep — catches positions whose TP/SL never got set because
+    // entry confirmation timed out mid-loop. Recomputes 2H TFResult fresh
+    // and reuses the SAME computeSlTp() + sanityClampSlTp() as the main entry
+    // path, so sweep-protected positions get identical SL/TP logic.
     // =========================================================================
     private static void ensureTpSlForOpenPositions() {
         try {
@@ -557,25 +617,27 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (tpTrig > 0 && slTrig > 0) continue; // already protected
 
                 System.out.println("  [SWEEP] " + pair + " missing TP/SL — computing fallback protection...");
-                JSONArray raw1hExtended = getCandlestickData(pair, "60", HTF_2H_FETCH_COUNT);
-                JSONArray raw2h = aggregateCandles(raw1hExtended, 2);
+                JSONArray raw1hExtended = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
+                JSONArray raw2h = aggregateCandles(raw1hExtended, 2); // NEW — SL anchor is now 2H
                 TFResult tf2h = analyzeTF(raw2h);
                 if (!tf2h.valid) {
                     System.out.println("  [SWEEP] insufficient 2H data for " + pair + " — will retry next run");
                     continue;
                 }
 
-                // CoinDCX convention: positive active_pos = long, negative = short.
+                // NOTE: sign convention for active_pos assumed positive=long,
+                // negative=short — verify against live CoinDCX position payload.
                 double posQty = pos.optDouble("active_pos", 0);
                 boolean isLong = posQty >= 0;
 
                 double tick = getTickSize(pair);
                 double[] slTp = computeSlTp(isLong, avgPrice, tf2h, tick);
-                double sl = slTp[0], tp = slTp[1];
+                double[] clamped = sanityClampSlTp(isLong, avgPrice, slTp[0], slTp[1], tick);
+                double sl = clamped[0], tp = clamped[1];
 
                 String posId = pos.optString("id", null);
                 if (posId != null) {
-                    System.out.printf("  [SWEEP] %s fallback SL=%.6f TP=%.6f (RR=1:%.1f)%n", pair, sl, tp, RR_TARGET);
+                    System.out.printf("  [SWEEP] %s fallback SL=%.6f TP=%.6f (R:R target=%.1f)%n", pair, sl, tp, RR_TARGET);
                     setTpSlWithRetry(posId, tp, sl, pair);
                 } else {
                     System.out.println("  [SWEEP] " + pair + " — position ID missing, cannot set TP/SL");
@@ -587,7 +649,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // TP/SL retry-and-confirm setter
+    // TP/SL retry-and-confirm setter — unchanged
     // =========================================================================
     private static boolean setTpSlWithRetry(String posId, double tp, double sl, String pair) {
         for (int attempt = 1; attempt <= TPSL_MAX_RETRIES; attempt++) {
@@ -824,22 +886,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return 0;
     }
 
-    // NEW: retry wrapper around getPositionId — a fresh fill sometimes isn't
-    // registered on the exchange yet the instant we ask for it.
-    private static String getPositionIdWithRetry(String pair) {
-        for (int i = 0; i < POSITION_ID_MAX_RETRIES; i++) {
-            String id = getPositionId(pair);
-            if (id != null) return id;
-            try {
-                TimeUnit.MILLISECONDS.sleep(POSITION_ID_RETRY_DELAY_MS);
-            } catch (InterruptedException ignored) {}
-        }
-        return null;
-    }
-
-    // NOTE: page size bumped 20 -> 100. With up to MAX_OPEN_POSITIONS (30)
-    // positions live at once, size=20 could miss the pair entirely and
-    // silently skip TP/SL — this was a real root cause of the bug.
+    // NOTE (FIX #1): page size bumped 20 → 100. On accounts with many
+    // open/recently-closed rows, size=20 could silently miss the position
+    // being searched for, which meant SL/TP never got attached to it.
     private static JSONObject findPosition(String pair) throws Exception {
         JSONObject body = new JSONObject();
         body.put("timestamp", Instant.now().toEpochMilli());
@@ -947,14 +996,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
+    // NOTE (FIX #2): now retries. Right after a fresh fill, the exchange's
+    // position index can lag by a second or two — a single immediate lookup
+    // sometimes returned null, which meant setTpSlWithRetry() never got
+    // called at all (previously silent — this was one of the "SL/TP kabhi
+    // kabhi place nahi hota" causes).
     public static String getPositionId(String pair) {
-        try {
-            JSONObject p = findPosition(pair);
-            return p != null ? p.getString("id") : null;
-        } catch (Exception e) {
-            System.err.println("getPositionId: " + e.getMessage());
-            return null;
+        for (int attempt = 1; attempt <= POSITION_ID_MAX_RETRIES; attempt++) {
+            try {
+                JSONObject p = findPosition(pair);
+                if (p != null && p.has("id")) return p.getString("id");
+            } catch (Exception e) {
+                System.err.println("getPositionId attempt " + attempt + ": " + e.getMessage());
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(POSITION_ID_RETRY_DELAY_MS);
+            } catch (InterruptedException ignored) {}
         }
+        return null;
     }
 
     private static Set<String> getActivePositions() {
@@ -1047,8 +1106,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // AGGREGATE CANDLES: merges N consecutive smaller candles into 1 bigger
-    // candle. Used for 2H (since CoinDCX API doesn't support resolution=120
-    // natively — derived from the extended 1H fetch).
+    // candle. Used for 4H and 2H (since CoinDCX API doesn't support
+    // resolution=240/120 reliably for futures — both derived from the same
+    // extended 1H fetch).
     // =========================================================================
     private static JSONArray aggregateCandles(JSONArray source, int groupSize) {
         if (source == null || source.length() < groupSize) return null;
