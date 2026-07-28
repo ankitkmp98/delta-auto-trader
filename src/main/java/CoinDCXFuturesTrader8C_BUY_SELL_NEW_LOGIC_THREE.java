@@ -3,6 +3,8 @@ import org.json.JSONObject;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -14,56 +16,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * CoinDCX Futures Trader — 5-TIMEFRAME CASCADE + 2H-ANCHORED SL (v20)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * WHAT CHANGED FROM THE PREVIOUS (4H/1H/15M) VERSION:
- *
- *   1) TWO NEW GATE TIMEFRAMES ADDED — same checklist (Supertrend color +
- *      price-vs-ST-band + EMA9 vs EMA21 + price-vs-both-EMAs) now also runs
- *      on:
- *        - 2H  (derived by aggregating 2 consecutive 1H candles — CoinDCX
- *               doesn't support resolution=120 for futures candlesticks
- *               reliably, so it's built the same way 4H already was, from
- *               the same extended 1H fetch — no extra API call)
- *        - 30M (fetched natively — CoinDCX DOES support resolution="30")
- *
- *      New cascade order (macro → micro), ALL must agree on direction:
- *        4H → 2H → 1H → 30M → 15M(entry timing: pullback + rejection candle)
- *
- *      If any timeframe disagrees or is unclear → NO TRADE, skip.
- *
- *   2) STOP LOSS SOURCE CHANGED: 1H Supertrend → 2H Supertrend.
- *      computeSlTp() now receives the 2H TFResult (tf2h) instead of the 1H
- *      TFResult. Swing-low/high lookback for the "extend past recent swing"
- *      rule is also now taken from 2H candles instead of 1H candles.
- *      This applies identically to both the main entry path AND the
- *      end-of-scan safety sweep (ensureTpSlForOpenPositions), so both stay
- *      unified as before.
- *
- *   3) TP/SL RELIABILITY FIXES (root causes of "SL/TP kabhi kabhi place
- *      nahi hota"):
- *        - findPosition() page size bumped 20 → 100 (was silently missing
- *          positions on accounts with many open/closed rows returned).
- *        - getPositionId() now retries (position ID sometimes isn't
- *          queryable index-side immediately after a fresh fill).
- *        - sanityClampSlTp() added: before every setTpSl() call, SL/TP are
- *          clamped to guarantee SL is strictly below (long) / above (short)
- *          entry, and TP is strictly above (long) / below (short) entry, by
- *          at least one tick. This prevents the exchange from silently
- *          rejecting a create_tpsl call because tick-rounding pushed a
- *          price to equal (or cross) the entry price.
- *
- *   UNCHANGED (execution reliability infra):
- *     - Limit-order entry with slippage buffer
- *     - MAX_ENTRY_PRICE_CHECKS confirmation loop
- *     - setTpSlWithRetry() — retries + re-confirms TP/SL actually landed
- *     - Cooldown, MAX_OPEN_POSITIONS, quantity/HMAC/HTTP plumbing
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
@@ -88,12 +40,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final int MAX_OPEN_POSITIONS = 30;
 
-    // ── NEW: position-id lookup retry (fixes "sometimes SL/TP never gets
-    //     placed" when the exchange's position index lags a fresh fill) ──────
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
 
-    // ── Indicator periods ────────────────────────────────────────────────────
     private static final int EMA_FAST = 9;
     private static final int EMA_MID  = 21;
     private static final int ATR_PERIOD = 14;
@@ -101,46 +50,27 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.5;
 
-    // ── requirement-based entry parameters ───────────────────────────────────
-    // How close (in ATR units, 15m) price must be to 9EMA/21EMA/ST-line to
-    // count as a valid "pullback" per the document's Step 3 on 15M.
     private static final double PULLBACK_MAX_ATR = 0.6;
 
-    // ── requirement-based SL parameters — NOW ANCHORED ON 2H, NOT 1H ────────
-    // Document says: "slightly below the [anchor TF] Supertrend line...
-    // 0.2-0.5 ATR buffer"
     private static final double SL_ATR_BUFFER   = 0.35;
-    private static final double SL_MAX_PERCENT  = 4.5;   // hard cap — leverage safety net
-    private static final int    SWING_LOOKBACK       = 20; // 2H candles now, for swing low/high check
+    private static final double SL_MAX_PERCENT  = 4.5;
+    private static final int    SWING_LOOKBACK       = 20;
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
-    // ── requirement-based TP parameter ────────────────────────────────────────
-    // Document says R:R 1.5:1 to 2:1.
-    // NOTE: this is currently 0.1 — if that's not intentional, this makes TP
-    // only 10% of the SL distance (very small reward vs risk). Flagging this
-    // again since it wasn't changed in this update — fix the value here if
-    // you want the doc's 1.5–2.0 R:R instead.
     private static final double RR_TARGET = 0.8;
 
-    private static final double LIMIT_ORDER_BUFFER_PCT = 0.001; // 0.1%
+    private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
-    // ── Candle fetch counts ───────────────────────────────────────────────────
     private static final int CANDLE_15M = 60;
-    private static final int CANDLE_30M = 100;   // NEW — native 30M fetch
+    private static final int CANDLE_30M = 100;
     private static final int CANDLE_1H  = 100;
-    // 4H and 2H aren't natively reliable via CoinDCX resolution param for
-    // futures — both derived by aggregating the SAME extended 1H fetch
-    // (no extra API calls needed for either).
     private static final int HTF_1H_FETCH_COUNT = 700;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
 
-    // =========================================================================
-    // Coin list — unchanged
-    // =========================================================================
     private static final String[] COIN_SYMBOLS = {
         "ETH", "SOL", "ZEC", "XRP", "DOGE", "BNB", "TAO", "1000PEPE", "ADA", "SUI",
         "BCH", "LINK", "AVAX", "FIL", "OP", "NEAR", "TRX", "TRUMP", "ARB", "WLD",
@@ -180,20 +110,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             .map(s -> "B-" + s + "_USDT")
             .toArray(String[]::new);
 
-    // =========================================================================
-    // TFResult — holds everything needed to judge one timeframe against
-    // the checklist:
-    //   Supertrend color, price vs ST line, EMA9 vs EMA21, price vs both EMAs
-    // =========================================================================
     private static class TFResult {
         boolean valid;
-        boolean bullish;   // ALL bullish conditions true on this TF
-        boolean bearish;   // ALL bearish conditions true on this TF
+        boolean bullish;
+        boolean bearish;
         boolean stGreen;
         double  ema9, ema21, price;
         double  atr;
-        double[] stBands;  // [lowerBand, upperBand] of last candle
-        double[] hi, lo, cl; // kept for swing-low/high lookups later
+        double[] stBands;
+        double[] hi, lo, cl;
     }
 
     private static TFResult analyzeTF(JSONArray candles) {
@@ -214,7 +139,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         boolean[] stSeries = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
         r.stGreen  = stSeries[stSeries.length - 1];
-        r.stBands  = calcSupertrendBands(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER); // [lower, upper]
+        r.stBands  = calcSupertrendBands(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
         r.valid = true;
 
         boolean priceAboveEmas = r.price > r.ema9 && r.price > r.ema21;
@@ -222,16 +147,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         boolean priceAboveSt   = r.price > r.stBands[0];
         boolean priceBelowSt   = r.price < r.stBands[1];
 
-        // Exact checklist per TF — used identically on 4H, 2H, 1H, and 30M:
         r.bullish = r.stGreen && priceAboveSt && (r.ema9 > r.ema21) && priceAboveEmas;
         r.bearish = (!r.stGreen) && priceBelowSt && (r.ema9 < r.ema21) && priceBelowEmas;
         return r;
     }
 
-    // =========================================================================
-    // 15M rejection-candle patterns (Hammer / Engulfing / strong candle),
-    // per the document's Step-3 entry-timing rule.
-    // =========================================================================
     private static boolean isBullishRejection(double open, double high, double low, double close,
                                                double prevOpen, double prevClose) {
         double range = high - low;
@@ -274,10 +194,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return shootingStar || bearishEngulf || strongBear;
     }
 
-    // =========================================================================
-    // swing low / swing high helper — NOW USED ON 2H CANDLES (was 1H) for the
-    // SL "if practical, extend past recent swing" rule.
-    // =========================================================================
     private static double findSwingLow(double[] lo, int lookback, int excludeRecent) {
         int n = lo.length;
         int start = Math.max(0, n - lookback - excludeRecent);
@@ -296,26 +212,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return sw;
     }
 
-    // =========================================================================
-    // unified SL/TP formula — used both at entry time AND by the
-    // end-of-scan safety sweep, so both paths always agree.
-    //   SL = 2H Supertrend line ± ATR buffer (2H ATR), extended past recent
-    //        2H swing low/high "if practical", capped by SL_MAX_PERCENT.
-    //   TP = entry ± RR_TARGET * risk
-    //
-    // NOTE: the parameter is named tf2h to make explicit that the SL anchor
-    // timeframe changed from 1H → 2H. The struct itself is generic (TFResult)
-    // so no field renames were needed — just pass tf2h at every call site.
-    // =========================================================================
     private static double[] computeSlTp(boolean isLong, double entryPrice, TFResult tf2h, double tickSize) {
         double sl, tp;
         if (isLong) {
             double raw = tf2h.stBands[0] - SL_ATR_BUFFER * tf2h.atr;
-            if (raw >= entryPrice) raw = entryPrice - (SL_ATR_BUFFER + 1.5) * tf2h.atr; // ST line stale/invalid — fallback
+            if (raw >= entryPrice) raw = entryPrice - (SL_ATR_BUFFER + 1.5) * tf2h.atr;
             double hardFloor = entryPrice * (1 - SL_MAX_PERCENT / 100.0);
 
-            // "if practical": push SL just below the recent 2H swing low, but
-            // never past the hard % cap.
             double swingLow = findSwingLow(tf2h.lo, SWING_LOOKBACK, SWING_EXCLUDE_RECENT);
             if (swingLow < raw && swingLow > hardFloor) {
                 raw = swingLow - SWING_EXTRA_BUFFER_ATR * tf2h.atr;
@@ -343,16 +246,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return new double[]{sl, tp};
     }
 
-    // =========================================================================
-    // NEW: sanityClampSlTp — guarantees SL/TP never equal or cross the entry
-    // price after tick rounding. This was one of the root causes of TP/SL
-    // silently failing to place: e.g. tick-rounding could push SL to exactly
-    // equal entry (0 risk) or push TP the wrong side of entry, and the
-    // exchange would reject create_tpsl without a loud error. Always call
-    // this right before setTpSlWithRetry().
-    // =========================================================================
     private static double[] sanityClampSlTp(boolean isLong, double entry, double sl, double tp, double tick) {
-        double minGap = Math.max(tick, entry * 0.0005); // at least 1 tick, or 0.05% of price
+        double minGap = Math.max(tick, entry * 0.0005);
         if (isLong) {
             if (sl >= entry - minGap) sl = entry - minGap;
             if (tp <= entry + minGap) tp = entry + minGap;
@@ -365,9 +260,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return new double[]{sl, tp};
     }
 
-    // =========================================================================
-    // MAIN
-    // =========================================================================
     public static void main(String[] args) {
         initInstrumentCache();
         Set<String> active = getActivePositions();
@@ -397,12 +289,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("\n==== " + pair + " ====");
 
-                // ── Fetch candles ────────────────────────────────────────────
                 JSONArray raw15m         = getCandlestickData(pair, "15", CANDLE_15M);
-                JSONArray raw30m         = getCandlestickData(pair, "30", CANDLE_30M); // NEW — native 30M
+                JSONArray raw30m         = getCandlestickData(pair, "30", CANDLE_30M);
                 JSONArray raw1hExtended  = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
                 JSONArray raw1h          = lastN(raw1hExtended, CANDLE_1H);
-                JSONArray raw2h          = aggregateCandles(raw1hExtended, 2); // NEW — derived, no extra call
+                JSONArray raw2h          = aggregateCandles(raw1hExtended, 2);
                 JSONArray raw4h          = aggregateCandles(raw1hExtended, 4);
 
                 if (raw15m == null || raw15m.length() < EMA_MID + 5) {
@@ -412,9 +303,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  Insufficient 30m candles — skip"); continue;
                 }
 
-                // ─────────────────────────────────────────────────────────────
-                // STEP 1 — 4H macro trend filter
-                // ─────────────────────────────────────────────────────────────
                 TFResult tf4h = analyzeTF(raw4h);
                 if (!tf4h.valid) {
                     System.out.println("  [4H] insufficient data — skip"); continue;
@@ -426,9 +314,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  4H FAIL — macro trend not clean — skip"); continue;
                 }
 
-                // ─────────────────────────────────────────────────────────────
-                // STEP 2 — 2H check (NEW) — same checklist, must match 4H
-                // ─────────────────────────────────────────────────────────────
                 TFResult tf2h = analyzeTF(raw2h);
                 if (!tf2h.valid) {
                     System.out.println("  [2H] insufficient data — skip"); continue;
@@ -442,9 +327,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                // ─────────────────────────────────────────────────────────────
-                // STEP 3 — 1H trade confirmation (must match 4H/2H exactly)
-                // ─────────────────────────────────────────────────────────────
                 TFResult tf1h = analyzeTF(raw1h);
                 if (!tf1h.valid) {
                     System.out.println("  [1H] insufficient data — skip"); continue;
@@ -464,9 +346,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("  4H+2H+1H OK — " + (trendUp ? "BULLISH" : "BEARISH") + " confirmed on all three");
 
-                // ─────────────────────────────────────────────────────────────
-                // STEP 4 — 30M check (NEW) — same checklist, must match trend
-                // ─────────────────────────────────────────────────────────────
                 TFResult tf30m = analyzeTF(raw30m);
                 if (!tf30m.valid) {
                     System.out.println("  [30M] insufficient data — skip"); continue;
@@ -481,9 +360,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("  30M OK — aligned with higher timeframes");
 
-                // ─────────────────────────────────────────────────────────────
-                // STEP 5 — 15M entry timing
-                // ─────────────────────────────────────────────────────────────
                 double[] cl15 = extractCloses(raw15m);
                 double[] op15 = extractOpens(raw15m);
                 double[] hi15 = extractHighs(raw15m);
@@ -497,7 +373,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 boolean stBull15 = st15Series[st15Series.length - 1];
                 double[] stBands15 = calcSupertrendBands(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
 
-                // 15M Supertrend + EMA must still agree with the trade direction
                 boolean tf15Aligned = trendUp
                         ? (stBull15 && ema9_15 > ema21_15)
                         : (!stBull15 && ema9_15 < ema21_15);
@@ -508,13 +383,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  15M FAIL — not aligned with higher-timeframe direction — skip"); continue;
                 }
 
-                // Use the most recently CLOSED 15m candle as the entry candle
                 if (n15 < 3) { System.out.println("  Not enough 15m candles for entry check — skip"); continue; }
                 double entryClose = cl15[n15 - 2], entryOpen = op15[n15 - 2];
                 double entryHigh  = hi15[n15 - 2], entryLow  = lo15[n15 - 2];
                 double prevClose  = cl15[n15 - 3], prevOpen  = op15[n15 - 3];
 
-                // Pullback check: close to 9EMA / 21EMA / ST line
                 double distEma9  = Math.abs(entryClose - ema9_15);
                 double distEma21 = Math.abs(entryClose - ema21_15);
                 double distSt    = trendUp
@@ -528,7 +401,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  15M FAIL — no valid pullback — skip"); continue;
                 }
 
-                // Rejection candle check
                 boolean rejectionOk = trendUp
                         ? isBullishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose)
                         : isBearishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose);
@@ -539,13 +411,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("  15M OK — pullback + rejection candle confirmed");
 
-                // ── ALL CONDITIONS PASSED ─────────────────────────────────────
                 String side = trendUp ? "buy" : "sell";
                 System.out.println("\n  ╔══════════════════════════════════════════════════╗");
                 System.out.println("  ║  ALL CONDITIONS PASSED → " + side.toUpperCase() + " " + pair);
                 System.out.println("  ╚══════════════════════════════════════════════════╝");
 
-                // ── Place order ───────────────────────────────────────────────
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) { System.out.println("  Invalid price — skip"); continue; }
                 double qty = calcQuantity(currentPrice, pair);
@@ -563,7 +433,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.println("  Order placed! id=" + resp.getString("id"));
                 lastTradeTime.put(pair, System.currentTimeMillis());
 
-                // ── Confirm entry price ───────────────────────────────────────
                 double entry = getEntryPrice(pair, resp.getString("id"));
                 if (entry <= 0) {
                     System.out.println("  Could not confirm entry within window — TP/SL will be handled by end-of-scan safety sweep");
@@ -572,7 +441,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-                // ── SL/TP using the unified 2H-ST formula, then sanity-clamped ──
                 double[] slTp = computeSlTp(trendUp, entry, tf2h, tickSize);
                 double[] clamped = sanityClampSlTp(trendUp, entry, slTp[0], slTp[1], tickSize);
                 double slPrice = clamped[0], tpPrice = clamped[1];
@@ -598,12 +466,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         ensureTpSlForOpenPositions();
     }
 
-    // =========================================================================
-    // Safety sweep — catches positions whose TP/SL never got set because
-    // entry confirmation timed out mid-loop. Recomputes 2H TFResult fresh
-    // and reuses the SAME computeSlTp() + sanityClampSlTp() as the main entry
-    // path, so sweep-protected positions get identical SL/TP logic.
-    // =========================================================================
     private static void ensureTpSlForOpenPositions() {
         try {
             Set<String> stillOpen = getActivePositions();
@@ -614,19 +476,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double tpTrig   = pos.optDouble("take_profit_trigger", 0);
                 double slTrig   = pos.optDouble("stop_loss_trigger", 0);
                 if (avgPrice <= 0) continue;
-                if (tpTrig > 0 && slTrig > 0) continue; // already protected
+                if (tpTrig > 0 && slTrig > 0) continue;
 
                 System.out.println("  [SWEEP] " + pair + " missing TP/SL — computing fallback protection...");
                 JSONArray raw1hExtended = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
-                JSONArray raw2h = aggregateCandles(raw1hExtended, 2); // NEW — SL anchor is now 2H
+                JSONArray raw2h = aggregateCandles(raw1hExtended, 2);
                 TFResult tf2h = analyzeTF(raw2h);
                 if (!tf2h.valid) {
                     System.out.println("  [SWEEP] insufficient 2H data for " + pair + " — will retry next run");
                     continue;
                 }
 
-                // NOTE: sign convention for active_pos assumed positive=long,
-                // negative=short — verify against live CoinDCX position payload.
                 double posQty = pos.optDouble("active_pos", 0);
                 boolean isLong = posQty >= 0;
 
@@ -648,9 +508,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    // =========================================================================
-    // TP/SL retry-and-confirm setter — unchanged
-    // =========================================================================
     private static boolean setTpSlWithRetry(String posId, double tp, double sl, String pair) {
         for (int attempt = 1; attempt <= TPSL_MAX_RETRIES; attempt++) {
             setTpSl(posId, tp, sl, pair);
@@ -672,9 +529,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return false;
     }
 
-    // =========================================================================
-    // Small helper: last N elements of a JSONArray
-    // =========================================================================
     private static JSONArray lastN(JSONArray arr, int n) {
         if (arr == null) return null;
         int len = arr.length();
@@ -684,9 +538,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return out;
     }
 
-    // =========================================================================
-    // SUPERTREND BANDS (returns [lowerBand, upperBand] for last candle)
-    // =========================================================================
     private static double[] calcSupertrendBands(double[] hi, double[] lo, double[] cl,
                                                  int period, double multiplier) {
         int n = cl.length;
@@ -711,9 +562,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return new double[]{lowerBand[n-1], upperBand[n-1]};
     }
 
-    // =========================================================================
-    // SUPERTREND DIRECTION SERIES
-    // =========================================================================
     private static boolean[] calcSupertrend(double[] hi, double[] lo, double[] cl,
                                              int period, double multiplier) {
         int n = cl.length;
@@ -741,9 +589,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return bullish;
     }
 
-    // =========================================================================
-    // ATR SERIES / ATR / EMA — unchanged core indicator math
-    // =========================================================================
     private static double[] calcATRSeries(double[] hi, double[] lo, double[] cl, int period) {
         int n = hi.length;
         double[] atr = new double[n];
@@ -784,14 +629,45 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return ema;
     }
 
-    private static double roundToTick(double price, double tick) {
-        if (tick <= 0) return price;
-        return Math.round(price / tick) * tick;
+    // =========================================================================
+    // FIX (v20.1) — real root cause of every order in the log failing with
+    // {"code":400,"message":"Price should be divisible by 0.00001"}:
+    //
+    //   The old roundToTick() did `Math.round(price / tick) * tick` in raw
+    //   double arithmetic. Most tick sizes (0.00001, 0.0001, ...) are NOT
+    //   exactly representable in binary floating point, so the multiply-back
+    //   step can land on something like 0.026099999999999998 instead of the
+    //   intended 0.0261 — a value that is mathematically a clean multiple of
+    //   the tick, but whose IEEE-754 double representation is not. When that
+    //   double gets serialized into the order JSON, org.json prints the full
+    //   (slightly-off) decimal, and CoinDCX's exact-string divisibility check
+    //   on the exchange side rejects it. This is why EVERY single trade that
+    //   passed all the strategy gates (XMR aside — that was a qty=0 margin
+    //   issue, not this bug) still failed at order placement: KAIA, FLUX,
+    //   CTSI all hit this exact error.
+    //
+    //   Fix: do the rounding in BigDecimal (exact decimal arithmetic, no
+    //   binary rounding error) and normalize the result to the tick's own
+    //   decimal scale. Use roundToTickBD() wherever the price is about to be
+    //   put into a JSON payload sent to the exchange; the plain double
+    //   version below is kept for internal math/logging only.
+    // =========================================================================
+    private static BigDecimal roundToTickBD(double price, double tick) {
+        if (tick <= 0) return BigDecimal.valueOf(price);
+        BigDecimal bdPrice = BigDecimal.valueOf(price);
+        BigDecimal bdTick  = BigDecimal.valueOf(tick);
+        BigDecimal multiples = bdPrice.divide(bdTick, 0, RoundingMode.HALF_UP);
+        BigDecimal result = multiples.multiply(bdTick);
+        // Normalize to the tick's own scale (e.g. tick=0.00001 -> 5 dp) so we
+        // never emit trailing-zero noise or a different scale than the tick.
+        return result.setScale(bdTick.scale(), RoundingMode.HALF_UP);
     }
 
-    // =========================================================================
-    // OHLCV EXTRACTION
-    // =========================================================================
+    private static double roundToTick(double price, double tick) {
+        if (tick <= 0) return price;
+        return roundToTickBD(price, tick).doubleValue();
+    }
+
     private static double[] extractCloses(JSONArray a) {
         double[] o = new double[a.length()];
         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("close");
@@ -813,9 +689,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return o;
     }
 
-    // =========================================================================
-    // COINDCX API
-    // =========================================================================
     private static JSONArray getCandlestickData(String pair, String resolution, int count) {
         try {
             long minsPerBar;
@@ -886,9 +759,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return 0;
     }
 
-    // NOTE (FIX #1): page size bumped 20 → 100. On accounts with many
-    // open/recently-closed rows, size=20 could silently miss the position
-    // being searched for, which meant SL/TP never got attached to it.
     private static JSONObject findPosition(String pair) throws Exception {
         JSONObject body = new JSONObject();
         body.put("timestamp", Instant.now().toEpochMilli());
@@ -935,17 +805,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                                                      String marginType, String marginCcy,
                                                      double currentPrice) {
         try {
-            double limitPrice = "buy".equalsIgnoreCase(side)
+            double rawLimitPrice = "buy".equalsIgnoreCase(side)
                     ? currentPrice * (1 + LIMIT_ORDER_BUFFER_PCT)
                     : currentPrice * (1 - LIMIT_ORDER_BUFFER_PCT);
             double tick = getTickSize(pair);
-            limitPrice = roundToTick(limitPrice, tick);
+            // FIX: put the exact BigDecimal in the JSON, not a double, so the
+            // exchange's tick-divisibility check never sees floating-point
+            // noise like 0.026099999999999998.
+            BigDecimal limitPriceBD = roundToTickBD(rawLimitPrice, tick);
+            double limitPrice = limitPriceBD.doubleValue(); // for logging only
 
             JSONObject order = new JSONObject();
             order.put("side",                       side.toLowerCase());
             order.put("pair",                       pair);
             order.put("order_type",                 "limit_order");
-            order.put("price",                      limitPrice);
+            order.put("price",                      limitPriceBD);
             order.put("total_quantity",             qty);
             order.put("leverage",                   lev);
             order.put("notification",               notif);
@@ -971,8 +845,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static void setTpSl(String posId, double tp, double sl, String pair) {
         try {
             double tick = getTickSize(pair);
-            double rtp  = roundToTick(tp, tick);
-            double rsl  = roundToTick(sl, tick);
+            // FIX: same BigDecimal-exact rounding as the entry order — avoids
+            // create_tpsl being silently rejected for the same
+            // divisible-by-tick reason.
+            BigDecimal rtp = roundToTickBD(tp, tick);
+            BigDecimal rsl = roundToTickBD(sl, tick);
             JSONObject tpObj = new JSONObject();
             tpObj.put("stop_price",  rtp);
             tpObj.put("limit_price", rtp);
@@ -996,11 +873,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    // NOTE (FIX #2): now retries. Right after a fresh fill, the exchange's
-    // position index can lag by a second or two — a single immediate lookup
-    // sometimes returned null, which meant setTpSlWithRetry() never got
-    // called at all (previously silent — this was one of the "SL/TP kabhi
-    // kabhi place nahi hota" causes).
     public static String getPositionId(String pair) {
         for (int attempt = 1; attempt <= POSITION_ID_MAX_RETRIES; attempt++) {
             try {
@@ -1049,9 +921,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return active;
     }
 
-    // =========================================================================
-    // LOW-LEVEL HTTP + HMAC — unchanged
-    // =========================================================================
     private static HttpURLConnection openGet(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setRequestMethod("GET");
@@ -1104,17 +973,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return sign(payload);
     }
 
-    // =========================================================================
-    // AGGREGATE CANDLES: merges N consecutive smaller candles into 1 bigger
-    // candle. Used for 4H and 2H (since CoinDCX API doesn't support
-    // resolution=240/120 reliably for futures — both derived from the same
-    // extended 1H fetch).
-    // =========================================================================
     private static JSONArray aggregateCandles(JSONArray source, int groupSize) {
         if (source == null || source.length() < groupSize) return null;
         int n = source.length();
         int usableCount = (n / groupSize) * groupSize;
-        int startIdx = n - usableCount; // align to most recent bars, discard oldest leftover
+        int startIdx = n - usableCount;
         JSONArray result = new JSONArray();
         for (int i = startIdx; i < n; i += groupSize) {
             double open  = source.getJSONObject(i).getDouble("open");
