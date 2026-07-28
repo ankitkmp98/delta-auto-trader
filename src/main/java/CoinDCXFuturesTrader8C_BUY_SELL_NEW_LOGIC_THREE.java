@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 6.0;
+    private static final double MAX_MARGIN = 600.0;
     private static final int    LEVERAGE   = 6;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
@@ -777,7 +777,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static double calcQuantity(double price, String pair) {
         double usdtInrRate = 98.0;
-        double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+        // double qty = (MAX_MARGIN * LEVERAGE) / (price * usdtInrRate);
+        double qty = MAX_MARGIN / (price * usdtInrRate);
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
                 : Math.floor(qty * 100) / 100.0;
