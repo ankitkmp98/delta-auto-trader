@@ -58,7 +58,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
-    private static final double RR_TARGET = 0.9;
+    private static final double RR_TARGET = 1.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
