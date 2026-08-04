@@ -103,7 +103,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trend reversal. TP still follows RR_TARGET, so it scales automatically.
     private static final double SL_ATR_BUFFER = 0.4;
 
-    private static final double RR_TARGET = 1.2; // fixed Risk:Reward = 1:2
+    private static final double RR_TARGET = 0.6; // fixed Risk:Reward = 1:2
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
