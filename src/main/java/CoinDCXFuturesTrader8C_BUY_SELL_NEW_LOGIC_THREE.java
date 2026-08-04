@@ -99,7 +99,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // against the 15M ATR now (both in the live scan and the safety sweep).
     private static final double SL_ATR_BUFFER = 0.3; // per spec: SL = 15M Supertrend -/+ (0.3 x ATR(14))
 
-    private static final double RR_TARGET = 2.0; // fixed Risk:Reward = 1:2
+    private static final double RR_TARGET = 1.2; // fixed Risk:Reward = 1:2
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
