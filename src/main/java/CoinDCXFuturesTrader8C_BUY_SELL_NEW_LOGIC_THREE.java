@@ -70,6 +70,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int  TPSL_MAX_RETRIES    = 3;
     private static final long TPSL_RETRY_DELAY_MS = 2000L;
 
+    // Retry for getLastPrice() — a transient/rate-limited trade_history call
+    // was silently wasting fully-qualified signals ("ALL CONDITIONS PASSED"
+    // followed by "Invalid price — skip"). Same retry pattern already used
+    // by getPositionId()/getEntryPrice() elsewhere in this file.
+    private static final int  LAST_PRICE_MAX_RETRIES    = 3;
+    private static final long LAST_PRICE_RETRY_DELAY_MS = 800L;
+
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
     private static final long COOLDOWN_MS       = 2 * 60 * 60 * 1000L;
 
@@ -102,7 +109,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // === STRATEGY UPDATE: new 15M entry-confirmation filters ===
     private static final int    ADX_PERIOD        = 14;
-    private static final double ADX_THRESHOLD     = 25.0;
+    private static final double ADX_THRESHOLD     = 21.0;
     private static final int    VOLUME_EMA_PERIOD = 20;
 
     // === Risk-based position sizing config (unchanged from previous version) ===
@@ -903,17 +910,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     public static double getLastPrice(String pair) {
-        try {
-            HttpURLConnection conn = openGet(
-                    PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
-            if (conn.getResponseCode() == 200) {
-                String r = readStream(conn.getInputStream());
-                return r.startsWith("[")
-                        ? new JSONArray(r).getJSONObject(0).getDouble("p")
-                        : new JSONObject(r).getDouble("p");
+        for (int attempt = 1; attempt <= LAST_PRICE_MAX_RETRIES; attempt++) {
+            try {
+                HttpURLConnection conn = openGet(
+                        PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
+                if (conn.getResponseCode() == 200) {
+                    String r = readStream(conn.getInputStream());
+                    double price = r.startsWith("[")
+                            ? new JSONArray(r).getJSONObject(0).getDouble("p")
+                            : new JSONObject(r).getDouble("p");
+                    if (price > 0) return price;
+                } else {
+                    System.err.println("getLastPrice(" + pair + ") HTTP " + conn.getResponseCode()
+                            + " (attempt " + attempt + "/" + LAST_PRICE_MAX_RETRIES + ")");
+                }
+            } catch (Exception e) {
+                System.err.println("getLastPrice(" + pair + ") attempt " + attempt + ": " + e.getMessage());
             }
-        } catch (Exception e) {
-            System.err.println("getLastPrice(" + pair + "): " + e.getMessage());
+            if (attempt < LAST_PRICE_MAX_RETRIES) {
+                try { TimeUnit.MILLISECONDS.sleep(LAST_PRICE_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
+            }
         }
         return 0;
     }
@@ -1092,6 +1108,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
 }
+
 
 
 
