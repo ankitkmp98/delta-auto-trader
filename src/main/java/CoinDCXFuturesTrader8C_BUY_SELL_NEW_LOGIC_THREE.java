@@ -92,14 +92,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.5;
 
-    private static final double PULLBACK_MAX_ATR = 0.6;
+    // === LOOSENED (this update): was 0.6 — deeper pullbacks now accepted,
+    // giving more entries room to qualify.
+    private static final double PULLBACK_MAX_ATR = 0.9;
 
-    // === STRATEGY UPDATE: SL is now "15M Supertrend +/- 0.3 x ATR(14, 15M)" —
-    // no swing-high/low structure, no hard % cap. Buffer is always applied
-    // against the 15M ATR now (both in the live scan and the safety sweep).
-    private static final double SL_ATR_BUFFER = 0.3; // per spec: SL = 15M Supertrend -/+ (0.3 x ATR(14))
+    // === LOOSENED (this update): SL buffer widened 0.3 -> 0.4 x ATR(14, 15M)
+    // to compensate for the looser pullback/ADX entry criteria below —
+    // entries are now allowed to be a bit less precise, so SL needs more
+    // room to avoid getting stopped out by ordinary noise instead of a real
+    // trend reversal. TP still follows RR_TARGET, so it scales automatically.
+    private static final double SL_ATR_BUFFER = 0.4;
 
-    private static final double RR_TARGET = 1.2; // fixed Risk:Reward = 1:2
+    private static final double RR_TARGET = 2.0; // fixed Risk:Reward = 1:2
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
@@ -107,10 +111,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int CANDLE_30M = 100;
     private static final int CANDLE_1H  = 100;
 
-    // === STRATEGY UPDATE: new 15M entry-confirmation filters ===
+    // === STRATEGY UPDATE: 15M entry-confirmation filters ===
     private static final int    ADX_PERIOD        = 14;
-    private static final double ADX_THRESHOLD     = 21.0;
+    // === LOOSENED (this update): was 25 ("strong trend"). 20 is the more
+    // commonly used "trending vs ranging" cutoff — still filters out choppy
+    // markets, just not as aggressively.
+    private static final double ADX_THRESHOLD     = 20.0;
     private static final int    VOLUME_EMA_PERIOD = 20;
+    // === LOOSENED (this update): new — current volume only needs to be
+    // >= 85% of the 20-period volume EMA now, instead of having to exceed
+    // it outright. Still screens out genuinely dead/illiquid candles.
+    private static final double VOLUME_MIN_RATIO  = 0.85;
+
+    // === STRATEGY UPDATE: rejection-candle gate made toggleable ===
+    // This was the single most restrictive condition (candle pattern must
+    // form on the exact pullback candle). Set to false to stop requiring it
+    // — trend/pullback/ADX/volume still all apply, only this extra timing
+    // confirmation is dropped. Set back to true any time to re-enable it,
+    // no other code changes needed.
+    private static final boolean REQUIRE_REJECTION_CANDLE = false;
 
     // === Risk-based position sizing config (unchanged from previous version) ===
     // Set these to your real numbers, or export as env vars before running:
@@ -409,9 +428,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 boolean rejectionOk = trendUp
                         ? isBullishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose)
                         : isBearishRejection(entryOpen, entryHigh, entryLow, entryClose, prevOpen, prevClose);
-                System.out.printf("  [15M-Rejection] %s candle → %s%n",
-                        trendUp ? "Bullish" : "Bearish", rejectionOk ? "CONFIRMED" : "not present");
-                if (!rejectionOk) {
+                System.out.printf("  [15M-Rejection] %s candle → %s%s%n",
+                        trendUp ? "Bullish" : "Bearish", rejectionOk ? "CONFIRMED" : "not present",
+                        REQUIRE_REJECTION_CANDLE ? "" : " (not required — logged only)");
+                if (REQUIRE_REJECTION_CANDLE && !rejectionOk) {
                     System.out.println("  15M FAIL — no rejection candle confirmation — skip"); continue;
                 }
 
