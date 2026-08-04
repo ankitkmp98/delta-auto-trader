@@ -471,8 +471,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double entry = getEntryPrice(pair, resp.getString("id"));
                 if (entry <= 0) {
-                    System.out.println("  Could not confirm entry within window — TP/SL will be handled by end-of-scan safety sweep");
-                    active.add(pair);
+                    System.out.println("  Order did not fill within the entry-confirm window — cancelling it to avoid a stale pending order");
+                    cancelOrder(resp.getString("id"), pair);
                     continue;
                 }
                 System.out.printf("  Entry confirmed: %.6f%n", entry);
@@ -976,6 +976,34 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
+    // === BUG FIX: order cancellation didn't exist anywhere in this file. A
+    // good_till_cancel limit order that never fills within the entry-confirm
+    // window (getEntryPrice() timing out) was being abandoned — it stayed
+    // open/pending ("processing") on the exchange forever, since nothing
+    // ever cancelled it. Endpoint per CoinDCX docs:
+    //   POST /exchange/v1/derivatives/futures/orders/cancel  {timestamp, id}
+    public static boolean cancelOrder(String orderId, String pair) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("timestamp", Instant.now().toEpochMilli());
+            body.put("id", orderId);
+            String resp = authPost(
+                    BASE_URL + "/exchange/v1/derivatives/futures/orders/cancel", body.toString());
+            JSONObject r = resp.startsWith("[")
+                    ? new JSONArray(resp).getJSONObject(0)
+                    : new JSONObject(resp);
+            if (r.has("err_code_dcx") || r.has("code") && r.optInt("code", 200) >= 400) {
+                System.err.println("  cancelOrder(" + pair + "/" + orderId + ") failed: " + r);
+                return false;
+            }
+            System.out.println("  Cancelled stale unfilled order for " + pair + " (id=" + orderId + ")");
+            return true;
+        } catch (Exception e) {
+            System.err.println("cancelOrder(" + pair + "/" + orderId + "): " + e.getMessage());
+            return false;
+        }
+    }
+
     public static void setTpSl(String posId, double tp, double sl, String pair) {
         try {
             double tick = getTickSize(pair);
@@ -1108,6 +1136,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
 }
+
 
 
 
