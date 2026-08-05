@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 1500.0;
+    private static final double MAX_MARGIN = 1200.0;
     private static final int    LEVERAGE   = 5;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
@@ -38,7 +38,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
     private static final long COOLDOWN_MS       = 2 * 60 * 60 * 1000L;
 
-    private static final int MAX_OPEN_POSITIONS = 30;
+    private static final int MAX_OPEN_POSITIONS = 120;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
