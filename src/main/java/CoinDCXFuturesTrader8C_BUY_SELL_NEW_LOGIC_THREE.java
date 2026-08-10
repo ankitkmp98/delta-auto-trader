@@ -64,23 +64,23 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
 
-    private static final int EMA_FAST = 9;
-    private static final int EMA_MID  = 21;
+    private static final int EMA_FAST = 12;
+    private static final int EMA_MID  = 26;
     private static final int ATR_PERIOD = 14;
 
     private static final int    ST_PERIOD     = 10;
-    private static final double ST_MULTIPLIER = 3.0;
+    private static final double ST_MULTIPLIER = 3.5;
 
-    private static final double PULLBACK_MAX_ATR = 0.6;
+    private static final double PULLBACK_MAX_ATR = 0.4;
 
     // ── SL now anchored on 30M Supertrend (was 2H) — tightened buffer & cap ──
-    private static final double SL_ATR_BUFFER   = 0.25;  // was 0.35
+    private static final double SL_ATR_BUFFER   = 0.35;  // was 0.35
     private static final double SL_MAX_PERCENT  = 2.0;   // was 4.5
     private static final int    SWING_LOOKBACK       = 20; // now 30M candles (was 2H)
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
-    private static final double RR_TARGET = 2.0;
+    private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
