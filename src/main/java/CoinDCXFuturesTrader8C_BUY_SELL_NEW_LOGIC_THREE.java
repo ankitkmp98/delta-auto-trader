@@ -47,8 +47,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 10;
+    private static final double MAX_MARGIN = 800.0;
+    private static final int    LEVERAGE   = 30;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -75,7 +75,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ── SL now anchored on 30M Supertrend (was 2H) — tightened buffer & cap ──
     private static final double SL_ATR_BUFFER   = 0.25;  // was 0.35
-    private static final double SL_MAX_PERCENT  = 2.0;   // was 4.5
+    private static final double SL_MAX_PERCENT  = 0.1;   // was 4.5
     private static final int    SWING_LOOKBACK       = 20; // now 30M candles (was 2H)
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
