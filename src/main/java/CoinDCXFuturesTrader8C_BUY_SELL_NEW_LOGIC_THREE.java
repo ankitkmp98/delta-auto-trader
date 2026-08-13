@@ -61,6 +61,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
+    // NOTE: RR_TARGET controls the TP-gap-to-SL-gap ratio at ENTRY time.
+    // If you want SL gap == TP gap exactly (e.g. entry=100, SL=97, TP=103),
+    // set this to 1.0. It was 1.2 originally (TP gap 20% wider than SL gap).
     private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
@@ -71,20 +74,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int HTF_1H_FETCH_COUNT = 700;
 
     // =========================================================================
-    // NEW — Trailing SL/TP configuration
+    // Trailing SL/TP configuration
     // =========================================================================
-    // How many "R" (multiples of the original entry risk) price must move,
-    // favorably, before we shift SL and TP by that same amount again.
-    // Example from spec: entry=100, SL=97 -> 1R = 3. Price hits 103 (=+1R)
-    // -> SL 97->100 (+3), TP 105->108 (+3). Price hits 106 (=+2R) -> SL
-    // 100->103, TP 108->111. Set to 1.0 to match that behaviour exactly.
-    // Lower it (e.g. 0.5) to trail more aggressively/frequently.
-    private static final double TRAIL_STEP_R = 1.0;
-
     // How often (ms) we re-check open positions for trailing. This is the
-    // "24x7 manual monitoring" replacement — keep this low (15-30s) so the
-    // bot reacts quickly, but not so low that we hammer the exchange API.
-    private static final long TRAIL_POLL_INTERVAL_MS = 20_000L;
+    // "24x7 manual monitoring" replacement — keep this low enough to react
+    // quickly, but not so low that we hammer the exchange REST API across
+    // many open positions. 5-10s is a reasonable floor for REST polling.
+    private static final long TRAIL_POLL_INTERVAL_MS = 8_000L;
 
     // How often (ms) we re-run the full multi-timeframe entry scan across
     // all ~250 pairs. This does NOT need to be as frequent as trailing —
@@ -154,26 +150,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // NEW — per-position trailing state
+    // Per-position trailing state
     // =========================================================================
-    // initialRisk  = |entryPrice - originalSL| at the moment the trade was
-    //                opened (this is "1R" for that specific trade).
-    // lastTrailedR = how many whole TRAIL_STEP_R multiples have already been
-    //                applied. We only ever move forward (never re-trail a
-    //                level we've already passed), and we never move SL/TP
-    //                backwards against the position.
+    // initialRisk   = |entryPrice - originalSL| at the moment the trade was
+    //                 opened. This is the fixed SL "gap" we maintain forever.
+    // initialReward = |originalTP - entryPrice| at the moment the trade was
+    //                 opened. This is the fixed TP "gap" we maintain forever.
+    //
+    // Trailing logic (continuous 1:1, no step/threshold):
+    //   entry=100, SL=97 (gap=3), TP=103 (gap=3)
+    //   price -> 101  => SL -> 98,  TP -> 104
+    //   price -> 105  => SL -> 102, TP -> 108
+    //   Both gaps stay fixed at 3 for the life of the trade. SL/TP only ever
+    //   move in the favorable direction, never backward.
     private static class TrailState {
         boolean isLong;
         double entryPrice;
-        double initialRisk;
-        double lastTrailedR; // in units of TRAIL_STEP_R already applied
+        double initialRisk;    // SL gap
+        double initialReward;  // TP gap
 
         JSONObject toJson() {
             JSONObject o = new JSONObject();
             o.put("isLong", isLong);
             o.put("entryPrice", entryPrice);
             o.put("initialRisk", initialRisk);
-            o.put("lastTrailedR", lastTrailedR);
+            o.put("initialReward", initialReward);
             return o;
         }
 
@@ -182,13 +183,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             t.isLong = o.optBoolean("isLong", true);
             t.entryPrice = o.optDouble("entryPrice", 0);
             t.initialRisk = o.optDouble("initialRisk", 0);
-            t.lastTrailedR = o.optDouble("lastTrailedR", 0);
+            t.initialReward = o.optDouble("initialReward", 0);
             return t;
         }
     }
 
     // =========================================================================
-    // NEW — trail state persistence (mirrors bot_state.json pattern)
+    // Trail state persistence (mirrors bot_state.json pattern)
     // =========================================================================
     private static synchronized void loadTrailState() {
         try {
@@ -361,7 +362,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // NEW — Orchestrator. This is now a continuous 24x7 process instead of a
+    // Orchestrator. This is a continuous 24x7 process instead of a
     // single scan-and-exit run. Two independent timers:
     //   1. Entry scan (new trades)      -> every ENTRY_SCAN_INTERVAL_MS
     //   2. Trailing SL/TP (open trades) -> every TRAIL_POLL_INTERVAL_MS
@@ -407,11 +408,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // NEW — reconcile persisted trail state with live exchange positions on
+    // Reconcile persisted trail state with live exchange positions on
     // startup. Any open position with no known trail state (fresh position,
-    // or state file lost) gets a state reconstructed from its CURRENT
-    // avg_price / stop_loss_trigger as a safe fallback. Any stale trail
-    // state entries for positions that are no longer open get removed.
+    // or state file lost/incompatible) gets a state reconstructed from its
+    // CURRENT avg_price / stop_loss_trigger / take_profit_trigger as a safe
+    // fallback. Any stale trail state entries for positions that are no
+    // longer open get removed.
+    //
+    // This is also what makes the new logic apply automatically to any
+    // positions that were already open before this update — just restart
+    // the process (after deleting the old trail_state.json, since its
+    // schema doesn't have initialReward).
     // =========================================================================
     private static void reconcileTrailStateOnStartup() {
         try {
@@ -426,17 +433,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (pos == null) continue;
                 double avgPrice = pos.optDouble("avg_price", 0);
                 double slTrig   = pos.optDouble("stop_loss_trigger", 0);
+                double tpTrig   = pos.optDouble("take_profit_trigger", 0);
                 double posQty   = pos.optDouble("active_pos", 0);
-                if (avgPrice <= 0 || slTrig <= 0) continue;
+                if (avgPrice <= 0 || slTrig <= 0 || tpTrig <= 0) continue;
 
                 TrailState t = new TrailState();
                 t.isLong = posQty >= 0;
                 t.entryPrice = avgPrice;
                 t.initialRisk = Math.abs(avgPrice - slTrig);
-                t.lastTrailedR = 0;
+                t.initialReward = Math.abs(tpTrig - avgPrice);
                 trailStateMap.put(pair, t);
                 System.out.println("[TRAIL] Reconstructed state on startup for " + pair
-                        + " (entry=" + avgPrice + ", risk=" + t.initialRisk + ")");
+                        + " (entry=" + avgPrice + ", riskGap=" + t.initialRisk
+                        + ", rewardGap=" + t.initialReward + ")");
             }
             saveTrailState();
         } catch (Exception e) {
@@ -445,10 +454,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // NEW — the core trailing loop. For every open position: figure out how
-    // many whole TRAIL_STEP_R multiples of favorable movement have occurred
-    // since entry, and if that's more than what we've already applied, shift
-    // both SL and TP by the same amount (gap stays constant) and persist.
+    // The core trailing loop. For every open position: maintain a FIXED gap
+    // between the current price and SL/TP, continuously — no step/threshold.
+    //   entry=100, SL=97 (gap=3), TP=103 (gap=3)
+    //   price=101 -> SL=98,  TP=104
+    //   price=105 -> SL=102, TP=108
+    // SL/TP only ever move in the favorable direction, never backward.
     // =========================================================================
     private static void trailOpenPositions() {
         try {
@@ -491,11 +502,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     state.isLong = isLong;
                     state.entryPrice = avgPrice;
                     state.initialRisk = Math.abs(avgPrice - curSL);
-                    state.lastTrailedR = 0;
+                    state.initialReward = Math.abs(curTP - avgPrice);
                     trailStateMap.put(pair, state);
                 }
 
-                if (state.initialRisk <= 0) continue; // avoid div-by-zero / nonsense
+                if (state.initialRisk <= 0 || state.initialReward <= 0) continue; // invalid state, skip safely
 
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) continue;
@@ -506,23 +517,36 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (favorableMove <= 0) continue; // price hasn't moved in our favor at all
 
-                double rGained = favorableMove / state.initialRisk;
-                double stepsToApply = Math.floor(rGained / TRAIL_STEP_R) - Math.floor(state.lastTrailedR / TRAIL_STEP_R);
+                // Continuous 1:1 trail: SL/TP tracked at a fixed distance
+                // from the current price, using the ORIGINAL gaps from entry.
+                double targetSL = state.isLong
+                        ? currentPrice - state.initialRisk
+                        : currentPrice + state.initialRisk;
+                double targetTP = state.isLong
+                        ? currentPrice + state.initialReward
+                        : currentPrice - state.initialReward;
 
-                if (stepsToApply < 1) continue; // not yet reached the next trail level
-
-                double shiftAmount = state.initialRisk * TRAIL_STEP_R * stepsToApply;
-
-                double newSL = state.isLong ? curSL + shiftAmount : curSL - shiftAmount;
-                double newTP = state.isLong ? curTP + shiftAmount : curTP - shiftAmount;
-
-                // Safety: never move SL backwards against the position.
-                if (state.isLong && newSL < curSL) newSL = curSL;
-                if (!state.isLong && newSL > curSL) newSL = curSL;
+                // Only ever improve — never move SL/TP backward against the position.
+                boolean slImproved = state.isLong ? targetSL > curSL : targetSL < curSL;
+                boolean tpImproved = state.isLong ? targetTP > curTP : targetTP < curTP;
+                if (!slImproved && !tpImproved) continue;
 
                 double tick = getTickSize(pair);
-                newSL = roundToTick(newSL, tick);
-                newTP = roundToTick(newTP, tick);
+                double newSL = slImproved ? roundToTick(targetSL, tick) : curSL;
+                double newTP = tpImproved ? roundToTick(targetTP, tick) : curTP;
+
+                // CRITICAL SAFETY GUARD — SL must never be <= 0 and must never
+                // cross to the wrong side of current price. This is the guard
+                // that was missing before and let SL collapse to 0.
+                double minGap = Math.max(tick, currentPrice * 0.0005);
+                boolean slInvalid = state.isLong
+                        ? (newSL <= 0 || newSL >= currentPrice - minGap)
+                        : (newSL <= currentPrice + minGap);
+                if (slInvalid) {
+                    System.out.println("[TRAIL] " + pair + " — computed SL invalid (" + newSL
+                            + "), skipping this cycle");
+                    continue;
+                }
 
                 // No-op guard: don't call the API if rounding produced no
                 // real change (avoids spamming create_tpsl every cycle).
@@ -536,12 +560,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     continue;
                 }
 
-                System.out.printf("[TRAIL] %s | price=%.6f | R gained=%.2f | SL %.6f -> %.6f | TP %.6f -> %.6f%n",
-                        pair, currentPrice, rGained, curSL, newSL, curTP, newTP);
+                System.out.printf("[TRAIL] %s | price=%.6f | SL %.6f -> %.6f | TP %.6f -> %.6f%n",
+                        pair, currentPrice, curSL, newSL, curTP, newTP);
 
                 setTpSl(posId, newTP, newSL, pair);
 
-                state.lastTrailedR = Math.floor(rGained / TRAIL_STEP_R) * TRAIL_STEP_R;
+                // Confirm the update actually landed on the exchange before
+                // persisting — protects against a silent partial failure
+                // (e.g. TP applied but SL rejected) leaving state out of sync.
+                boolean confirmed = false;
+                try {
+                    TimeUnit.MILLISECONDS.sleep(1500);
+                    JSONObject verify = findPosition(pair);
+                    if (verify != null
+                            && verify.optDouble("stop_loss_trigger", 0) > 0
+                            && verify.optDouble("take_profit_trigger", 0) > 0) {
+                        confirmed = true;
+                    }
+                } catch (Exception ignored) {}
+
+                if (!confirmed) {
+                    System.out.println("[TRAIL] WARNING: " + pair
+                            + " — SL/TP update could not be confirmed on exchange, will retry next cycle");
+                    continue; // don't advance state; next cycle will try again
+                }
+
                 saveTrailState();
             }
 
@@ -557,7 +600,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Entry scan — this is the ORIGINAL main() logic, unchanged, just renamed
-    // so it can be invoked periodically from the new continuous loop above.
+    // so it can be invoked periodically from the continuous loop above.
     // =========================================================================
     private static void runEntryScan() {
         Set<String> active = getActivePositions();
@@ -751,12 +794,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (posId != null) {
                     boolean confirmed = setTpSlWithRetry(posId, tpPrice, slPrice, pair);
                     if (confirmed) {
-                        // NEW — seed the trailing state for this fresh position.
+                        // Seed the trailing state for this fresh position.
                         TrailState state = new TrailState();
                         state.isLong = trendUp;
                         state.entryPrice = entry;
                         state.initialRisk = Math.abs(entry - slPrice);
-                        state.lastTrailedR = 0;
+                        state.initialReward = Math.abs(tpPrice - entry);
                         trailStateMap.put(pair, state);
                         saveTrailState();
                     }
@@ -808,13 +851,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.printf("  [SWEEP] %s fallback SL=%.6f TP=%.6f (R:R target=%.1f)%n", pair, sl, tp, RR_TARGET);
                     boolean confirmed = setTpSlWithRetry(posId, tp, sl, pair);
                     if (confirmed) {
-                        // NEW — seed trailing state here too, since this is
-                        // also a "first time TP/SL is set" moment.
+                        // Seed trailing state here too, since this is also a
+                        // "first time TP/SL is set" moment.
                         TrailState state = new TrailState();
                         state.isLong = isLong;
                         state.entryPrice = avgPrice;
                         state.initialRisk = Math.abs(avgPrice - sl);
-                        state.lastTrailedR = 0;
+                        state.initialReward = Math.abs(tp - avgPrice);
                         trailStateMap.put(pair, state);
                         saveTrailState();
                     }
