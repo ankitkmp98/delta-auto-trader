@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2500.0;
-    private static final int    LEVERAGE   = 10;
+    private static final int    LEVERAGE   = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -56,7 +56,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double PULLBACK_MAX_ATR = 0.6;
 
     private static final double SL_ATR_BUFFER   = 0.35;
-    private static final double SL_MAX_PERCENT  = 4.5;
+    private static final double SL_MAX_PERCENT  = 1.5;
     private static final int    SWING_LOOKBACK       = 20;
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // NOTE: RR_TARGET controls the TP-gap-to-SL-gap ratio at ENTRY time.
     // If you want SL gap == TP gap exactly (e.g. entry=100, SL=97, TP=103),
     // set this to 1.0. It was 1.2 originally (TP gap 20% wider than SL gap).
-    private static final double RR_TARGET = 1.2;
+    private static final double RR_TARGET = 1.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
