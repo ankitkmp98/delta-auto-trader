@@ -222,6 +222,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
+    // =========================================================================
+    // FIX (candle-close integrity): drops the LAST candle in a fetched array,
+    // assuming it may still be forming/incomplete (the "to=now" fetch window
+    // can include the live in-progress bar). Trend detection (EMA, ATR,
+    // Supertrend) should run on CLOSED candles only — otherwise indicators
+    // flip-flop as the live bar's price moves, causing false/unstable trend
+    // reads on 4H/2H/1H/30M/15M and, downstream, wrong long/short decisions.
+    //
+    // Applied right after every candle fetch, before any indicator math runs
+    // on that data (runEntryScan's raw15m/raw30m/raw1hExtended, and the 2H
+    // fallback fetch in ensureTpSlForOpenPositions).
+    // =========================================================================
+    private static JSONArray dropLastIfForming(JSONArray arr) {
+        if (arr == null || arr.length() < 2) return arr;
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < arr.length() - 1; i++) out.put(arr.getJSONObject(i));
+        return out;
+    }
+
     private static TFResult analyzeTF(JSONArray candles) {
         TFResult r = new TFResult();
         if (candles == null || candles.length() < EMA_MID + ST_PERIOD + 5) {
@@ -599,8 +618,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Entry scan — this is the ORIGINAL main() logic, unchanged, just renamed
-    // so it can be invoked periodically from the continuous loop above.
+    // Entry scan — this is the ORIGINAL main() logic, unchanged in structure,
+    // just renamed so it can be invoked periodically from the continuous loop
+    // above. FIX: candle fetches now go through dropLastIfForming() so trend
+    // detection (4H/2H/1H/30M/15M) never runs on a still-forming candle.
     // =========================================================================
     private static void runEntryScan() {
         Set<String> active = getActivePositions();
@@ -630,9 +651,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
                 System.out.println("\n==== " + pair + " ====");
 
-                JSONArray raw15m         = getCandlestickData(pair, "15", CANDLE_15M);
-                JSONArray raw30m         = getCandlestickData(pair, "30", CANDLE_30M);
-                JSONArray raw1hExtended  = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
+                // FIX: drop the last (possibly still-forming) candle from
+                // every fetched series BEFORE any indicator is computed on
+                // it. Previously only the 15m entry-signal candle avoided
+                // the live bar (via n15-2 indexing) while EVERY trend
+                // timeframe (4H/2H/1H/30M) and even the 15m indicator series
+                // itself (EMA/ATR/Supertrend) included the live, still-moving
+                // bar — causing indicators to flip as price ticked, which
+                // could silently flip the long/short decision.
+                JSONArray raw15m         = dropLastIfForming(getCandlestickData(pair, "15", CANDLE_15M));
+                JSONArray raw30m         = dropLastIfForming(getCandlestickData(pair, "30", CANDLE_30M));
+                JSONArray raw1hExtended  = dropLastIfForming(getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT));
                 JSONArray raw1h          = lastN(raw1hExtended, CANDLE_1H);
                 JSONArray raw2h          = aggregateCandles(raw1hExtended, 2);
                 JSONArray raw4h          = aggregateCandles(raw1hExtended, 4);
@@ -724,10 +753,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     System.out.println("  15M FAIL — not aligned with higher-timeframe direction — skip"); continue;
                 }
 
-                if (n15 < 3) { System.out.println("  Not enough 15m candles for entry check — skip"); continue; }
-                double entryClose = cl15[n15 - 2], entryOpen = op15[n15 - 2];
-                double entryHigh  = hi15[n15 - 2], entryLow  = lo15[n15 - 2];
-                double prevClose  = cl15[n15 - 3], prevOpen  = op15[n15 - 3];
+                // FIX: raw15m no longer contains a forming candle (it was
+                // dropped above), so index n15-1 is now genuinely the last
+                // CLOSED 15m candle. Previously this used n15-2 to dodge the
+                // live bar, which is no longer necessary and would now be
+                // one candle stale.
+                if (n15 < 2) { System.out.println("  Not enough 15m candles for entry check — skip"); continue; }
+                double entryClose = cl15[n15 - 1], entryOpen = op15[n15 - 1];
+                double entryHigh  = hi15[n15 - 1], entryLow  = lo15[n15 - 1];
+                double prevClose  = cl15[n15 - 2], prevOpen  = op15[n15 - 2];
 
                 double distEma9  = Math.abs(entryClose - ema9_15);
                 double distEma21 = Math.abs(entryClose - ema21_15);
@@ -830,7 +864,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (tpTrig > 0 && slTrig > 0) continue;
 
                 System.out.println("  [SWEEP] " + pair + " missing TP/SL — computing fallback protection...");
-                JSONArray raw1hExtended = getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT);
+                // FIX: same dropLastIfForming() treatment as the main entry
+                // scan, so the fallback SL/TP calc (which reads tf2h.stBands
+                // and tf2h.atr) isn't skewed by an incomplete live 1H bar.
+                JSONArray raw1hExtended = dropLastIfForming(getCandlestickData(pair, "60", HTF_1H_FETCH_COUNT));
                 JSONArray raw2h = aggregateCandles(raw1hExtended, 2);
                 TFResult tf2h = analyzeTF(raw2h);
                 if (!tf2h.valid) {
