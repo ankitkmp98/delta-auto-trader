@@ -53,7 +53,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
 
-    private static final double PULLBACK_MAX_ATR = 0.4;
+    private static final double PULLBACK_MAX_ATR = 0.6;
 
     private static final double SL_ATR_BUFFER   = 0.35;
     private static final double SL_MAX_PERCENT  = 1.0;
@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // NOTE: RR_TARGET controls the TP-gap-to-SL-gap ratio at ENTRY time.
     // If you want SL gap == TP gap exactly (e.g. entry=100, SL=97, TP=103),
     // set this to 1.0. It was 1.2 originally (TP gap 20% wider than SL gap).
-    private static final double RR_TARGET = 0.6;
+    private static final double RR_TARGET = 0.3;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
