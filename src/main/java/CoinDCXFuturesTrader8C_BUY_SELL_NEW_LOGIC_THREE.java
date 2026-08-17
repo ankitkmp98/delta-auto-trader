@@ -29,7 +29,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 2000.0;
+    private static final double MAX_MARGIN = 1000.0;
     private static final int    LEVERAGE   = 10; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
@@ -98,8 +98,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ---- SL/TP sizing ----
     // SL is anchored to 1-minute ATR (tight, since we're trading tight
     // moves), hard-capped as a % of entry price as a backstop.
-    private static final double SCALP_SL_ATR_BUFFER  = 1.0;
-    private static final double SCALP_SL_MAX_PERCENT = 1.5;
+    private static final double SCALP_SL_ATR_BUFFER  = 10.0;
+    private static final double SCALP_SL_MAX_PERCENT = 10.5;
 
     // TP gap = SCALP_RR_TARGET x SL gap. 0.6 means TP is SMALLER than SL —
     // deliberately chosen per your request for a high hit-rate, small-TP
