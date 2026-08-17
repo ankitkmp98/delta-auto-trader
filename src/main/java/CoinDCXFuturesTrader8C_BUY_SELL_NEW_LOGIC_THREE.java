@@ -53,7 +53,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
 
-    private static final double PULLBACK_MAX_ATR = 0.6;
+    private static final double PULLBACK_MAX_ATR = 0.4;
 
     private static final double SL_ATR_BUFFER   = 0.35;
     private static final double SL_MAX_PERCENT  = 1.0;
