@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CoinDCXFuturesTrader8C_SCALP {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // API Configuration
@@ -83,13 +83,13 @@ public class CoinDCXFuturesTrader8C_SCALP {
     // recent average volume to count as a genuine momentum burst rather
     // than random noise.
     private static final int    SCALP_VOLUME_LOOKBACK   = 20;
-    private static final double SCALP_VOLUME_MULTIPLIER = 1.1;
+    private static final double SCALP_VOLUME_MULTIPLIER = 1.3;
 
     // Rolling VWAP over the last N 1m candles. Entries are rejected if price
     // has already run too far from VWAP (avoids chasing a spike that's about
     // to mean-revert against you).
     private static final int    SCALP_VWAP_LOOKBACK      = 20;
-    private static final double SCALP_MAX_VWAP_DIST_ATR  = 1.5;
+    private static final double SCALP_MAX_VWAP_DIST_ATR  = 1.0;
 
     // Minimum body-to-range ratio for the trigger candle — filters out
     // indecisive/doji candles that shouldn't be treated as momentum.
