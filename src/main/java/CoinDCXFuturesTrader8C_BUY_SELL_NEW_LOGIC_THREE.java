@@ -449,8 +449,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try {
                 long now = System.currentTimeMillis();
 
-                trailOpenPositions();
-
+                // trailOpenPositions();
+// ye maine comment kiya hai taking mera trailing positions logic disable rhe
+                // --------------------------------------------------------------------- // ---------------------------------------------------------------------
+                 // --------------------------------------------------------------------- // ---------------------------------------------------------------------
+                 // --------------------------------------------------------------------- // ---------------------------------------------------------------------
                 if (now - lastEntryScan >= SCALP_ENTRY_SCAN_INTERVAL_MS) {
                     runEntryScan();
                     lastEntryScan = System.currentTimeMillis();
