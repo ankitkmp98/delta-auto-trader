@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // NOTE: RR_TARGET controls the TP-gap-to-SL-gap ratio at ENTRY time.
     // If you want SL gap == TP gap exactly (e.g. entry=100, SL=97, TP=103),
     // set this to 1.0. It was 1.2 originally (TP gap 20% wider than SL gap).
-    private static final double RR_TARGET = 5.0;
+    private static final double RR_TARGET = 15.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.001;
 
