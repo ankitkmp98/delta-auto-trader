@@ -425,6 +425,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 // ---- Trailing check (frequent) ----
                 // trailOpenPositions();
+                // yaha training sl logic commented hai
 
                 // ---- Entry scan (less frequent) ----
                 if (now - lastEntryScan >= ENTRY_SCAN_INTERVAL_MS) {
