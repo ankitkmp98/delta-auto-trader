@@ -1,4 +1,4 @@
-import org.json.JSONArray;
+import org.json.JSONArray; // iss code m mera trailing sl commented hai
 import org.json.JSONObject;
 
 import javax.crypto.Mac;
@@ -424,7 +424,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 long now = System.currentTimeMillis();
 
                 // ---- Trailing check (frequent) ----
-                trailOpenPositions();
+                // trailOpenPositions();
 
                 // ---- Entry scan (less frequent) ----
                 if (now - lastEntryScan >= ENTRY_SCAN_INTERVAL_MS) {
