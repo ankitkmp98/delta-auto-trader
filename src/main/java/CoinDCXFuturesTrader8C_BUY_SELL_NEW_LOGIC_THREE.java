@@ -481,142 +481,144 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   price=105 -> SL=102, TP=108
     // SL/TP only ever move in the favorable direction, never backward.
     // =========================================================================
-    private static void trailOpenPositions() {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("page", "1");
-            body.put("size", "100");
-            body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
-            JSONArray arr = resp.startsWith("[")
-                    ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
+    // private static void trailOpenPositions() {
+    //     try {
+    //         JSONObject body = new JSONObject();
+    //         body.put("timestamp", Instant.now().toEpochMilli());
+    //         body.put("page", "1");
+    //         body.put("size", "100");
+    //         body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
+    //         String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+    //         JSONArray arr = resp.startsWith("[")
+    //                 ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
 
-            Set<String> stillOpen = new HashSet<>();
+    //         Set<String> stillOpen = new HashSet<>();
 
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject pos = arr.getJSONObject(i);
-                String pair = pos.optString("pair", "");
-                double avgPrice = pos.optDouble("avg_price", 0);
-                double posQty   = pos.optDouble("active_pos", 0);
-                double curTP    = pos.optDouble("take_profit_trigger", 0);
-                double curSL    = pos.optDouble("stop_loss_trigger", 0);
+    //         for (int i = 0; i < arr.length(); i++) {
+    //             JSONObject pos = arr.getJSONObject(i);
+    //             String pair = pos.optString("pair", "");
+    //             double avgPrice = pos.optDouble("avg_price", 0);
+    //             double posQty   = pos.optDouble("active_pos", 0);
+    //             double curTP    = pos.optDouble("take_profit_trigger", 0);
+    //             double curSL    = pos.optDouble("stop_loss_trigger", 0);
 
-                boolean isOpen = posQty != 0 || pos.optDouble("locked_margin", 0) > 0 || avgPrice > 0;
-                if (!isOpen || pair.isEmpty()) continue;
-                stillOpen.add(pair);
+    //             boolean isOpen = posQty != 0 || pos.optDouble("locked_margin", 0) > 0 || avgPrice > 0;
+    //             if (!isOpen || pair.isEmpty()) continue;
+    //             stillOpen.add(pair);
 
-                if (avgPrice <= 0 || curTP <= 0 || curSL <= 0) {
-                    // No TP/SL yet on this position — the entry-scan's own
-                    // safety sweep (ensureTpSlForOpenPositions) handles this.
-                    continue;
-                }
+    //             if (avgPrice <= 0 || curTP <= 0 || curSL <= 0) {
+    //                 // No TP/SL yet on this position — the entry-scan's own
+    //                 // safety sweep (ensureTpSlForOpenPositions) handles this.
+    //                 continue;
+    //             }
 
-                TrailState state = trailStateMap.get(pair);
-                if (state == null) {
-                    // Shouldn't normally happen (startup reconciliation
-                    // covers this), but guard anyway so trailing never
-                    // silently skips a position forever.
-                    boolean isLong = posQty >= 0;
-                    state = new TrailState();
-                    state.isLong = isLong;
-                    state.entryPrice = avgPrice;
-                    state.initialRisk = Math.abs(avgPrice - curSL);
-                    state.initialReward = Math.abs(curTP - avgPrice);
-                    trailStateMap.put(pair, state);
-                }
+    //             TrailState state = trailStateMap.get(pair);
+    //             if (state == null) {
+    //                 // Shouldn't normally happen (startup reconciliation
+    //                 // covers this), but guard anyway so trailing never
+    //                 // silently skips a position forever.
+    //                 boolean isLong = posQty >= 0;
+    //                 state = new TrailState();
+    //                 state.isLong = isLong;
+    //                 state.entryPrice = avgPrice;
+    //                 state.initialRisk = Math.abs(avgPrice - curSL);
+    //                 state.initialReward = Math.abs(curTP - avgPrice);
+    //                 trailStateMap.put(pair, state);
+    //             }
 
-                if (state.initialRisk <= 0 || state.initialReward <= 0) continue; // invalid state, skip safely
+    //             if (state.initialRisk <= 0 || state.initialReward <= 0) continue; // invalid state, skip safely
 
-                double currentPrice = getLastPrice(pair);
-                if (currentPrice <= 0) continue;
+    //             double currentPrice = getLastPrice(pair);
+    //             if (currentPrice <= 0) continue;
 
-                double favorableMove = state.isLong
-                        ? (currentPrice - state.entryPrice)
-                        : (state.entryPrice - currentPrice);
+    //             double favorableMove = state.isLong
+    //                     ? (currentPrice - state.entryPrice)
+    //                     : (state.entryPrice - currentPrice);
 
-                if (favorableMove <= 0) continue; // price hasn't moved in our favor at all
+    //             if (favorableMove <= 0) continue; // price hasn't moved in our favor at all
 
-                // Continuous 1:1 trail: SL/TP tracked at a fixed distance
-                // from the current price, using the ORIGINAL gaps from entry.
-                double targetSL = state.isLong
-                        ? currentPrice - state.initialRisk
-                        : currentPrice + state.initialRisk;
-                double targetTP = state.isLong
-                        ? currentPrice + state.initialReward
-                        : currentPrice - state.initialReward;
+    //             // Continuous 1:1 trail: SL/TP tracked at a fixed distance
+    //             // from the current price, using the ORIGINAL gaps from entry.
+    //             double targetSL = state.isLong
+    //                     ? currentPrice - state.initialRisk
+    //                     : currentPrice + state.initialRisk;
+    //             double targetTP = state.isLong
+    //                     ? currentPrice + state.initialReward
+    //                     : currentPrice - state.initialReward;
 
-                // Only ever improve — never move SL/TP backward against the position.
-                boolean slImproved = state.isLong ? targetSL > curSL : targetSL < curSL;
-                boolean tpImproved = state.isLong ? targetTP > curTP : targetTP < curTP;
-                if (!slImproved && !tpImproved) continue;
+    //             // Only ever improve — never move SL/TP backward against the position.
+    //             boolean slImproved = state.isLong ? targetSL > curSL : targetSL < curSL;
+    //             boolean tpImproved = state.isLong ? targetTP > curTP : targetTP < curTP;
+    //             if (!slImproved && !tpImproved) continue;
 
-                double tick = getTickSize(pair);
-                double newSL = slImproved ? roundToTick(targetSL, tick) : curSL;
-                double newTP = tpImproved ? roundToTick(targetTP, tick) : curTP;
+    //             double tick = getTickSize(pair);
+    //             double newSL = slImproved ? roundToTick(targetSL, tick) : curSL;
+    //             double newTP = tpImproved ? roundToTick(targetTP, tick) : curTP;
 
-                // CRITICAL SAFETY GUARD — SL must never be <= 0 and must never
-                // cross to the wrong side of current price. This is the guard
-                // that was missing before and let SL collapse to 0.
-                double minGap = Math.max(tick, currentPrice * 0.0005);
-                boolean slInvalid = state.isLong
-                        ? (newSL <= 0 || newSL >= currentPrice - minGap)
-                        : (newSL <= currentPrice + minGap);
-                if (slInvalid) {
-                    System.out.println("[TRAIL] " + pair + " — computed SL invalid (" + newSL
-                            + "), skipping this cycle");
-                    continue;
-                }
+    //             // CRITICAL SAFETY GUARD — SL must never be <= 0 and must never
+    //             // cross to the wrong side of current price. This is the guard
+    //             // that was missing before and let SL collapse to 0.
+    //             double minGap = Math.max(tick, currentPrice * 0.0005);
+    //             boolean slInvalid = state.isLong
+    //                     ? (newSL <= 0 || newSL >= currentPrice - minGap)
+    //                     : (newSL <= currentPrice + minGap);
+    //             if (slInvalid) {
+    //                 System.out.println("[TRAIL] " + pair + " — computed SL invalid (" + newSL
+    //                         + "), skipping this cycle");
+    //                 continue;
+    //             }
 
-                // No-op guard: don't call the API if rounding produced no
-                // real change (avoids spamming create_tpsl every cycle).
-                if (Math.abs(newSL - curSL) < tick && Math.abs(newTP - curTP) < tick) {
-                    continue;
-                }
+    //             // No-op guard: don't call the API if rounding produced no
+    //             // real change (avoids spamming create_tpsl every cycle).
+    //             if (Math.abs(newSL - curSL) < tick && Math.abs(newTP - curTP) < tick) {
+    //                 continue;
+    //             }
 
-                String posId = pos.optString("id", null);
-                if (posId == null) {
-                    System.out.println("[TRAIL] " + pair + " — position id missing, skipping this cycle");
-                    continue;
-                }
+    //             String posId = pos.optString("id", null);
+    //             if (posId == null) {
+    //                 System.out.println("[TRAIL] " + pair + " — position id missing, skipping this cycle");
+    //                 continue;
+    //             }
 
-                System.out.printf("[TRAIL] %s | price=%.6f | SL %.6f -> %.6f | TP %.6f -> %.6f%n",
-                        pair, currentPrice, curSL, newSL, curTP, newTP);
+    //             System.out.printf("[TRAIL] %s | price=%.6f | SL %.6f -> %.6f | TP %.6f -> %.6f%n",
+    //                     pair, currentPrice, curSL, newSL, curTP, newTP);
 
-                setTpSl(posId, newTP, newSL, pair);
+    //             setTpSl(posId, newTP, newSL, pair);
 
-                // Confirm the update actually landed on the exchange before
-                // persisting — protects against a silent partial failure
-                // (e.g. TP applied but SL rejected) leaving state out of sync.
-                boolean confirmed = false;
-                try {
-                    TimeUnit.MILLISECONDS.sleep(1500);
-                    JSONObject verify = findPosition(pair);
-                    if (verify != null
-                            && verify.optDouble("stop_loss_trigger", 0) > 0
-                            && verify.optDouble("take_profit_trigger", 0) > 0) {
-                        confirmed = true;
-                    }
-                } catch (Exception ignored) {}
+    //             // Confirm the update actually landed on the exchange before
+    //             // persisting — protects against a silent partial failure
+    //             // (e.g. TP applied but SL rejected) leaving state out of sync.
+    //             boolean confirmed = false;
+    //             try {
+    //                 TimeUnit.MILLISECONDS.sleep(1500);
+    //                 JSONObject verify = findPosition(pair);
+    //                 if (verify != null
+    //                         && verify.optDouble("stop_loss_trigger", 0) > 0
+    //                         && verify.optDouble("take_profit_trigger", 0) > 0) {
+    //                     confirmed = true;
+    //                 }
+    //             } catch (Exception ignored) {}
 
-                if (!confirmed) {
-                    System.out.println("[TRAIL] WARNING: " + pair
-                            + " — SL/TP update could not be confirmed on exchange, will retry next cycle");
-                    continue; // don't advance state; next cycle will try again
-                }
+    //             if (!confirmed) {
+    //                 System.out.println("[TRAIL] WARNING: " + pair
+    //                         + " — SL/TP update could not be confirmed on exchange, will retry next cycle");
+    //                 continue; // don't advance state; next cycle will try again
+    //             }
 
-                saveTrailState();
-            }
+    //             saveTrailState();
+    //         }
 
-            // Drop state for anything that closed since the last check.
-            if (trailStateMap.keySet().retainAll(stillOpen)) {
-                saveTrailState();
-            }
+    //         // Drop state for anything that closed since the last check.
+    //         if (trailStateMap.keySet().retainAll(stillOpen)) {
+    //             saveTrailState();
+    //         }
 
-        } catch (Exception e) {
-            System.err.println("[TRAIL] trailOpenPositions error: " + e.getMessage());
-        }
-    }
+    //     } catch (Exception e) {
+    //         System.err.println("[TRAIL] trailOpenPositions error: " + e.getMessage());
+    //     }
+    // }
+
+    // 484 - 619 takk trailing sl ka logic commented hai
 
     // =========================================================================
     // Entry scan — this is the ORIGINAL main() logic, unchanged in structure,
