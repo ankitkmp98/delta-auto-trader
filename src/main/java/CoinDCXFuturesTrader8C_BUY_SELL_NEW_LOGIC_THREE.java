@@ -125,7 +125,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // `if (TRAILING_SL_TP_ENABLED) trailOpenPositions();`, and (3) flip this
     // flag true/false to turn the whole system on/off without touching any
     // other code.
-    private static final boolean TRAILING_SL_TP_ENABLED = true;
+    private static final boolean TRAILING_SL_TP_ENABLED = false;
 
     // Where trailing state is persisted so it survives VM reboots / JVM
     // restarts. Mirrors the existing bot_state.json / last_trade_state.json
