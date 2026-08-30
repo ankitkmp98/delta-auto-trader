@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 18;
+    private static final int    LEVERAGE   = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -75,13 +75,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- SL/TP (swing + ATR based, hard % cap, S/R + RR floor) ----
     private static final double SL_ATR_BUFFER      = 0.30;
-    private static final double SL_MAX_PERCENT     = 1.5;   // spec: max SL ~1-1.5%
+    private static final double SL_MAX_PERCENT     = 3.0;   // spec: max SL ~1-1.5%
     private static final int    SL_SWING_LOOKBACK  = 15;    // swing lookback, computed on the 5M series
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
 
-    private static final double RR_TARGET = 1.5;  // aimed-for reward:risk (spec: min 1.3-1.5R)
-    private static final double RR_MIN    = 1.3;  // hard floor — TP is never allowed to imply less than this
+    private static final double RR_TARGET = 0.8;  // aimed-for reward:risk (spec: min 1.3-1.5R)
+    private static final double RR_MIN    = 0.6;  // hard floor — TP is never allowed to imply less than this
     private static final int    RESISTANCE_LOOKBACK = 20; // nearest S/R search window, on the 15M series
 
     // ---- Volume filter ----
