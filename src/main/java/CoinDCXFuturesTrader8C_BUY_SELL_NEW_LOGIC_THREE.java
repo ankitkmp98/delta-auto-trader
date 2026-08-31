@@ -75,7 +75,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- SL/TP (swing + ATR based, hard % cap, S/R + RR floor) ----
     private static final double SL_ATR_BUFFER      = 0.30;
-    private static final double SL_MAX_PERCENT     = 6.0;   // spec: max SL ~1-1.5%
+    private static final double SL_MAX_PERCENT     = 4.0;   // spec: max SL ~1-1.5%
     private static final int    SL_SWING_LOOKBACK  = 15;    // swing lookback, computed on the 5M series
     private static final int    SWING_EXCLUDE_RECENT = 2;
     private static final double SWING_EXTRA_BUFFER_ATR = 0.15;
