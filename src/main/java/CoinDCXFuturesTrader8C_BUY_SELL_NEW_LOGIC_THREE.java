@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 16; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
+    private static final int    LEVERAGE   = 17; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -98,8 +98,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ---- SL/TP sizing ----
     // SL is anchored to 1-minute ATR (tight, since we're trading tight
     // moves), hard-capped as a % of entry price as a backstop.
-    private static final double SCALP_SL_ATR_BUFFER  = 0.5;
-    private static final double SCALP_SL_MAX_PERCENT = 1.0;
+    private static final double SCALP_SL_ATR_BUFFER  = 0.7;
+    private static final double SCALP_SL_MAX_PERCENT = 2.0;
 
     // TP gap = SCALP_RR_TARGET x SL gap. 0.6 means TP is SMALLER than SL —
     // deliberately chosen per your request for a high hit-rate, small-TP
@@ -117,7 +117,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   achievable for a genuinely good high-frequency edge, but it means
     //   this strategy lives or dies on win rate, not on RR. Backtest this
     //   specific trigger logic (EMA cross + volume + VWAP) before sizing up.
-    private static final double SCALP_RR_TARGET = 1.2;
+    private static final double SCALP_RR_TARGET = 1.0;
 
     // Limit-order chase buffer on entry. Kept small on purpose: scalp
     // targets are ~0.6-1% moves, so a 0.1% buffer (the old swing default)
