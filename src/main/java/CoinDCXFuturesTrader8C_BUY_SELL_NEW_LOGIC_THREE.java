@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 15; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
+    private static final int    LEVERAGE   = 16; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -449,7 +449,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try {
                 long now = System.currentTimeMillis();
 
-                trailOpenPositions();
+                // trailOpenPositions();
+                // --------mai trailing sl tp ko comment kr rha hoon.
 
                 if (now - lastEntryScan >= SCALP_ENTRY_SCAN_INTERVAL_MS) {
                     runEntryScan();
