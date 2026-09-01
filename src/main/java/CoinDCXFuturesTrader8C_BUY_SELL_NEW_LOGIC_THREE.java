@@ -460,7 +460,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try {
                 long now = System.currentTimeMillis();
 
-                trailOpenPositions();
+                // trailOpenPositions();
                 // --------mai trailing sl tp ko comment kr rha hoon.
 
                 if (now - lastEntryScan >= SCALP_ENTRY_SCAN_INTERVAL_MS) {
