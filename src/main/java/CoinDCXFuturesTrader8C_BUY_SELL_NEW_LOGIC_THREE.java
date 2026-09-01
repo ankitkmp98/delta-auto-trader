@@ -117,7 +117,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   achievable for a genuinely good high-frequency edge, but it means
     //   this strategy lives or dies on win rate, not on RR. Backtest this
     //   specific trigger logic (EMA cross + volume + VWAP) before sizing up.
-    private static final double SCALP_RR_TARGET = 0.6;
+    private static final double SCALP_RR_TARGET = 1.5;
 
     // Limit-order chase buffer on entry. Kept small on purpose: scalp
     // targets are ~0.6-1% moves, so a 0.1% buffer (the old swing default)
@@ -460,7 +460,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try {
                 long now = System.currentTimeMillis();
 
-                // trailOpenPositions();
+                trailOpenPositions();
                 // --------mai trailing sl tp ko comment kr rha hoon.
 
                 if (now - lastEntryScan >= SCALP_ENTRY_SCAN_INTERVAL_MS) {
