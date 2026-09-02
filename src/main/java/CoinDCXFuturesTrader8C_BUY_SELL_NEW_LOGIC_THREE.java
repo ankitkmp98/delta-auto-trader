@@ -110,7 +110,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // TP = RR_TARGET x SL gap. 1.8 sits in the middle of your 1.5-2.0R
     // guidance.
-    private static final double RR_TARGET = 0.6;
+    private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
