@@ -29,11 +29,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 1500.0; // unchanged
+    private static final double MAX_MARGIN = 1000.0; // unchanged
 
     // LEVERAGE — unchanged from the previous round (8x). Not touched by this
     // redesign, which is scoped to direction/entry/SL-TP logic only.
-    private static final int LEVERAGE = 10;
+    private static final int LEVERAGE = 15;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -110,7 +110,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // TP = RR_TARGET x SL gap. 1.8 sits in the middle of your 1.5-2.0R
     // guidance.
-    private static final double RR_TARGET = 1.8;
+    private static final double RR_TARGET = 0.6;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
