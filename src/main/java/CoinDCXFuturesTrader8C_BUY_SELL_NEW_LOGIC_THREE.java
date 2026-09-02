@@ -38,7 +38,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
     private static final String API_KEY = env("DELTA_API_KEY", "");
     private static final String API_SECRET = env("DELTA_API_SECRET", "");
-    private static final boolean DRY_RUN = envBool("DRY_RUN", true);
+    private static final boolean DRY_RUN = envBool("DRY_RUN", false);
     private static final double MAX_MARGIN_INR = envDouble("MAX_MARGIN_INR", 1200.0);
     private static final int LEVERAGE = envInt("LEVERAGE", 11);
     private static final double USDT_INR_RATE = envDouble("USDT_INR_RATE", 98.0);
