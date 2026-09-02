@@ -29,8 +29,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 2000.0;
-    private static final int    LEVERAGE   = 20; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
+    private static final double MAX_MARGIN = 1500.0;
+    private static final int    LEVERAGE   = 10; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -124,7 +124,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // see computeScalpSlTp() below), hard-capped as a % of entry price as
     // a backstop.
     private static final double SCALP_SL_ATR_BUFFER  = 8.0;
-    private static final double SCALP_SL_MAX_PERCENT = 4.0;
+    private static final double SCALP_SL_MAX_PERCENT = 1.0;
 
     // TP gap = SCALP_RR_TARGET x SL gap.
     //
