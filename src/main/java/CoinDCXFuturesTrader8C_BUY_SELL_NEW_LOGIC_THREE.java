@@ -79,16 +79,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ADX Config (NEW)
     // =========================================================================
     private static final int ADX_PERIOD = 14;
-    private static final double MIN_ADX = 25.0;  // Strong trend filter
+    private static final double MIN_ADX = 22.0;  // Strong trend filter
 
     // =========================================================================
     // RSI Config (NEW)
     // =========================================================================
     private static final int RSI_PERIOD = 14;
-    private static final double RSI_OVERBOUGHT = 70.0;
-    private static final double RSI_OVERSOLD = 30.0;
-    private static final double RSI_MIN_FOR_LONG = 40.0;   // Long: RSI > 40
-    private static final double RSI_MAX_FOR_SHORT = 60.0;  // Short: RSI < 60
+    private static final double RSI_OVERBOUGHT = 75.0;
+    private static final double RSI_OVERSOLD = 25.0;
+    private static final double RSI_MIN_FOR_LONG = 35.0;   // Long: RSI > 40
+    private static final double RSI_MAX_FOR_SHORT = 65.0;  // Short: RSI < 60
 
     // =========================================================================
     // MACD Config (NEW)
