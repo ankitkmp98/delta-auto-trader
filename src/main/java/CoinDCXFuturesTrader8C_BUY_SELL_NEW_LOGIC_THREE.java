@@ -124,7 +124,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // see computeScalpSlTp() below), hard-capped as a % of entry price as
     // a backstop.
     private static final double SCALP_SL_ATR_BUFFER  = 8.0;
-    private static final double SCALP_SL_MAX_PERCENT = 1.0;
+    private static final double SCALP_SL_MAX_PERCENT = 2.5;
 
     // TP gap = SCALP_RR_TARGET x SL gap.
     //
