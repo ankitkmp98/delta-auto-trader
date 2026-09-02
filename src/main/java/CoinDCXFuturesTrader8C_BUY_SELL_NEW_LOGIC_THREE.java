@@ -136,7 +136,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   If your SL is smaller than 1%, the fee eats a BIGGER fraction of it,
     //   pushing the required win rate even higher. Backtest this specific
     //   trigger logic (EMA cross + volume + VWAP + pullback) before sizing up.
-    private static final double SCALP_RR_TARGET = 1.3;
+    private static final double SCALP_RR_TARGET = 0.6;
 
     // Limit-order chase buffer on entry. Kept small on purpose: scalp
     // targets are ~0.6-1% moves, so a 0.1% buffer (the old swing default)
