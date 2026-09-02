@@ -127,6 +127,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TRAIL_POLL_INTERVAL_MS = 5_000L;
     private static final double BREAKEVEN_LOCK_TRIGGER_FRACTION = 0.5;
 
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.30;// newly added
+
     private static final String TRAIL_STATE_FILE = "trail_state.json";
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
@@ -567,7 +569,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (curSL <= 0 || curTP <= 0) continue;
 
                 double tick = getTickSize(pair);
-                double newSL = roundToTick(state.entryPrice, tick);
+                // double newSL = roundToTick(state.entryPrice, tick);// commented part by me
+              
+                double newSL;//newly part added by me from here
+
+if (state.isLong) {
+    newSL = state.entryPrice * (1 + BREAKEVEN_LOCK_PROFIT_PERCENT / 100.0);
+} else {
+    newSL = state.entryPrice * (1 - BREAKEVEN_LOCK_PROFIT_PERCENT / 100.0);
+}
+
+newSL = roundToTick(newSL, tick);// to here newly part added by me from above 
 
                 boolean alreadyAtOrBeyondBreakeven = state.isLong ? curSL >= newSL : curSL <= newSL;
                 if (alreadyAtOrBeyondBreakeven) {
