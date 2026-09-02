@@ -33,7 +33,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // LEVERAGE — unchanged from the previous round (8x). Not touched by this
     // redesign, which is scoped to direction/entry/SL-TP logic only.
-    private static final int LEVERAGE = 15;
+    private static final int LEVERAGE = 18;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
