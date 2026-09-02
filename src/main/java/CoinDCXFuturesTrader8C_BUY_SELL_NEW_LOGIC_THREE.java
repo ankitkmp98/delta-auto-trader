@@ -127,7 +127,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TRAIL_POLL_INTERVAL_MS = 5_000L;
     private static final double BREAKEVEN_LOCK_TRIGGER_FRACTION = 0.5;
 
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.30;// newly added
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.50;// newly added
 
     private static final String TRAIL_STATE_FILE = "trail_state.json";
 
