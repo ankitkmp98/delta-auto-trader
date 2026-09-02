@@ -30,7 +30,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 1500.0;
-    private static final int    LEVERAGE   = 10; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
+    private static final int    LEVERAGE   = 5; // tune per your risk appetite; ROE% = price-move% x LEVERAGE
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -136,7 +136,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   If your SL is smaller than 1%, the fee eats a BIGGER fraction of it,
     //   pushing the required win rate even higher. Backtest this specific
     //   trigger logic (EMA cross + volume + VWAP + pullback) before sizing up.
-    private static final double SCALP_RR_TARGET = 0.6;
+    private static final double SCALP_RR_TARGET = 1.2;
 
     // Limit-order chase buffer on entry. Kept small on purpose: scalp
     // targets are ~0.6-1% moves, so a 0.1% buffer (the old swing default)
