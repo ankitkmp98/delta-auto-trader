@@ -37,7 +37,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ~9-10% at 10x) instead of tightening it further. Revisit only once
     // the entry/exit logic itself is proven profitable — leverage should be
     // the last knob you turn up, not the first.
-    private static final int LEVERAGE = 110;
+    private static final int LEVERAGE = 10;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
