@@ -99,18 +99,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ---- SL/TP sizing ----
     // SL = nearest swing extreme (over SWING_LOOKBACK_BARS 5M candles) plus
     // an ATR buffer, per your spec ("Swing + 0.5-0.7 ATR buffer").
-    private static final int    SWING_LOOKBACK_BARS = 15;
-    private static final double SL_ATR_BUFFER_MULT  = 1.0; // midpoint of your 0.5-0.7 range
+    private static final int    SWING_LOOKBACK_BARS = 30;
+    private static final double SL_ATR_BUFFER_MULT  = 3.0; // midpoint of your 0.5-0.7 range
 
     // Hard % cap kept as a safety backstop (not in your spec, but retained
     // from the earlier liquidation-risk discussion in this conversation —
     // remove/raise if you don't want it). Whichever of swing-based SL or
     // this cap is CLOSER to entry wins, same pattern as before.
-    private static final double SL_MAX_PERCENT = 3.5;
+    private static final double SL_MAX_PERCENT = 4.0;
 
     // TP = RR_TARGET x SL gap. 1.8 sits in the middle of your 1.5-2.0R
     // guidance.
-    private static final double RR_TARGET = 0.6;
+    private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
