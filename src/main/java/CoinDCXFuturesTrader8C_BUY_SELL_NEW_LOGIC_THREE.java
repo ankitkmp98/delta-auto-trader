@@ -100,7 +100,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SL = nearest swing extreme (over SWING_LOOKBACK_BARS 5M candles) plus
     // an ATR buffer, per your spec ("Swing + 0.5-0.7 ATR buffer").
     private static final int    SWING_LOOKBACK_BARS = 30;
-    private static final double SL_ATR_BUFFER_MULT  = 3.0; // midpoint of your 0.5-0.7 range
+    private static final double SL_ATR_BUFFER_MULT  = 2.0; // midpoint of your 0.5-0.7 range
 
     // Hard % cap kept as a safety backstop (not in your spec, but retained
     // from the earlier liquidation-risk discussion in this conversation —
