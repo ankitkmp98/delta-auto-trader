@@ -33,7 +33,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // LEVERAGE — unchanged from the previous round (8x). Not touched by this
     // redesign, which is scoped to direction/entry/SL-TP logic only.
-    private static final int LEVERAGE = 18;
+    private static final int LEVERAGE = 15;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -110,7 +110,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // TP = RR_TARGET x SL gap. 1.8 sits in the middle of your 1.5-2.0R
     // guidance.
-    private static final double RR_TARGET = 1.2;
+    private static final double RR_TARGET = 1.8;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
@@ -127,7 +127,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long TRAIL_POLL_INTERVAL_MS = 5_000L;
     private static final double BREAKEVEN_LOCK_TRIGGER_FRACTION = 0.5;
 
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.50;// newly added
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.30;// newly added
 
     private static final String TRAIL_STATE_FILE = "trail_state.json";
 
