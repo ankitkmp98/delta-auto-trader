@@ -33,7 +33,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // LEVERAGE — you said you'll adjust this yourself. Left as-is here;
     // this response only touches the SL/TP trailing logic.
-    private static final int LEVERAGE = 15;
+    private static final int LEVERAGE = 12;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
