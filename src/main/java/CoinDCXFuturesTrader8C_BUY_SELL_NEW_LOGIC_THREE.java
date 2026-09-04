@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 5; // your call — not touched here
+    private static final int LEVERAGE = 6; // your call — not touched here
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -48,8 +48,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // if a tight SL would otherwise produce a larger qty.
     // =========================================================================
     private static final double TOTAL_CAPITAL_BASE = 2000.0;
-    private static final double RISK_PERCENT_PER_TRADE = 1.0;
-    private static final double MAX_MARGIN = 300.0;
+    private static final double RISK_PERCENT_PER_TRADE = 1.2;
+    private static final double MAX_MARGIN = 200.0;
 
     // =========================================================================
     // Direction -> 1H+30M, Setup -> 15M, Entry -> 5M.
