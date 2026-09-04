@@ -80,7 +80,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VOLUME_LOOKBACK   = 20;
     private static final double ENTRY_VOLUME_MULTIPLIER = 1.05;
 
-    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.9;
+    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.6;
     private static final double ENTRY_MIN_BODY_RATIO    = 0.30;
 
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
@@ -88,7 +88,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // Mandatory (pullback + directional-candle + notDoji) vs confirmation
     // score (2-of-3: volume/RSI/VWAP) — unchanged.
-    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 2;
+    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 3;
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after,
     // and never monitored for early-exit either (that system is removed
