@@ -118,7 +118,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // simultaneous positions this is a meaningful extra API load — watch
     // for HTTP 429s same as the entry-scan warning elsewhere in this file.
     // =========================================================================
-    private static final int EXIT_SCORE_THRESHOLD = 2;
+    private static final int EXIT_SCORE_THRESHOLD = 4;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -759,6 +759,7 @@ if (marginNeededInr > MAX_MARGIN) {
                     if (ema9_5 < ema21_5) score++;
                     if (!st5Green) score++;
                     if (price15 < ema21_15) score++;
+                    if (ema9_15 < ema21_15) score++;   // ← YE NAYI LINE
                     if (price15 < st15Bands[0]) score++;
                     if (dir30.valid && dir30.bearish) score++;
 
@@ -776,6 +777,7 @@ if (marginNeededInr > MAX_MARGIN) {
                     if (ema9_5 > ema21_5) score++;
                     if (st5Green) score++;
                     if (price15 > ema21_15) score++;
+                    if (ema9_15 > ema21_15) score++;   // ← YE NAYI LINE
                     if (price15 > st15Bands[1]) score++;
                     if (dir30.valid && dir30.bullish) score++;
 
@@ -788,7 +790,7 @@ if (marginNeededInr > MAX_MARGIN) {
                     exitPosition(pos.optString("id", null), pair);
                 } else if (confirmedExit) {
                     System.out.println("[EXIT] " + pair + " — CONFIRMED exit (15M invalidation, score="
-                            + score + "/" + 6 + ")");
+                            + score + "/" + 7 + ")");
                     exitPosition(pos.optString("id", null), pair);
                 }
 
