@@ -467,10 +467,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double qty = riskAmountUsdt / slDistance;
 
-        double marginNeeded = (qty * entryEstimate) / Math.max(leverage, 1);
-        if (marginNeeded > MAX_MARGIN) {
-            qty = (MAX_MARGIN * leverage) / entryEstimate;
-        }
+        double marginNeededUsdt = (qty * entryEstimate) / Math.max(leverage, 1);
+double marginNeededInr = marginNeededUsdt * usdtInrRate;
+if (marginNeededInr > MAX_MARGIN) {
+    qty = (MAX_MARGIN / usdtInrRate) * leverage / entryEstimate;
+}
 
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
