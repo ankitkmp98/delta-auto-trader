@@ -97,7 +97,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    SWING_LOOKBACK_BARS = 20;
     private static final double SL_ATR_BUFFER_MULT  = 1.5;
     private static final double SL_MAX_PERCENT = 3.0;
-    private static final double RR_TARGET = 1.2;
+    private static final double RR_TARGET = 1.5;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
