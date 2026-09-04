@@ -79,7 +79,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
     private static final double SL_ATR_BUFFER_MULT  = 1.50;
-    private static final double SL_MAX_PERCENT = 2.5;
+    private static final double SL_MAX_PERCENT = 4.5;
     private static final double RR_TARGET = 1.5;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
