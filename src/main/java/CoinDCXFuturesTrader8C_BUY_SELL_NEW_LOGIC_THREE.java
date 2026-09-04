@@ -74,7 +74,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
     private static final double ENTRY_MAX_VWAP_DIST_ATR  = 0.6;
 
-    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 2;
+    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 3;
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
