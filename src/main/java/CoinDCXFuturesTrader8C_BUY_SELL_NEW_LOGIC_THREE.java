@@ -26,7 +26,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 12; // your call — not touched here
+    // =========================================================================
+    // Position sizing — back to FIXED MARGIN (simpler than risk-based
+    // sizing, no pre-order SL estimate / currency-conversion chain needed).
+    // This is the actual margin used per trade — edit to match how much you
+    // want to commit per position.
+    // =========================================================================
+    private static final double MAX_MARGIN = 300.0;
+    private static final int LEVERAGE = 12;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -42,17 +49,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
 
     // =========================================================================
-    // NEW — Risk-based position sizing (feature #4). Set for your stated
-    // ₹2000 total capital, 1% risk per trade (₹20 risk/trade). MAX_MARGIN is
-    // kept as a safety CEILING — no single trade's margin can exceed it even
-    // if a tight SL would otherwise produce a larger qty.
-    // =========================================================================
-    private static final double TOTAL_CAPITAL_BASE = 2000.0;
-    private static final double RISK_PERCENT_PER_TRADE = 1.0;
-    private static final double MAX_MARGIN = 300.0;
-
-    // =========================================================================
-    // Direction -> 1H+30M, Setup -> 15M, Entry -> 5M.
+    // Direction -> 1H+30M, Setup -> 15M, Entry -> 5M. UNCHANGED from your
+    // last working version — this is the part you asked to keep exactly
+    // as-is.
     // =========================================================================
     private static final int EMA_FAST = 9;
     private static final int EMA_MID  = 21;
@@ -83,13 +82,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
     private static final double ENTRY_MAX_VWAP_DIST_ATR  = 0.6;
 
-    // NEW — feature #2: only pullback + directional-candle + notDoji are
-    // MANDATORY. Volume/RSI/VWAP are now a CONFIRMATION score — at least
-    // this many of the 3 must pass, not all 3. Avoids single-condition
-    // rejections that were blocking otherwise-good setups.
+    // Mandatory (pullback + directional-candle + notDoji) vs confirmation
+    // score (2-of-3: volume/RSI/VWAP) — unchanged.
     private static final int ENTRY_CONFIRMATION_MIN_SCORE = 2;
 
-    // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
+    // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after,
+    // and never monitored for early-exit either (that system is removed
+    // in this version). SL uses the structural level (swing extreme or
+    // 15M Supertrend band, whichever is closer) plus an ATR buffer. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
     private static final double SL_ATR_BUFFER_MULT  = 2.0;
     private static final double SL_MAX_PERCENT = 3.5;
@@ -103,22 +103,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // EMA9 slope/angle check — used on 1H/30M (Direction) and 15M (Setup).
     private static final int    EMA_SLOPE_LOOKBACK_BARS = 5;
     private static final double EMA_SLOPE_MIN_ATR        = 0.15;
-
-    // =========================================================================
-    // NEW — feature #5: 3-level exit monitoring for OPEN positions.
-    //   Level 1 (5M):  warning only — logged, never triggers a close.
-    //   Level 2 (15M): confirmed exit — close < 15M Supertrend, OR at least
-    //                  EXIT_SCORE_THRESHOLD bearish/bullish signals (mixing
-    //                  5M+15M+30M evidence) are true at once.
-    //   Level 3 (1H):  emergency exit — the 1H macro direction itself has
-    //                  reversed against the position; closes immediately
-    //                  regardless of the Level-2 score.
-    // OPERATIONAL NOTE: this adds a full data-fetch (5M+15M+30M+1H) for
-    // EVERY open position, EVERY main-loop cycle (~20s). With many
-    // simultaneous positions this is a meaningful extra API load — watch
-    // for HTTP 429s same as the entry-scan warning elsewhere in this file.
-    // =========================================================================
-    private static final int EXIT_SCORE_THRESHOLD = 2;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -175,10 +159,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             .toArray(String[]::new);
 
     // =========================================================================
-    // Direction result — used for BOTH 1H and 30M. NEW — feature #1: now
-    // requires price to genuinely be above/below BOTH EMAs (not just the
-    // EMAs being crossed relative to each other), plus the existing
-    // slope + Supertrend checks.
+    // Direction result — used for BOTH 1H and 30M. UNCHANGED.
     // =========================================================================
     private static class DirectionResult {
         boolean valid;
@@ -231,7 +212,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         boolean slopeUp   = atr > 0 && emaSlope >= EMA_SLOPE_MIN_ATR * atr;
         boolean slopeDown = atr > 0 && emaSlope <= -EMA_SLOPE_MIN_ATR * atr;
 
-        // NEW — price-position check (feature #1).
         boolean priceAboveBoth = price > ema9 && price > ema21;
         boolean priceBelowBoth = price < ema9 && price < ema21;
 
@@ -242,17 +222,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Setup result (15M) — NEW: also carries the Supertrend band levels
-    // (feature #3, used by computeSlTp), and the price-position check
-    // (feature #1).
+    // Setup result (15M) — UNCHANGED, still carries the Supertrend band
+    // levels for SL sizing.
     // =========================================================================
     private static class SetupResult {
         boolean valid;
         boolean bullish;
         boolean bearish;
         double  atr;
-        double  stLower; // Supertrend lower band — structural support for LONG SL
-        double  stUpper; // Supertrend upper band — structural resistance for SHORT SL
+        double  stLower;
+        double  stUpper;
     }
 
     private static SetupResult analyzeSetup(JSONArray candles) {
@@ -294,9 +273,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Entry result (5M) — NEW: pullback+candle+notDoji are MANDATORY;
-    // volume/RSI/VWAP are now a CONFIRMATION SCORE (feature #2) — at least
-    // ENTRY_CONFIRMATION_MIN_SCORE of the 3 must be true, not all 3.
+    // Entry result (5M) — UNCHANGED: mandatory (pullback+candle+notDoji) +
+    // confirmation-score (2-of-3: volume/RSI/VWAP).
     // =========================================================================
     private static class EntryResult {
         boolean valid;
@@ -331,7 +309,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         t.entryClose = entryClose; t.entryOpen = entryOpen;
         t.entryHigh = entryHigh;   t.entryLow = entryLow;
 
-        // --- MANDATORY ---
         double distToEma9  = Math.abs(entryClose - ema9);
         double distToEma21 = Math.abs(entryClose - ema21);
         double nearestEmaDist = Math.min(distToEma9, distToEma21);
@@ -344,7 +321,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         boolean mandatoryOk = pulledBack && directionalCandle && notDoji;
 
-        // --- CONFIRMATION (score-based) ---
         int volStart = Math.max(0, n - 1 - ENTRY_VOLUME_LOOKBACK);
         double avgVol = 0; int cnt = 0;
         for (int i = volStart; i < n - 1; i++) { avgVol += vol[i]; cnt++; }
@@ -387,12 +363,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // FIXED SL/TP — NEW (feature #3): SL now uses the STRUCTURAL level —
-    // whichever is closer to price between the recent swing extreme and the
-    // 15M Supertrend band — plus an ATR buffer, still hard-capped by
-    // SL_MAX_PERCENT. TP is still RR_TARGET x that risk. Once set at entry,
-    // never adjusted afterward (no trailing) — exits happen either via this
-    // fixed SL/TP, or via the new exit-monitoring system below.
+    // FIXED SL/TP — computed once at entry, never adjusted afterward, and
+    // (in this version) never monitored for early-exit either. Whatever
+    // gets hit first — the take_profit_market or stop_market order on the
+    // exchange — closes the trade. That's the entire exit mechanism now.
     // =========================================================================
     private static double[] computeSlTp(boolean isLong, double entryPrice,
                                          double[] hi5m, double[] lo5m, double atr5m,
@@ -400,7 +374,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double sl, tp;
         if (isLong) {
             double swingLow = recentLow(lo5m, SWING_LOOKBACK_BARS);
-            double structuralLow = Math.min(swingLow, stLevel); // stLevel = 15M ST lower band
+            double structuralLow = Math.min(swingLow, stLevel);
             double raw = structuralLow - SL_ATR_BUFFER_MULT * atr5m;
             double hardFloor = entryPrice * (1 - SL_MAX_PERCENT / 100.0);
             sl = Math.max(raw, hardFloor);
@@ -408,7 +382,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             tp = entryPrice + RR_TARGET * risk;
         } else {
             double swingHigh = recentHigh(hi5m, SWING_LOOKBACK_BARS);
-            double structuralHigh = Math.max(swingHigh, stLevel); // stLevel = 15M ST upper band
+            double structuralHigh = Math.max(swingHigh, stLevel);
             double raw = structuralHigh + SL_ATR_BUFFER_MULT * atr5m;
             double hardCeil = entryPrice * (1 + SL_MAX_PERCENT / 100.0);
             sl = Math.min(raw, hardCeil);
@@ -451,27 +425,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // NEW — feature #4: risk-based position sizing. Sizes qty from the
-    // estimated SL distance so every trade risks approximately the same
-    // rupee amount, instead of a fixed margin regardless of SL width.
-    // MAX_MARGIN is a safety ceiling on top of this.
+    // Fixed-margin position sizing — RESTORED. Every trade uses the same
+    // margin (MAX_MARGIN), regardless of SL distance. Simple, no pre-order
+    // SL estimate needed, no currency-conversion chain.
     // =========================================================================
-    private static double calcRiskBasedQuantity(double entryEstimate, double slEstimate,
-                                                  String pair, int leverage) {
+    private static double calcQuantity(double price, String pair) {
         double usdtInrRate = 98.0;
-        double slDistance = Math.abs(entryEstimate - slEstimate);
-        if (slDistance <= 0) return 0;
-
-        double riskAmountInr = TOTAL_CAPITAL_BASE * (RISK_PERCENT_PER_TRADE / 100.0);
-        double riskAmountUsdt = riskAmountInr / usdtInrRate;
-
-        double qty = riskAmountUsdt / slDistance;
-
-        double marginNeeded = (qty * entryEstimate) / Math.max(leverage, 1);
-        if (marginNeeded > MAX_MARGIN) {
-            qty = (MAX_MARGIN * leverage) / entryEstimate;
-        }
-
+        double qty = MAX_MARGIN / (price * usdtInrRate);
         double finalQty = INTEGER_QTY_PAIRS.contains(pair)
                 ? Math.floor(qty)
                 : Math.floor(qty * 100) / 100.0;
@@ -479,17 +439,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Orchestrator — now also runs the exit-monitoring sweep every cycle,
-    // alongside the entry scan.
+    // Orchestrator — SIMPLE, no exit-monitoring loop. Just: scan for
+    // entries, place trades with fixed SL/TP, safety sweep for anything
+    // that ended up without protection.
     // =========================================================================
     public static void main(String[] args) {
-        System.out.println("=== Scalp bot starting (fixed SL/TP + exit-monitoring) ===");
+        System.out.println("=== Scalp bot starting (fixed margin, fixed SL/TP, no exit-monitoring) ===");
         initInstrumentCache();
 
         while (true) {
             try {
                 runEntryScan(); // also runs the safety sweep at the end
-                monitorOpenPositionsForExit();
             } catch (Throwable t) {
                 System.err.println("[MAIN-LOOP] Uncaught error, continuing: " + t.getMessage());
                 t.printStackTrace();
@@ -572,23 +532,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 double currentPrice = getLastPrice(pair);
                 if (currentPrice <= 0) continue;
+                double qty = calcQuantity(currentPrice, pair);
+                if (qty <= 0) continue;
                 double tickSize = getTickSize(pair);
 
-                // NEW — estimate SL BEFORE placing the order (using current
-                // price as a stand-in for entry) so qty can be sized from
-                // the risk amount, not a fixed margin.
-                double[] hi5mPre = extractHighs(raw5m);
-                double[] lo5mPre = extractLows(raw5m);
-                double stLevelPre = trendUp ? setup15m.stLower : setup15m.stUpper;
-                double[] estSlTp = computeSlTp(trendUp, currentPrice, hi5mPre, lo5mPre,
-                        entry5m.atr5m, stLevelPre, tickSize);
-                double estimatedSl = estSlTp[0];
-
-                double qty = calcRiskBasedQuantity(currentPrice, estimatedSl, pair, LEVERAGE);
-                if (qty <= 0) continue;
-
-                System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx | est.SL=%.6f%n",
-                        side.toUpperCase(), currentPrice, qty, LEVERAGE, estimatedSl);
+                System.out.printf("  Placing %s | price=%.6f | qty=%.4f | lev=%dx%n",
+                        side.toUpperCase(), currentPrice, qty, LEVERAGE);
 
                 JSONObject resp = placeFuturesOrder(side, pair, qty, LEVERAGE,
                         "email_notification", "isolated", "INR", currentPrice);
@@ -698,122 +647,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         } catch (Exception e) {
             System.err.println("ensureTpSlForOpenPositions: " + e.getMessage());
-        }
-    }
-
-    // =========================================================================
-    // NEW — feature #5: 3-level exit monitoring for open positions.
-    // =========================================================================
-    private static void monitorOpenPositionsForExit() {
-        Set<String> active = getActivePositions();
-        for (String pair : active) {
-            try {
-                JSONObject pos = findPosition(pair);
-                if (pos == null) continue;
-                double posQty = pos.optDouble("active_pos", 0);
-                if (posQty == 0) continue;
-                boolean isLong = posQty >= 0;
-
-                JSONArray raw5m = dropLastIfForming(
-                        getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
-                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + 5) continue;
-
-                JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
-                JSONArray raw30m = aggregateCandles(raw5m, GROUP_30M_FROM_5M);
-                JSONArray raw1h  = dropLastIfForming(
-                        getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
-
-                // --- 5M metrics (Level 1 — warning only) ---
-                double[] cl5 = extractCloses(raw5m), hi5 = extractHighs(raw5m), lo5 = extractLows(raw5m);
-                double ema9_5 = calcEMA(cl5, EMA_FAST), ema21_5 = calcEMA(cl5, EMA_MID);
-                double rsi5 = calcRSI(cl5, RSI_PERIOD);
-                double price5 = cl5[cl5.length - 1];
-                boolean[] st5Series = calcSupertrend(hi5, lo5, cl5, ST_PERIOD, ST_MULTIPLIER);
-                boolean st5Green = st5Series[st5Series.length - 1];
-
-                // --- 15M metrics (Level 2 — confirmed exit) ---
-                if (raw15m == null || raw15m.length() < EMA_MID + ST_PERIOD + 5) continue;
-                double[] cl15 = extractCloses(raw15m), hi15 = extractHighs(raw15m), lo15 = extractLows(raw15m);
-                double ema9_15 = calcEMA(cl15, EMA_FAST), ema21_15 = calcEMA(cl15, EMA_MID);
-                double price15 = cl15[cl15.length - 1];
-                double[] st15Bands = calcSupertrendBands(hi15, lo15, cl15, ST_PERIOD, ST_MULTIPLIER);
-
-                // --- 30M / 1H direction (Level 2 evidence + Level 3 emergency) ---
-                DirectionResult dir30 = analyzeDirection(raw30m);
-                DirectionResult dir1h = analyzeDirection(raw1h);
-
-                boolean confirmedExit;
-                boolean emergencyExit;
-                int score = 0;
-
-                if (isLong) {
-                    boolean warn5 = price5 < ema9_5 || rsi5 < RSI_LONG_MIN || !st5Green;
-                    if (warn5) {
-                        System.out.println("[EXIT-WARN] " + pair + " (LONG) 5M weakness — "
-                                + "price<EMA9=" + (price5 < ema9_5) + " rsi=" + String.format("%.1f", rsi5)
-                                + " st5Green=" + st5Green + " (monitoring only, no action)");
-                    }
-
-                    if (price5 < ema21_5) score++;
-                    if (ema9_5 < ema21_5) score++;
-                    if (!st5Green) score++;
-                    if (price15 < ema21_15) score++;
-                    if (price15 < st15Bands[0]) score++;
-                    if (dir30.valid && dir30.bearish) score++;
-
-                    confirmedExit = (price15 < st15Bands[0]) || (score >= EXIT_SCORE_THRESHOLD);
-                    emergencyExit = dir1h.valid && dir1h.bearish;
-                } else {
-                    boolean warn5 = price5 > ema9_5 || rsi5 > RSI_SHORT_MAX || st5Green;
-                    if (warn5) {
-                        System.out.println("[EXIT-WARN] " + pair + " (SHORT) 5M strength — "
-                                + "price>EMA9=" + (price5 > ema9_5) + " rsi=" + String.format("%.1f", rsi5)
-                                + " st5Green=" + st5Green + " (monitoring only, no action)");
-                    }
-
-                    if (price5 > ema21_5) score++;
-                    if (ema9_5 > ema21_5) score++;
-                    if (st5Green) score++;
-                    if (price15 > ema21_15) score++;
-                    if (price15 > st15Bands[1]) score++;
-                    if (dir30.valid && dir30.bullish) score++;
-
-                    confirmedExit = (price15 > st15Bands[1]) || (score >= EXIT_SCORE_THRESHOLD);
-                    emergencyExit = dir1h.valid && dir1h.bullish;
-                }
-
-                if (emergencyExit) {
-                    System.out.println("[EXIT] " + pair + " — EMERGENCY exit (1H trend reversed against position)");
-                    exitPosition(pos.optString("id", null), pair);
-                } else if (confirmedExit) {
-                    System.out.println("[EXIT] " + pair + " — CONFIRMED exit (15M invalidation, score="
-                            + score + "/" + 6 + ")");
-                    exitPosition(pos.optString("id", null), pair);
-                }
-
-            } catch (Exception e) {
-                System.err.println("monitorOpenPositionsForExit(" + pair + "): " + e.getMessage());
-            }
-        }
-    }
-
-    // =========================================================================
-    // NEW — closes a position immediately via CoinDCX's Exit Position API
-    // (POST /positions/exit), used by the exit-monitoring system above.
-    // =========================================================================
-    private static void exitPosition(String posId, String pair) {
-        if (posId == null) {
-            System.out.println("  [EXIT] " + pair + " — position ID missing, cannot exit");
-            return;
-        }
-        try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("id", posId);
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions/exit", body.toString());
-            System.out.println("  [EXIT] " + pair + " exit response: " + resp);
-        } catch (Exception e) {
-            System.err.println("exitPosition(" + pair + "): " + e.getMessage());
         }
     }
 
