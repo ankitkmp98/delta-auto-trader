@@ -87,7 +87,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // MANDATORY. Volume/RSI/VWAP are now a CONFIRMATION score — at least
     // this many of the 3 must pass, not all 3. Avoids single-condition
     // rejections that were blocking otherwise-good setups.
-    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 2;
+    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 3;
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
