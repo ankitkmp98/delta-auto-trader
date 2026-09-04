@@ -118,7 +118,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // simultaneous positions this is a meaningful extra API load — watch
     // for HTTP 429s same as the entry-scan warning elsewhere in this file.
     // =========================================================================
-    private static final int EXIT_SCORE_THRESHOLD = 3;
+    private static final int EXIT_SCORE_THRESHOLD = 5;
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
