@@ -32,7 +32,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // This is the actual margin used per trade — edit to match how much you
     // want to commit per position.
     // =========================================================================
-    private static final double MAX_MARGIN = 300.0;
+    private static final double MAX_MARGIN = 1500.0;
     private static final int LEVERAGE = 12;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
