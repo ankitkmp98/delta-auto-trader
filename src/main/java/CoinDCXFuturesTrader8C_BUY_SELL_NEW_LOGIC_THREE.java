@@ -95,8 +95,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // in this version). SL uses the structural level (swing extreme or
     // 15M Supertrend band, whichever is closer) plus an ATR buffer. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
-    private static final double SL_ATR_BUFFER_MULT  = 2.0;
-    private static final double SL_MAX_PERCENT = 2.5;
+    private static final double SL_ATR_BUFFER_MULT  = 1.50;
+    private static final double SL_MAX_PERCENT = 2.0;
     private static final double RR_TARGET = 0.75;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
