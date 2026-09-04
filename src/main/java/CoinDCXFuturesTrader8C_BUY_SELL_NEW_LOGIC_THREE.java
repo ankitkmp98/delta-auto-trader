@@ -71,13 +71,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- Entry (5M) filter thresholds ----
     private static final int    ENTRY_VOLUME_LOOKBACK   = 20;
-    private static final double ENTRY_VOLUME_MULTIPLIER = 1.15;
+    private static final double ENTRY_VOLUME_MULTIPLIER = 1.05;
 
-    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.6;
+    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.9;
     private static final double ENTRY_MIN_BODY_RATIO    = 0.35;
 
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
-    private static final double ENTRY_MAX_VWAP_DIST_ATR  = 0.4;
+    private static final double ENTRY_MAX_VWAP_DIST_ATR  = 0.6;
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
