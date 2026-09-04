@@ -57,7 +57,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // exits via the fixed SL (or the exchange's own TP, if price runs past
     // it before this monitor catches the ₹10 mark, which is unlikely).
     // =========================================================================
-    private static final double QUICK_PROFIT_TARGET_INR = 6.0;
+    private static final double QUICK_PROFIT_TARGET_INR = 10.0;
     private static final long   QUICK_PROFIT_SCAN_INTERVAL_MS = 5_000L; // 5 seconds
 
     // =========================================================================
