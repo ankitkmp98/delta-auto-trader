@@ -27,7 +27,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
     private static final double MAX_MARGIN = 1500.0;
-    private static final int LEVERAGE = 10;
+    private static final int LEVERAGE = 12;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -70,7 +70,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VOLUME_LOOKBACK   = 20;
     private static final double ENTRY_VOLUME_MULTIPLIER = 1.20; // was 1.05 — genuine spike required
 
-    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.45; // was 0.6 — price closer to EMA
+    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.6; // was 0.45 — loosened for more trade frequency
     private static final double ENTRY_MIN_BODY_RATIO    = 0.40; // was 0.30 — more solid candle body
 
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
@@ -82,8 +82,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
-    private static final double SL_ATR_BUFFER_MULT  = 1.50;
-    private static final double SL_MAX_PERCENT = 2.5;
+    private static final double SL_ATR_BUFFER_MULT  = 1.75; // was 1.50 — widened to compensate for the
+    // loosened entry-pullback threshold above: entries taken slightly
+    // farther from EMA carry a bit more natural noise around the
+    // structural level, so SL gets a little more room to avoid being
+    // clipped by that noise instead of a genuine reversal.
+    private static final double SL_MAX_PERCENT = 4.5;
     private static final double RR_TARGET = 1.5;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
