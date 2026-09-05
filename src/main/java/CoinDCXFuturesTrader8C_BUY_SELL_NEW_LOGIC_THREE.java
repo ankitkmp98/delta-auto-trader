@@ -78,7 +78,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // Already at max (3-of-3) — cannot be tightened further via score, only
     // via the underlying volume/RSI/VWAP thresholds themselves (above/below).
-    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 3;
+    private static final int ENTRY_CONFIRMATION_MIN_SCORE = 2;
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
