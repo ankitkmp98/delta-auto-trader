@@ -70,7 +70,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VOLUME_LOOKBACK   = 20;
     private static final double ENTRY_VOLUME_MULTIPLIER = 1.20; // was 1.05 — genuine spike required
 
-    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.45; // was 0.6 — price closer to EMA
+    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.6; // was 0.6 — price closer to EMA
     private static final double ENTRY_MIN_BODY_RATIO    = 0.40; // was 0.30 — more solid candle body
 
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
