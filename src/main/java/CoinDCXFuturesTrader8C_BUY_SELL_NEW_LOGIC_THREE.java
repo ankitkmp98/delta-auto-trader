@@ -87,7 +87,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // farther from EMA carry a bit more natural noise around the
     // structural level, so SL gets a little more room to avoid being
     // clipped by that noise instead of a genuine reversal.
-    private static final double SL_MAX_PERCENT = 4.5;
+    private static final double SL_MAX_PERCENT = 4.0;
     private static final double RR_TARGET = 1.5;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
