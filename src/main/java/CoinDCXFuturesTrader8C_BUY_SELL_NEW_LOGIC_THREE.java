@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 1000.0;
+    private static final double MAX_MARGIN = 1200.0;
     private static final int LEVERAGE = 18;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
@@ -70,7 +70,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    ENTRY_VOLUME_LOOKBACK   = 20;
     private static final double ENTRY_VOLUME_MULTIPLIER = 1.20; // was 1.05 — genuine spike required
 
-    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.45; // was 0.45 — loosened for more trade frequency
+    private static final double ENTRY_PULLBACK_MAX_ATR  = 0.6; // was 0.45 — loosened for more trade frequency
     private static final double ENTRY_MIN_BODY_RATIO    = 0.40; // was 0.30 — more solid candle body
 
     private static final int    ENTRY_VWAP_LOOKBACK      = 20;
