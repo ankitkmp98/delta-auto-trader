@@ -26,8 +26,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final double MAX_MARGIN = 1200.0;
-    private static final int LEVERAGE = 15;
+    private static final double MAX_MARGIN = 1000.0;
+    private static final int LEVERAGE = 18;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -82,12 +82,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
-    private static final double SL_ATR_BUFFER_MULT  = 1.75; // was 1.50 — widened to compensate for the
+    private static final double SL_ATR_BUFFER_MULT  = 1.5; // was 1.50 — widened to compensate for the
     // loosened entry-pullback threshold above: entries taken slightly
     // farther from EMA carry a bit more natural noise around the
     // structural level, so SL gets a little more room to avoid being
     // clipped by that noise instead of a genuine reversal.
-    private static final double SL_MAX_PERCENT = 4.0;
+    private static final double SL_MAX_PERCENT = 2.5;
     private static final double RR_TARGET = 1.5;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
