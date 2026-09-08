@@ -82,7 +82,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // ---- SL/TP sizing — FIXED, set once at entry, never adjusted after. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
-    private static final double SL_ATR_BUFFER_MULT  = 1.5; // was 1.50 — widened to compensate for the
+    private static final double SL_ATR_BUFFER_MULT  = 3.0; // was 1.50 — widened to compensate for the
     // loosened entry-pullback threshold above: entries taken slightly
     // farther from EMA carry a bit more natural noise around the
     // structural level, so SL gets a little more room to avoid being
