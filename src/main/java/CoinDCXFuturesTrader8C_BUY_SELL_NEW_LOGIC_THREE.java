@@ -88,7 +88,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // structural level, so SL gets a little more room to avoid being
     // clipped by that noise instead of a genuine reversal.
     private static final double SL_MAX_PERCENT = 1.5;
-    private static final double RR_TARGET = 3.0;
+    private static final double RR_TARGET = 2.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
