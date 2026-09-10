@@ -80,8 +80,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing layer below (see TRAIL_* constants). The initial values
     // stay exactly as before. ----
     private static final int    SWING_LOOKBACK_BARS = 20;
-    private static final double SL_ATR_BUFFER_MULT  = 2.0;
-    private static final double SL_MAX_PERCENT = 4.0;
+    private static final double SL_ATR_BUFFER_MULT  = 4.0;
+    private static final double SL_MAX_PERCENT = 6.0;
     private static final double RR_TARGET = 1.2;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
