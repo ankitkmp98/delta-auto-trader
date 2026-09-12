@@ -656,6 +656,51 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
                 if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + STRUCTURE_SWING_LOOKBACK) continue;
 
+                PendingSignal pending = pendingSignals.get(pair);
+
+                // =========================================================
+                // BUGFIX: a pending signal's breakout check used to sit
+                // BEHIND the full 1H/30M/15M cascade, which had to re-pass
+                // on every single 20s cycle just to reach the breakout
+                // check below. Any flicker in a higher-timeframe condition
+                // (very common) meant the loop hit "continue" earlier and
+                // the pending signal was silently starved — it never
+                // expired, never cancelled, never triggered. That is why
+                // effectively zero orders were being placed. Pending
+                // signals are now handled first and independently.
+                // =========================================================
+                if (pending != null) {
+                    boolean cancelled = false;
+                    if (System.currentTimeMillis() - pending.createdAtMs > SIGNAL_MAX_VALID_MS) {
+                        System.out.println("  Signal expired: " + pair);
+                        cancelled = true;
+                    } else {
+                        EntryResult quickCheck = analyzeEntry5M(raw5m, pending.isLong);
+                        if (quickCheck.valid && quickCheck.distanceAtr > CAUTION_ATR) {
+                            System.out.println("  Signal cancelled (overextended "
+                                    + String.format("%.2f", quickCheck.distanceAtr) + " ATR): " + pair);
+                            cancelled = true;
+                        }
+                    }
+
+                    if (cancelled) {
+                        pendingSignals.remove(pair);
+                    } else {
+                        double currentPrice = getLastPrice(pair);
+                        if (currentPrice > 0) {
+                            boolean breakoutHit = pending.isLong
+                                    ? currentPrice > pending.confirmHigh
+                                    : currentPrice < pending.confirmLow;
+                            if (breakoutHit) {
+                                tryEnterOnBreakout(pair, pending, raw5m, currentPrice, active);
+                            }
+                        }
+                        continue; // still waiting (or just acted) on this pending signal this cycle
+                    }
+                }
+
+                // ---- No pending signal (or it just expired/cancelled) — look for a new one ----
+
                 // ---- PART 1: 1H macro bias ----
                 JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
                 DirectionResult macro1h = analyzeMacro1H(raw1h);
@@ -702,139 +747,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 EntryResult entry5m = analyzeEntry5M(raw5m, trendUp);
                 if (!entry5m.valid) continue;
 
-                PendingSignal pending = pendingSignals.get(pair);
-
-                // ---- PART 2, Step 4: entry cancellation checks ----
-                if (pending != null) {
-                    if (System.currentTimeMillis() - pending.createdAtMs > SIGNAL_MAX_VALID_MS) {
-                        System.out.println("  Signal expired: " + pair);
-                        pendingSignals.remove(pair);
-                        pending = null;
-                    } else if (pending.isLong != trendUp) {
-                        System.out.println("  Signal cancelled (direction flipped): " + pair);
-                        pendingSignals.remove(pair);
-                        pending = null;
-                    } else if (entry5m.distanceAtr > CAUTION_ATR) {
-                        System.out.println("  Signal cancelled (overextended "
-                                + String.format("%.2f", entry5m.distanceAtr) + " ATR): " + pair);
-                        pendingSignals.remove(pair);
-                        pending = null;
-                    }
-                }
-
-                if (pending == null && entry5m.setupFound) {
-                    pending = new PendingSignal();
-                    pending.isLong = trendUp;
-                    pending.confirmHigh = entry5m.confirmHigh;
-                    pending.confirmLow  = entry5m.confirmLow;
-                    pending.atrAtSignal = entry5m.atr5m;
-                    pending.createdAtMs = System.currentTimeMillis();
-                    pendingSignals.put(pair, pending);
+                if (entry5m.setupFound) {
+                    PendingSignal newSignal = new PendingSignal();
+                    newSignal.isLong = trendUp;
+                    newSignal.confirmHigh = entry5m.confirmHigh;
+                    newSignal.confirmLow  = entry5m.confirmLow;
+                    newSignal.atrAtSignal = entry5m.atr5m;
+                    newSignal.createdAtMs = System.currentTimeMillis();
+                    pendingSignals.put(pair, newSignal);
                     System.out.println("  Pending " + (trendUp ? "LONG" : "SHORT") + " signal armed: " + pair
-                            + " | trigger=" + (trendUp ? ("break " + pending.confirmHigh) : ("break " + pending.confirmLow))
+                            + " | trigger=" + (trendUp ? ("break " + newSignal.confirmHigh) : ("break " + newSignal.confirmLow))
                             + " | " + entry5m.reason);
-                    continue; // wait for the breakout, don't enter on this cycle
-                }
-
-                if (pending == null) continue;
-
-                // ---- PART 2, Step 4: entry trigger — break confirmation candle high/low ----
-                double currentPrice = getLastPrice(pair);
-                if (currentPrice <= 0) continue;
-                boolean breakoutHit = pending.isLong
-                        ? currentPrice > pending.confirmHigh
-                        : currentPrice < pending.confirmLow;
-                if (!breakoutHit) continue;
-
-                double tickSize = getTickSize(pair);
-                double stLevel = trendUp ? setup15.stLower : setup15.stUpper;
-                boolean strongTrend = score30 == 6;
-                double[] hi5m = extractHighs(raw5m);
-                double[] lo5m = extractLows(raw5m);
-
-                // ---- PART 5/6: pre-trade structural SL check — reject BEFORE placing the order ----
-                double[] preSlTp = computeStructuralSlTp(trendUp, currentPrice, hi5m, lo5m, entry5m.atr5m, stLevel, tickSize, strongTrend);
-                if (preSlTp == null) {
-                    System.out.println("  NO TRADE: " + pair + " — structural SL outside acceptable ATR band (rejected, not tightened)");
-                    pendingSignals.remove(pair);
-                    continue;
-                }
-
-                // ---- PART 15: risk-based sizing off the pre-trade SL estimate ----
-                double qty = calcRiskBasedQuantity(currentPrice, preSlTp[0], pair);
-                if (qty <= 0) { pendingSignals.remove(pair); continue; }
-
-                System.out.println("\n==== " + pair + " — BREAKOUT ENTRY ====");
-                System.out.printf("  1H=%s(score=%d/6) | 30M=%d/6 | 5M: %s%n",
-                        trendUp ? "BULL" : "BEAR", macro1h.score, score30, entry5m.reason);
-
-                String side = trendUp ? "buy" : "sell";
-                JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
-                        "email_notification", "isolated", "INR", currentPrice);
-                if (orderResp == null || !orderResp.has("id")) {
-                    System.out.println("  Order failed: " + orderResp);
-                    pendingSignals.remove(pair);
-                    continue;
-                }
-
-                System.out.println("  Order placed! id=" + orderResp.getString("id"));
-                lastTradeTime.put(pair, System.currentTimeMillis());
-                pendingSignals.remove(pair);
-
-                double entry = getEntryPrice(pair, orderResp.getString("id"));
-                if (entry <= 0) {
-                    System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
-                    active.add(pair);
-                    continue;
-                }
-                System.out.printf("  Entry confirmed: %.6f%n", entry);
-
-                // ---- Recompute SL/TP off the ACTUAL fill price ----
-                double[] slTp = computeStructuralSlTp(trendUp, entry, hi5m, lo5m, entry5m.atr5m, stLevel, tickSize, strongTrend);
-                double slPrice, tpPrice, rrUsed;
-                if (slTp == null) {
-                    // rare: slippage pushed the confirmed fill into reject territory. Do not leave the
-                    // position unprotected — apply the hard % safety cap instead of skipping protection.
-                    slPrice = trendUp ? entry * (1 - SL_HARD_PERCENT_CAP / 100.0) : entry * (1 + SL_HARD_PERCENT_CAP / 100.0);
-                    tpPrice = trendUp ? entry + RR_TARGET_BASE * (entry - slPrice) : entry - RR_TARGET_BASE * (slPrice - entry);
-                    rrUsed = RR_TARGET_BASE;
-                    System.out.println("  WARNING: post-fill structural SL rejected — using hard % safety cap instead");
                 } else {
-                    slPrice = slTp[0];
-                    tpPrice = slTp[1];
-                    rrUsed  = slTp[3];
+                    System.out.println("  NO TRADE: " + pair + " — 5M setup not found | " + entry5m.reason);
                 }
-                double[] clamped = sanityClampSlTp(trendUp, entry, slPrice, tpPrice, tickSize);
-                slPrice = clamped[0];
-                tpPrice = clamped[1];
-
-                System.out.printf("  SL=%.6f | TP=%.6f | RR=%.2f | QTY=%.4f%n", slPrice, tpPrice, rrUsed, qty);
-                System.out.println("  " + (trendUp ? "LONG" : "SHORT") + " SIGNAL: 1H=" + (trendUp ? "BULL" : "BEAR")
-                        + "(score=" + macro1h.score + "/6) 30M=" + score30 + "/6 5M=PULLBACK_REJECTION_BREAKOUT"
-                        + " SL=" + slPrice + " TP=" + tpPrice + " RR=" + rrUsed + " QTY=" + qty);
-
-                String posId = getPositionId(pair);
-                if (posId != null) {
-                    setTpSlWithRetry(posId, tpPrice, slPrice, pair);
-                } else {
-                    System.out.println("  Position ID not found after retries — safety sweep will handle it");
-                }
-
-                if (TRAILING_ENABLED) {
-                    TrailInfo ti = new TrailInfo();
-                    ti.isLong = trendUp;
-                    ti.entryPrice = entry;
-                    ti.initialRisk = Math.abs(entry - slPrice);
-                    ti.initialReward = Math.abs(tpPrice - entry);
-                    ti.currentSl = slPrice;
-                    ti.currentTp = tpPrice;
-                    ti.peak = entry;
-                    ti.state = 0;
-                    ti.extensionsUsed = 0;
-                    trailState.put(pair, ti);
-                }
-
-                active.add(pair);
 
             } catch (Exception e) {
                 System.err.println("Error on " + pair + ": " + e.getMessage());
@@ -844,6 +770,107 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.println("\n=== Scan complete ===");
         ensureTpSlForOpenPositions();
         if (TRAILING_ENABLED) updateTrailingForOpenPositions();
+    }
+
+    // Handles an armed pending signal's breakout: computes structural SL/TP off
+    // current data, sizes the position, places the order, confirms the fill,
+    // re-derives final SL/TP off the actual fill price, and seeds trailing.
+    // Extracted out of runEntryScan so pending signals can be checked every
+    // cycle without needing the full 1H/30M/15M cascade to re-pass first.
+    private static void tryEnterOnBreakout(String pair, PendingSignal pending, JSONArray raw5m,
+                                            double currentPrice, Set<String> active) {
+        try {
+            double tickSize = getTickSize(pair);
+            JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
+            SetupResult setup15 = analyzeSetup15M(raw15m);
+            if (!setup15.valid) return;
+            double stLevel = pending.isLong ? setup15.stLower : setup15.stUpper;
+            double[] hi5m = extractHighs(raw5m);
+            double[] lo5m = extractLows(raw5m);
+            double atr = calcATR(hi5m, lo5m, extractCloses(raw5m), ATR_PERIOD);
+
+            // ---- PART 5/6: pre-trade structural SL check — reject BEFORE placing the order ----
+            double[] preSlTp = computeStructuralSlTp(pending.isLong, currentPrice, hi5m, lo5m, atr, stLevel, tickSize, false);
+            if (preSlTp == null) {
+                System.out.println("  NO TRADE: " + pair + " — structural SL outside acceptable ATR band (rejected, not tightened)");
+                pendingSignals.remove(pair);
+                return;
+            }
+
+            // ---- PART 15: risk-based sizing off the pre-trade SL estimate ----
+            double qty = calcRiskBasedQuantity(currentPrice, preSlTp[0], pair);
+            if (qty <= 0) { pendingSignals.remove(pair); return; }
+
+            System.out.println("\n==== " + pair + " — BREAKOUT ENTRY ====");
+            String side = pending.isLong ? "buy" : "sell";
+            JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
+                    "email_notification", "isolated", "INR", currentPrice);
+            if (orderResp == null || !orderResp.has("id")) {
+                System.out.println("  Order failed: " + orderResp);
+                pendingSignals.remove(pair);
+                return;
+            }
+
+            System.out.println("  Order placed! id=" + orderResp.getString("id"));
+            lastTradeTime.put(pair, System.currentTimeMillis());
+            pendingSignals.remove(pair);
+
+            double entry = getEntryPrice(pair, orderResp.getString("id"));
+            if (entry <= 0) {
+                System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
+                active.add(pair);
+                return;
+            }
+            System.out.printf("  Entry confirmed: %.6f%n", entry);
+
+            // ---- Recompute SL/TP off the ACTUAL fill price ----
+            double[] slTp = computeStructuralSlTp(pending.isLong, entry, hi5m, lo5m, atr, stLevel, tickSize, false);
+            double slPrice, tpPrice, rrUsed;
+            if (slTp == null) {
+                // rare: slippage pushed the confirmed fill into reject territory. Do not leave the
+                // position unprotected — apply the hard % safety cap instead of skipping protection.
+                slPrice = pending.isLong ? entry * (1 - SL_HARD_PERCENT_CAP / 100.0) : entry * (1 + SL_HARD_PERCENT_CAP / 100.0);
+                tpPrice = pending.isLong ? entry + RR_TARGET_BASE * (entry - slPrice) : entry - RR_TARGET_BASE * (slPrice - entry);
+                rrUsed = RR_TARGET_BASE;
+                System.out.println("  WARNING: post-fill structural SL rejected — using hard % safety cap instead");
+            } else {
+                slPrice = slTp[0];
+                tpPrice = slTp[1];
+                rrUsed  = slTp[3];
+            }
+            double[] clamped = sanityClampSlTp(pending.isLong, entry, slPrice, tpPrice, tickSize);
+            slPrice = clamped[0];
+            tpPrice = clamped[1];
+
+            System.out.printf("  SL=%.6f | TP=%.6f | RR=%.2f | QTY=%.4f%n", slPrice, tpPrice, rrUsed, qty);
+            System.out.println("  " + (pending.isLong ? "LONG" : "SHORT") + " SIGNAL: 5M=PULLBACK_REJECTION_BREAKOUT"
+                    + " SL=" + slPrice + " TP=" + tpPrice + " RR=" + rrUsed + " QTY=" + qty);
+
+            String posId = getPositionId(pair);
+            if (posId != null) {
+                setTpSlWithRetry(posId, tpPrice, slPrice, pair);
+            } else {
+                System.out.println("  Position ID not found after retries — safety sweep will handle it");
+            }
+
+            if (TRAILING_ENABLED) {
+                TrailInfo ti = new TrailInfo();
+                ti.isLong = pending.isLong;
+                ti.entryPrice = entry;
+                ti.initialRisk = Math.abs(entry - slPrice);
+                ti.initialReward = Math.abs(tpPrice - entry);
+                ti.currentSl = slPrice;
+                ti.currentTp = tpPrice;
+                ti.peak = entry;
+                ti.state = 0;
+                ti.extensionsUsed = 0;
+                trailState.put(pair, ti);
+            }
+
+            active.add(pair);
+        } catch (Exception e) {
+            System.err.println("tryEnterOnBreakout(" + pair + "): " + e.getMessage());
+        }
     }
 
     // =========================================================================
