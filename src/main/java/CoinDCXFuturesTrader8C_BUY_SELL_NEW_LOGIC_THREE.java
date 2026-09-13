@@ -53,10 +53,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String RES_5M = "5";
     private static final String RES_1H = "60";
 
-    private static final int BASE_5M_FETCH_COUNT = 250;
+    // NOTE: BASE_5M_FETCH_COUNT and BASE_1H_FETCH_COUNT must stay comfortably
+    // above what analyzeMacro1H/analyzeConfirmation30M/analyzeSetup15M require
+    // (EMA_MID + ST_PERIOD/ATR_PERIOD + STRUCTURE_SWING_LOOKBACK = ~61-65 bars),
+    // AFTER dropLastIfForming() removes one candle and, for 30M, after dividing
+    // by GROUP_30M_FROM_5M. The old values (250 / 55, left over from before the
+    // HH/HL structure check was added) fell short — every pair was failing the
+    // very first "insufficient data" check regardless of market conditions.
+    private static final int BASE_5M_FETCH_COUNT = 450; // -> ~74 bars for the 30M aggregate, safely above ~61 needed
     private static final int GROUP_15M_FROM_5M = 3;
     private static final int GROUP_30M_FROM_5M = 6;
-    private static final int BASE_1H_FETCH_COUNT = 55;
+    private static final int BASE_1H_FETCH_COUNT = 90;  // -> ~89 bars after drop, safely above ~65 needed
 
     private static final int RSI_PERIOD = 14;
     private static final double RSI_LONG_MIN  = 45, RSI_LONG_MAX  = 68;
@@ -122,9 +129,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // NEW (PART 15) — risk-based position sizing (replaces fixed-margin sizing)
     // =========================================================================
-    private static final double TOTAL_CAPITAL_BASE     = 3000.0; // INR — placeholder, set to your real capital
+    private static final double TOTAL_CAPITAL_BASE     = 50000.0; // INR — placeholder, set to your real capital
     private static final double RISK_PERCENT_PER_TRADE = 1.0;     // % of capital risked per trade
-    private static final double MAX_MARGIN             = 600.0;  // hard safety ceiling, never exceeded regardless of risk sizing
+    private static final double MAX_MARGIN             = 1200.0;  // hard safety ceiling, never exceeded regardless of risk sizing
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
