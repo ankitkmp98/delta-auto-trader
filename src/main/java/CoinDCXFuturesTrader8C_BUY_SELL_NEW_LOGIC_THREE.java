@@ -176,6 +176,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static long lastCacheUpdate = 0;
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
 
+    // =========================================================================
+    // NEW — diagnostic funnel counters. Reset every scan cycle, printed at the
+    // end. This tells us exactly which gate is blocking trades (e.g. "30M
+    // score too low: 287, EMA congestion: 40, pullback zone missed: 55...")
+    // instead of guessing whether the strategy is "too strict" from the code.
+    // =========================================================================
+    private static final Map<String, Integer> funnelStats = new LinkedHashMap<>();
+    private static void bump(String stage) {
+        funnelStats.merge(stage, 1, Integer::sum);
+    }
+
     private static final String[] COIN_SYMBOLS = {
        "PIEVERSE","XAU","APE","ERA","US","RAVE","EDEN","LIT","BREV","MAGMA","BLESS","ZAMA",
         "FRAX","ACU","1000FLOKI","ELSA","LINEA","SPACE","CLO","FIGHT","UMA","MEGA","MAV","TRIA",
@@ -632,6 +643,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     private static void runEntryScan() {
+        funnelStats.clear();
         Set<String> active = getActivePositions();
         System.out.println("Active positions: " + active);
 
@@ -704,48 +716,45 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 // ---- PART 1: 1H macro bias ----
                 JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
                 DirectionResult macro1h = analyzeMacro1H(raw1h);
-                if (!macro1h.valid || (!macro1h.bullish && !macro1h.bearish)) {
-                    continue; // NO TRADE: 1H has no directional quality
-                }
+                if (!macro1h.valid) { bump("1H insufficient data"); continue; }
+                if (!macro1h.bullish && !macro1h.bearish) { bump("1H no directional quality (<4/6)"); continue; }
                 boolean trendUp = macro1h.bullish;
 
                 // ---- PART 1: 30M confirmation, scored ----
                 JSONArray raw30m = aggregateCandles(raw5m, GROUP_30M_FROM_5M);
                 ConfirmResult confirm30 = analyzeConfirmation30M(raw30m);
-                if (!confirm30.valid) continue;
+                if (!confirm30.valid) { bump("30M insufficient data"); continue; }
 
                 int score30    = trendUp ? confirm30.bullScore : confirm30.bearScore;
                 int opposite30 = trendUp ? confirm30.bearScore : confirm30.bullScore;
                 if (opposite30 > score30) {
-                    System.out.println("  NO TRADE: " + pair + " — 1H/30M disagreement");
+                    bump("1H/30M disagreement");
                     continue;
                 }
                 boolean strong30     = score30 >= CONFIRM_30M_MIN_SCORE;
                 boolean borderline30 = score30 == CONFIRM_30M_BORDERLINE;
                 if (!strong30 && !borderline30) {
-                    System.out.println("  NO TRADE: " + pair + " — 30M score " + score30 + "/6 too low");
+                    bump("30M score too low (<4/6)");
                     continue;
                 }
 
                 // ---- PART 1: 15M setup + EMA congestion filter ----
                 JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
                 SetupResult setup15 = analyzeSetup15M(raw15m);
-                if (!setup15.valid) continue;
+                if (!setup15.valid) { bump("15M insufficient data"); continue; }
                 if (setup15.congested) {
-                    System.out.println("  NO TRADE: " + pair + " — EMA congestion ("
-                            + String.format("%.2f", setup15.emaDistanceAtr) + " ATR)");
+                    bump("15M EMA congestion");
                     continue;
                 }
                 boolean setupMatches = trendUp ? setup15.bullish : setup15.bearish;
                 if (!setupMatches) {
-                    System.out.println("  NO TRADE: " + pair + " — 15M setup not aligned"
-                            + (borderline30 ? " (30M was borderline 4/6, needed exceptional 15M)" : ""));
+                    bump(borderline30 ? "15M not aligned (30M was borderline 4/6)" : "15M not aligned");
                     continue;
                 }
 
                 // ---- PART 2: 5M pullback/rejection/momentum ----
                 EntryResult entry5m = analyzeEntry5M(raw5m, trendUp);
-                if (!entry5m.valid) continue;
+                if (!entry5m.valid) { bump("5M insufficient data"); continue; }
 
                 if (entry5m.setupFound) {
                     PendingSignal newSignal = new PendingSignal();
@@ -755,11 +764,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     newSignal.atrAtSignal = entry5m.atr5m;
                     newSignal.createdAtMs = System.currentTimeMillis();
                     pendingSignals.put(pair, newSignal);
+                    bump("SIGNAL ARMED");
                     System.out.println("  Pending " + (trendUp ? "LONG" : "SHORT") + " signal armed: " + pair
                             + " | trigger=" + (trendUp ? ("break " + newSignal.confirmHigh) : ("break " + newSignal.confirmLow))
                             + " | " + entry5m.reason);
                 } else {
-                    System.out.println("  NO TRADE: " + pair + " — 5M setup not found | " + entry5m.reason);
+                    bump("5M setup not found (pullback/rejection/slope/score)");
                 }
 
             } catch (Exception e) {
@@ -767,7 +777,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
         }
 
-        System.out.println("\n=== Scan complete ===");
+        System.out.println("\n=== Scan complete — funnel breakdown (" + COINS_TO_TRADE.length + " pairs scanned) ===");
+        for (Map.Entry<String, Integer> e : funnelStats.entrySet()) {
+            System.out.println("  " + e.getKey() + ": " + e.getValue());
+        }
         ensureTpSlForOpenPositions();
         if (TRAILING_ENABLED) updateTrailingForOpenPositions();
     }
