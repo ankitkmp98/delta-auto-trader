@@ -129,9 +129,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // NEW (PART 15) — risk-based position sizing (replaces fixed-margin sizing)
     // =========================================================================
-    private static final double TOTAL_CAPITAL_BASE     = 50000.0; // INR — placeholder, set to your real capital
+    private static final double TOTAL_CAPITAL_BASE     = 5000.0; // INR — placeholder, set to your real capital
     private static final double RISK_PERCENT_PER_TRADE = 1.0;     // % of capital risked per trade
-    private static final double MAX_MARGIN             = 1200.0;  // hard safety ceiling, never exceeded regardless of risk sizing
+    private static final double MAX_MARGIN             = 1000.0;  // hard safety ceiling, never exceeded regardless of risk sizing
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
