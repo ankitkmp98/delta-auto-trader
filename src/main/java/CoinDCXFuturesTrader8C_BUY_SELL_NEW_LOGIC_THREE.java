@@ -112,8 +112,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // farthest of swing-low/Supertrend, and not the absolute lowest of a big
     // lookback window).
     // =========================================================================
-    private static final double SL_BUFFER_ATR          = 0.4;
-    private static final double SL_MIN_DISTANCE_ATR    = 0.7;  // tighter -> SKIP (noise risk)
+    private static final double SL_BUFFER_ATR          = 0.8;
+    private static final double SL_MIN_DISTANCE_ATR    = 1.2;  // tighter -> SKIP (noise risk)
     private static final double SL_PREFERRED_MAX_ATR   = 2.5;  // up to here: GOOD
     private static final double SL_STRONG_MAX_ATR      = 3.0;  // 2.5-3.0 allowed only for strong setups
     private static final double SL_HARD_PERCENT_CAP    = 6.0;  // safety-net fallback ONLY, never primary
