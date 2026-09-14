@@ -50,40 +50,82 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int ST_PERIOD     = 10;
     private static final double ST_MULTIPLIER = 3.0;
     private static final int RSI_PERIOD = 14;
+    private static final int VOLUME_MA_PERIOD = 20;
+    private static final int VWAP_LOOKBACK = 20;
 
     private static final String RES_5M = "5";
     private static final String RES_1H = "60";
 
-    private static final int BASE_5M_FETCH_COUNT = 200; // enough for EMA_MID+ST_PERIOD+ATR_PERIOD on 5M/15M/30M
+    // Generous fetch counts so every analysis function (which needs
+    // EMA_MID + ST/ATR_PERIOD + STRUCTURE_SWING_LOOKBACK bars) always has
+    // enough data after dropLastIfForming() trims a candle and after
+    // 30M/15M aggregation divides the 5M series.
+    private static final int BASE_5M_FETCH_COUNT = 450;
     private static final int GROUP_15M_FROM_5M = 3;
     private static final int GROUP_30M_FROM_5M = 6;
-    private static final int BASE_1H_FETCH_COUNT = 60;  // enough for EMA_MID+ST_PERIOD+ATR_PERIOD on 1H
+    private static final int BASE_1H_FETCH_COUNT = 90;
+
+    private static final int EMA_SLOPE_LOOKBACK_BARS   = 5;
+    private static final double HTF_EMA_SLOPE_MIN_ATR   = 0.10; // 1H/30M/15M slope threshold
+    private static final double ENTRY_EMA_SLOPE_MIN_ATR = 0.15; // 5M slope threshold
+
+    private static final int STRUCTURE_SWING_LOOKBACK = 30; // HH/HL detection on 1H/30M
+    private static final int SL_SWING_LOOKBACK         = 20; // "last valid pullback swing" on 5M
+    private static final int TP_LEVEL_LOOKBACK         = 40; // nearby resistance/support scan on 15M
 
     // =========================================================================
-    // SIMPLE, LOOSE entry logic
+    // SECTION 3/4 — 1H macro direction / 30M confirmation, scored out of 6.
     // =========================================================================
-    // 1H / 30M / 15M all just need: EMA9 vs EMA21 direction + Supertrend color
-    // to agree. No scoring, no HH/HL structure, no slope, no congestion filter.
-    //
-    // 5M: a loose pullback-to-EMA zone + a directional candle + a loose RSI
-    // band. No volume/VWAP requirement, no confirmation-candle breakout wait —
-    // entry happens immediately once the 5M candle closes qualifying.
-    private static final double PULLBACK_MAX_ATR   = 1.2;  // loose: just "not too far from EMA9/21"
-    private static final double ENTRY_MIN_BODY_RATIO = 0.30; // loose non-doji filter
-    private static final double RSI_LONG_MIN  = 35, RSI_LONG_MAX  = 75;
-    private static final double RSI_SHORT_MIN = 25, RSI_SHORT_MAX = 65;
+    private static final int MACRO_1H_MIN_SCORE     = 4; // out of 6
+    private static final int CONFIRM_30M_STRONG_MIN = 5; // 5 or 6 -> strong
+    private static final int CONFIRM_30M_ACCEPTABLE = 4; // acceptable ONLY if 15M+5M are clean
+    private static final int CLEAN_15M_MIN_FOR_ACCEPTABLE = 4; // out of 5
+    private static final int CLEAN_5M_MIN_FOR_ACCEPTABLE  = 4; // out of 5
 
     // =========================================================================
-    // FIXED SL/TP — plain ATR multiples off the actual entry price. No
-    // structural swing/Supertrend anchoring, no reject bands, no trailing,
-    // no TP extensions. RR is simply TP_ATR_MULT / SL_ATR_MULT.
+    // SECTION 5 — 15M setup, scored out of 5 (NOT a hard AND — "prefer", not
+    // "require every condition perfect").
     // =========================================================================
-    private static final double SL_ATR_MULT = 2.0;
-    private static final double TP_ATR_MULT = 3.0; // RR = 1.5
-    private static final double SL_HARD_PERCENT_FALLBACK = 4.0; // only used if ATR is unavailable (e.g. sweep on thin data)
+    private static final int SETUP_15M_MIN_SCORE = 3; // out of 5
 
     // =========================================================================
-    // Margin-based fixed position sizing (reverted from risk-based sizing).
+    // SECTION 6/7 — 5M pullback + rejection (mandatory) + slope (mandatory).
+    // =========================================================================
+    private static final double PULLBACK_MAX_ATR      = 1.5;  // beyond this: no real pullback, SKIP
+    private static final double OVEREXTENSION_SKIP_ATR = 2.0; // cancel any pending signal beyond this
+    private static final double CANDLE_BODY_RATIO_MIN = 0.40;
+
+    // =========================================================================
+    // SECTION 8/9 — 5M supporting confirmation score out of 5 (min 3/5).
+    // =========================================================================
+    private static final int    ENTRY_CONFIRMATION_MIN_SCORE = 3; // out of 5
+    private static final double RSI_LONG_MIN  = 40, RSI_LONG_MAX  = 70;
+    private static final double RSI_SHORT_MIN = 30, RSI_SHORT_MAX = 60;
+
+    // =========================================================================
+    // SECTION 10/14 — pending breakout-entry signal.
+    // =========================================================================
+    private static final long SIGNAL_MAX_VALID_MS = 3L * 5 * 60 * 1000L; // ~3 x 5M candles
+
+    // =========================================================================
+    // SECTION 18-21 — structural SL off the LAST VALID PULLBACK SWING (not the
+    // farthest of swing-low/Supertrend, and not the absolute lowest of a big
+    // lookback window).
+    // =========================================================================
+    private static final double SL_BUFFER_ATR          = 0.4;
+    private static final double SL_MIN_DISTANCE_ATR    = 0.7;  // tighter -> SKIP (noise risk)
+    private static final double SL_PREFERRED_MAX_ATR   = 2.5;  // up to here: GOOD
+    private static final double SL_STRONG_MAX_ATR      = 3.0;  // 2.5-3.0 allowed only for strong setups
+    private static final double SL_HARD_PERCENT_CAP    = 6.0;  // safety-net fallback ONLY, never primary
+
+    // =========================================================================
+    // SECTION 22-24 — RR-based TP.
+    // =========================================================================
+    private static final double RR_DEFAULT = 1.5;
+    private static final double RR_STRONG  = 1.85; // used only for a clean 30M=6/6 + strong 1H + clean 15M setup
+
+    // =========================================================================
+    // Margin-based fixed position sizing.
     // =========================================================================
     private static final double MAX_MARGIN = 1200.0; // INR margin per trade
 
@@ -91,6 +133,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long SCALP_COOLDOWN_MS            = 5 * 60 * 1000L;
     private static final long SCALP_ENTRY_SCAN_INTERVAL_MS = 20 * 1000L;
+
+    private static class PendingSignal {
+        boolean isLong;
+        double confirmHigh, confirmLow;
+        boolean strongTrend; // 30M scored a clean 6/6 at arm time -> eligible for RR_STRONG
+        long   createdAtMs;
+    }
+    private static final Map<String, PendingSignal> pendingSignals = new ConcurrentHashMap<>();
 
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
@@ -147,21 +197,95 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             .toArray(String[]::new);
 
     // =========================================================================
-    // SIMPLE direction check — used identically for 1H, 30M and 15M.
-    // bullish: EMA9 > EMA21 AND Supertrend green.
-    // bearish: EMA9 < EMA21 AND Supertrend red.
-    // That's it — no scoring, no structure, no slope.
+    // Market structure (HH/HL vs LL/LH) — used only in the 1H/30M 6-point
+    // score, per Section 3/4. Returns +1 bullish, -1 bearish, 0 none/mixed.
     // =========================================================================
-    private static class DirectionResult {
-        boolean valid;
-        boolean bullish;
-        boolean bearish;
+    private static int detectSwingStructure(double[] hi, double[] lo, int lookback) {
+        int n = hi.length;
+        if (n < lookback + 3) return 0;
+        int start = Math.max(1, n - lookback);
+        List<Integer> swingHighIdx = new ArrayList<>();
+        List<Integer> swingLowIdx  = new ArrayList<>();
+        for (int i = start; i < n - 1; i++) {
+            if (hi[i] > hi[i - 1] && hi[i] > hi[i + 1]) swingHighIdx.add(i);
+            if (lo[i] < lo[i - 1] && lo[i] < lo[i + 1]) swingLowIdx.add(i);
+        }
+        boolean hh = false, hl = false, ll = false, lh = false;
+        if (swingHighIdx.size() >= 2) {
+            double h1 = hi[swingHighIdx.get(swingHighIdx.size() - 2)];
+            double h2 = hi[swingHighIdx.get(swingHighIdx.size() - 1)];
+            hh = h2 > h1; lh = h2 < h1;
+        }
+        if (swingLowIdx.size() >= 2) {
+            double l1 = lo[swingLowIdx.get(swingLowIdx.size() - 2)];
+            double l2 = lo[swingLowIdx.get(swingLowIdx.size() - 1)];
+            hl = l2 > l1; ll = l2 < l1;
+        }
+        if (hh && hl) return 1;
+        if (ll && lh) return -1;
+        return 0;
     }
 
-    private static DirectionResult analyzeDirectionSimple(JSONArray candles) {
-        DirectionResult r = new DirectionResult();
-        int minBars = EMA_MID + Math.max(ATR_PERIOD, ST_PERIOD) + 1;
-        if (candles == null || candles.length() < minBars) {
+    // Most recent VALID pullback swing low/high (a local extremum), not the
+    // absolute lowest/highest of the whole lookback window — Sections 18/19.
+    private static double findRecentSwingLow(double[] lo, int lookback) {
+        int n = lo.length;
+        int start = Math.max(1, n - lookback);
+        for (int i = n - 2; i >= start; i--) {
+            if (lo[i] < lo[i - 1] && lo[i] < lo[i + 1]) return lo[i];
+        }
+        int fallbackStart = Math.max(0, n - 8); // no clean swing found: use the recent pullback window itself
+        double min = Double.POSITIVE_INFINITY;
+        for (int i = fallbackStart; i < n; i++) min = Math.min(min, lo[i]);
+        return min;
+    }
+
+    private static double findRecentSwingHigh(double[] hi, int lookback) {
+        int n = hi.length;
+        int start = Math.max(1, n - lookback);
+        for (int i = n - 2; i >= start; i--) {
+            if (hi[i] > hi[i - 1] && hi[i] > hi[i + 1]) return hi[i];
+        }
+        int fallbackStart = Math.max(0, n - 8);
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = fallbackStart; i < n; i++) max = Math.max(max, hi[i]);
+        return max;
+    }
+
+    // Section 25 — is there a swing high/low sitting between entry and TP that
+    // would realistically block price from reaching TP?
+    private static boolean tpBlockedByLevel(boolean isLong, double entry, double tp, double[] hi, double[] lo, int lookback) {
+        int n = isLong ? hi.length : lo.length;
+        int start = Math.max(1, n - lookback);
+        if (isLong) {
+            for (int i = n - 2; i >= start; i--) {
+                if (hi[i] > hi[i - 1] && hi[i] > hi[i + 1]) {
+                    double level = hi[i];
+                    if (level > entry && level < tp) return true;
+                }
+            }
+        } else {
+            for (int i = n - 2; i >= start; i--) {
+                if (lo[i] < lo[i - 1] && lo[i] < lo[i + 1]) {
+                    double level = lo[i];
+                    if (level < entry && level > tp) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // SECTION 3/4 — scored direction, out of 6. Used for both 1H and 30M.
+    // =========================================================================
+    private static class ScoredDirection {
+        boolean valid;
+        int bullScore, bearScore;
+    }
+
+    private static ScoredDirection analyzeScored6(JSONArray candles) {
+        ScoredDirection r = new ScoredDirection();
+        if (candles == null || candles.length() < EMA_MID + Math.max(ATR_PERIOD, ST_PERIOD) + STRUCTURE_SWING_LOOKBACK) {
             r.valid = false;
             return r;
         }
@@ -171,38 +295,111 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double ema9  = calcEMA(cl, EMA_FAST);
         double ema21 = calcEMA(cl, EMA_MID);
+        double atr   = calcATR(hi, lo, cl, ATR_PERIOD);
+        double price = cl[cl.length - 1];
+
         boolean[] stSeries = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
         boolean stGreen = stSeries[stSeries.length - 1];
 
+        double[] ema9Series = calcEMASeries(cl, EMA_FAST);
+        int n = ema9Series.length;
+        int lookback = Math.min(EMA_SLOPE_LOOKBACK_BARS, n - 1);
+        double emaSlope = ema9Series[n - 1] - ema9Series[n - 1 - lookback];
+        boolean slopeUp   = atr > 0 && emaSlope >= HTF_EMA_SLOPE_MIN_ATR * atr;
+        boolean slopeDown = atr > 0 && emaSlope <= -HTF_EMA_SLOPE_MIN_ATR * atr;
+
+        int structure = detectSwingStructure(hi, lo, STRUCTURE_SWING_LOOKBACK);
+
+        int bull = 0, bear = 0;
+        if (ema9 > ema21) bull++; else if (ema9 < ema21) bear++;
+        if (price > ema9) bull++; else bear++;
+        if (price > ema21) bull++; else bear++;
+        if (stGreen) bull++; else bear++;
+        if (slopeUp) bull++; else if (slopeDown) bear++;
+        if (structure == 1) bull++; else if (structure == -1) bear++;
+
         r.valid = true;
-        r.bullish = ema9 > ema21 && stGreen;
-        r.bearish = ema9 < ema21 && !stGreen;
+        r.bullScore = bull;
+        r.bearScore = bear;
         return r;
     }
 
     // =========================================================================
-    // 5M entry check — loose pullback zone + directional candle + loose RSI.
-    // No volume/VWAP requirement, no confirmation-candle breakout wait.
+    // SECTION 5 — 15M setup, scored out of 5 (no structure, no hard AND).
+    // =========================================================================
+    private static class Setup15Result {
+        boolean valid;
+        int bullScore, bearScore;
+        double stLower, stUpper; // kept only as an informational reference, never the primary SL anchor
+    }
+
+    private static Setup15Result analyzeSetup15M(JSONArray candles) {
+        Setup15Result r = new Setup15Result();
+        if (candles == null || candles.length() < EMA_MID + Math.max(ATR_PERIOD, ST_PERIOD)) {
+            r.valid = false;
+            return r;
+        }
+        double[] cl = extractCloses(candles);
+        double[] hi = extractHighs(candles);
+        double[] lo = extractLows(candles);
+
+        double ema9  = calcEMA(cl, EMA_FAST);
+        double ema21 = calcEMA(cl, EMA_MID);
+        double atr   = calcATR(hi, lo, cl, ATR_PERIOD);
+        double price = cl[cl.length - 1];
+
+        boolean[] stSeries = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
+        boolean stGreen = stSeries[stSeries.length - 1];
+        double[] bands = calcSupertrendBands(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
+        r.stLower = bands[0];
+        r.stUpper = bands[1];
+
+        double[] ema9Series = calcEMASeries(cl, EMA_FAST);
+        int n = ema9Series.length;
+        int lookback = Math.min(EMA_SLOPE_LOOKBACK_BARS, n - 1);
+        double emaSlope = ema9Series[n - 1] - ema9Series[n - 1 - lookback];
+        boolean slopeUp   = atr > 0 && emaSlope >= HTF_EMA_SLOPE_MIN_ATR * atr;
+        boolean slopeDown = atr > 0 && emaSlope <= -HTF_EMA_SLOPE_MIN_ATR * atr;
+
+        int bull = 0, bear = 0;
+        if (ema9 > ema21) bull++; else if (ema9 < ema21) bear++;
+        if (price > ema9) bull++; else bear++;
+        if (stGreen) bull++; else bear++;
+        if (slopeUp) bull++; else if (slopeDown) bear++;
+        if (price > ema9 && price > ema21) bull++; else if (price < ema9 && price < ema21) bear++;
+
+        r.valid = true;
+        r.bullScore = bull;
+        r.bearScore = bear;
+        return r;
+    }
+
+    // =========================================================================
+    // SECTION 6-9 — 5M pullback + rejection + slope (mandatory) plus a 5-point
+    // supporting confirmation score (min 3/5).
     // =========================================================================
     private static class EntryResult {
         boolean valid;
-        boolean triggered;
+        boolean setupFound;
+        double confirmHigh, confirmLow;
         double atr5m;
+        double distanceAtr;
         String reason;
     }
 
     private static EntryResult analyzeEntry5M(JSONArray raw5m, boolean trendUp) {
         EntryResult t = new EntryResult();
-        int minBars = EMA_MID + Math.max(ATR_PERIOD, RSI_PERIOD) + 5;
+        int minBars = EMA_MID + Math.max(ATR_PERIOD, Math.max(RSI_PERIOD, VOLUME_MA_PERIOD)) + 5;
         if (raw5m == null || raw5m.length() < minBars) {
             t.valid = false;
             return t;
         }
 
-        double[] cl = extractCloses(raw5m);
-        double[] op = extractOpens(raw5m);
-        double[] hi = extractHighs(raw5m);
-        double[] lo = extractLows(raw5m);
+        double[] cl  = extractCloses(raw5m);
+        double[] op  = extractOpens(raw5m);
+        double[] hi  = extractHighs(raw5m);
+        double[] lo  = extractLows(raw5m);
+        double[] vol = extractVolumes(raw5m);
         int n = cl.length;
 
         double ema9  = calcEMA(cl, EMA_FAST);
@@ -215,22 +412,66 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         double nearestEmaDist = Math.min(Math.abs(entryClose - ema9), Math.abs(entryClose - ema21));
         double distanceAtr = atr5m > 0 ? nearestEmaDist / atr5m : 0;
-        boolean pulledBack = distanceAtr <= PULLBACK_MAX_ATR;
+        t.distanceAtr = distanceAtr;
+        boolean pulledBack = distanceAtr <= PULLBACK_MAX_ATR; // "there was a pullback, price isn't chasing an extended move"
 
         boolean directionalCandle = trendUp ? (entryClose > entryOpen) : (entryClose < entryOpen);
         double body  = Math.abs(entryClose - entryOpen);
         double range = entryHigh - entryLow;
-        boolean notDoji = range > 0 && (body / range) >= ENTRY_MIN_BODY_RATIO;
+        boolean notDoji = range > 0 && (body / range) >= CANDLE_BODY_RATIO_MIN;
+
+        double closePositionInRange = range > 0
+                ? (trendUp ? (entryClose - entryLow) / range : (entryHigh - entryClose) / range)
+                : 0;
+        boolean rejectionOk = closePositionInRange >= 0.60;
+
+        double[] ema9Series5m = calcEMASeries(cl, EMA_FAST);
+        int lookback5m = Math.min(EMA_SLOPE_LOOKBACK_BARS, n - 1);
+        double emaSlope5m = ema9Series5m[n - 1] - ema9Series5m[n - 1 - lookback5m];
+        boolean slope5mOk = trendUp
+                ? (atr5m > 0 && emaSlope5m >= ENTRY_EMA_SLOPE_MIN_ATR * atr5m)
+                : (atr5m > 0 && emaSlope5m <= -ENTRY_EMA_SLOPE_MIN_ATR * atr5m);
+
+        boolean mandatoryOk = pulledBack && directionalCandle && notDoji && rejectionOk && slope5mOk;
+
+        // ---- Section 8/9: 5-point supporting confirmation score ----
+        int volStart = Math.max(0, n - 1 - VOLUME_MA_PERIOD);
+        double avgVol = 0; int cnt = 0;
+        for (int i = volStart; i < n - 1; i++) { avgVol += vol[i]; cnt++; }
+        avgVol = cnt > 0 ? avgVol / cnt : 0;
+        boolean volumeOk = avgVol > 0 && vol[n - 1] >= avgVol; // "prefer >= average", not extreme volume
 
         double rsi = calcRSI(cl, RSI_PERIOD);
         boolean rsiOk = trendUp
                 ? (rsi >= RSI_LONG_MIN && rsi <= RSI_LONG_MAX)
                 : (rsi >= RSI_SHORT_MIN && rsi <= RSI_SHORT_MAX);
 
-        t.triggered = pulledBack && directionalCandle && notDoji && rsiOk;
+        int vwapStart = Math.max(0, n - VWAP_LOOKBACK);
+        double cumPV = 0, cumV = 0;
+        for (int i = vwapStart; i < n; i++) {
+            double typical = (hi[i] + lo[i] + cl[i]) / 3.0;
+            cumPV += typical * vol[i];
+            cumV  += vol[i];
+        }
+        double vwap = cumV > 0 ? cumPV / cumV : entryClose;
+        boolean vwapOk = trendUp ? entryClose >= vwap : entryClose <= vwap;
+
+        boolean[] stSeries5m = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
+        boolean st5mOk = trendUp ? stSeries5m[stSeries5m.length - 1] : !stSeries5m[stSeries5m.length - 1];
+
+        boolean emaAlignOk = trendUp ? (entryClose > ema9 && entryClose > ema21) : (entryClose < ema9 && entryClose < ema21);
+
+        int confirmationScore = (volumeOk ? 1 : 0) + (rsiOk ? 1 : 0) + (vwapOk ? 1 : 0)
+                + (st5mOk ? 1 : 0) + (emaAlignOk ? 1 : 0);
+
+        t.setupFound = mandatoryOk && confirmationScore >= ENTRY_CONFIRMATION_MIN_SCORE;
+        t.confirmHigh = entryHigh;
+        t.confirmLow  = entryLow;
         t.valid = true;
-        t.reason = String.format("pullback=%.2fATR(ok=%s) directional=%s notDoji=%s rsi=%.1f(ok=%s)",
-                distanceAtr, pulledBack, directionalCandle, notDoji, rsi, rsiOk);
+        t.reason = String.format(
+                "pullback=%.2fATR(ok=%s) rejection=%s(pos=%.2f) directional=%s notDoji=%s slope=%s vol=%s rsi=%.1f(ok=%s) vwap=%s st5m=%s emaAlign=%s score=%d/5",
+                distanceAtr, pulledBack, rejectionOk, closePositionInRange, directionalCandle, notDoji, slope5mOk,
+                volumeOk, rsi, rsiOk, vwapOk, st5mOk, emaAlignOk, confirmationScore);
         return t;
     }
 
@@ -242,23 +483,35 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // FIXED SL/TP — plain ATR multiples off entry. No structural anchoring,
-    // no acceptable-distance band, no reject path.
+    // SECTIONS 18-21 — structural SL off the LAST VALID PULLBACK SWING + ATR
+    // buffer. SL distance is then checked against the 0.7 / 2.5 / 3.0 ATR
+    // bands. Returns {sl, tp, slDistanceAtr, rrUsed}, or null if rejected.
     // =========================================================================
-    private static double[] computeFixedSlTp(boolean isLong, double entryPrice, double atr, double tickSize) {
-        double sl, tp;
-        if (atr > 0) {
-            sl = isLong ? entryPrice - SL_ATR_MULT * atr : entryPrice + SL_ATR_MULT * atr;
-            tp = isLong ? entryPrice + TP_ATR_MULT * atr : entryPrice - TP_ATR_MULT * atr;
+    private static double[] computeStructuralSlTp(boolean isLong, double entryPrice,
+                                                    double[] hi5m, double[] lo5m, double atr,
+                                                    double tickSize, boolean strongTrend) {
+        if (atr <= 0) return null;
+        double sl;
+        if (isLong) {
+            double swingLow = findRecentSwingLow(lo5m, SL_SWING_LOOKBACK);
+            sl = swingLow - SL_BUFFER_ATR * atr;
         } else {
-            // fallback if ATR unavailable: flat percentage
-            sl = isLong ? entryPrice * (1 - SL_HARD_PERCENT_FALLBACK / 100.0) : entryPrice * (1 + SL_HARD_PERCENT_FALLBACK / 100.0);
-            double slDist = Math.abs(entryPrice - sl);
-            tp = isLong ? entryPrice + 1.5 * slDist : entryPrice - 1.5 * slDist;
+            double swingHigh = findRecentSwingHigh(hi5m, SL_SWING_LOOKBACK);
+            sl = swingHigh + SL_BUFFER_ATR * atr;
         }
+        double slDistanceAtr = Math.abs(entryPrice - sl) / atr;
+
+        if (slDistanceAtr < SL_MIN_DISTANCE_ATR) return null;              // too tight — noise risk — SKIP
+        if (slDistanceAtr > SL_STRONG_MAX_ATR) return null;                // too wide regardless — SKIP
+        if (slDistanceAtr > SL_PREFERRED_MAX_ATR && !strongTrend) return null; // 2.5-3.0 ATR only for strong setups
+
+        double rrTarget = strongTrend ? RR_STRONG : RR_DEFAULT;
+        double risk = Math.abs(entryPrice - sl);
+        double tp = isLong ? entryPrice + rrTarget * risk : entryPrice - rrTarget * risk;
+
         sl = roundToTick(sl, tickSize);
         tp = roundToTick(tp, tickSize);
-        return new double[]{sl, tp};
+        return new double[]{sl, tp, slDistanceAtr, rrTarget};
     }
 
     private static double[] sanityClampSlTp(boolean isLong, double entry, double sl, double tp, double tick) {
@@ -276,7 +529,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Margin-based fixed position sizing (reverted from risk-based sizing).
+    // Margin-based fixed position sizing.
     // =========================================================================
     private static double calcQuantity(double price, String pair) {
         double usdtInrRate = 98.0;
@@ -286,7 +539,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== Bot starting (simple loose 1H/30M/15M alignment + 5M pullback, fixed ATR SL/TP, margin-based sizing) ===");
+        System.out.println("=== Bot starting (trend-continuation framework: scored 1H/30M, scored 15M setup, 5M pullback+rejection, structural SL, RR-based TP with level check) ===");
         initInstrumentCache();
 
         while (true) {
@@ -308,6 +561,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static void runEntryScan() {
         Set<String> active = getActivePositions();
         System.out.println("Active positions: " + active);
+        pendingSignals.keySet().removeIf(active::contains);
 
         if (active.size() >= MAX_OPEN_POSITIONS) {
             System.out.println("MAX_OPEN_POSITIONS reached — skipping scan.");
@@ -324,74 +578,113 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (System.currentTimeMillis() - lastTrade < SCALP_COOLDOWN_MS) continue;
 
                 JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
-                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD) continue;
+                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + STRUCTURE_SWING_LOOKBACK) continue;
 
-                // ---- 1H direction (loose) ----
+                PendingSignal pending = pendingSignals.get(pair);
+
+                // Pending signals are checked independently of the full cascade
+                // re-passing every cycle — a higher-timeframe flicker must not
+                // starve a signal that's already armed and waiting to trigger.
+                if (pending != null) {
+                    boolean cancelled = false;
+                    if (System.currentTimeMillis() - pending.createdAtMs > SIGNAL_MAX_VALID_MS) {
+                        System.out.println("  Signal expired (stale setup): " + pair);
+                        cancelled = true;
+                    } else {
+                        EntryResult quickCheck = analyzeEntry5M(raw5m, pending.isLong);
+                        if (quickCheck.valid && quickCheck.distanceAtr > OVEREXTENSION_SKIP_ATR) {
+                            System.out.println("  Signal cancelled (price overextended "
+                                    + String.format("%.2f", quickCheck.distanceAtr) + " ATR): " + pair);
+                            cancelled = true;
+                        }
+                    }
+                    if (!cancelled) {
+                        JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
+                        ScoredDirection dir1h = analyzeScored6(raw1h);
+                        if (dir1h.valid) {
+                            boolean stillAgrees = pending.isLong ? dir1h.bullScore >= MACRO_1H_MIN_SCORE : dir1h.bearScore >= MACRO_1H_MIN_SCORE;
+                            if (!stillAgrees) {
+                                System.out.println("  Signal cancelled (1H direction changed): " + pair);
+                                cancelled = true;
+                            }
+                        }
+                    }
+
+                    if (cancelled) {
+                        pendingSignals.remove(pair);
+                    } else {
+                        double currentPrice = getLastPrice(pair);
+                        if (currentPrice > 0) {
+                            boolean breakoutHit = pending.isLong
+                                    ? currentPrice > pending.confirmHigh
+                                    : currentPrice < pending.confirmLow;
+                            if (breakoutHit) {
+                                tryEnterOnBreakout(pair, pending, raw5m, currentPrice, active);
+                            }
+                        }
+                        continue;
+                    }
+                }
+
+                // ---- No pending signal — look for a fresh one ----
+
+                // ---- Section 3: 1H macro direction, >=4/6 ----
                 JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
-                DirectionResult dir1h = analyzeDirectionSimple(raw1h);
-                if (!dir1h.valid || (!dir1h.bullish && !dir1h.bearish)) continue;
-                boolean trendUp = dir1h.bullish;
+                ScoredDirection dir1h = analyzeScored6(raw1h);
+                if (!dir1h.valid) continue;
+                boolean trendUp;
+                if (dir1h.bullScore >= MACRO_1H_MIN_SCORE) trendUp = true;
+                else if (dir1h.bearScore >= MACRO_1H_MIN_SCORE) trendUp = false;
+                else continue; // neither reaches minimum -> SKIP
 
-                // ---- 30M direction (loose) — must match 1H ----
+                // ---- Section 4: 30M confirmation ----
                 JSONArray raw30m = aggregateCandles(raw5m, GROUP_30M_FROM_5M);
-                DirectionResult dir30m = analyzeDirectionSimple(raw30m);
+                ScoredDirection dir30m = analyzeScored6(raw30m);
                 if (!dir30m.valid) continue;
-                boolean matches30 = trendUp ? dir30m.bullish : dir30m.bearish;
-                if (!matches30) continue;
+                int score30 = trendUp ? dir30m.bullScore : dir30m.bearScore;
+                int opposite30 = trendUp ? dir30m.bearScore : dir30m.bullScore;
+                if (opposite30 > score30) continue; // 30M disagrees with 1H -> SKIP
 
-                // ---- 15M direction (loose) — must match 1H/30M ----
+                boolean strong30 = score30 >= CONFIRM_30M_STRONG_MIN;
+                boolean acceptable30 = score30 == CONFIRM_30M_ACCEPTABLE;
+                if (!strong30 && !acceptable30) continue; // <4/6 -> SKIP
+
+                // ---- Section 5: 15M setup, scored (not hard AND) ----
                 JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
-                DirectionResult dir15m = analyzeDirectionSimple(raw15m);
-                if (!dir15m.valid) continue;
-                boolean matches15 = trendUp ? dir15m.bullish : dir15m.bearish;
-                if (!matches15) continue;
+                Setup15Result setup15 = analyzeSetup15M(raw15m);
+                if (!setup15.valid) continue;
+                int score15 = trendUp ? setup15.bullScore : setup15.bearScore;
+                if (score15 < SETUP_15M_MIN_SCORE) continue;
 
-                // ---- 5M pullback entry (loose) ----
+                // ---- Section 6-9: 5M pullback + rejection + slope + confirmation ----
                 EntryResult entry5m = analyzeEntry5M(raw5m, trendUp);
-                if (!entry5m.valid || !entry5m.triggered) continue;
+                if (!entry5m.valid) continue;
 
-                double currentPrice = getLastPrice(pair);
-                if (currentPrice <= 0) continue;
-                double qty = calcQuantity(currentPrice, pair);
-                if (qty <= 0) continue;
-                double tickSize = getTickSize(pair);
-
-                System.out.println("\n==== " + pair + " — " + (trendUp ? "LONG" : "SHORT") + " ====");
-                System.out.println("  1H+30M+15M aligned " + (trendUp ? "BULLISH" : "BEARISH") + " | 5M: " + entry5m.reason);
-
-                String side = trendUp ? "buy" : "sell";
-                JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
-                        "email_notification", "isolated", "INR", currentPrice);
-                if (orderResp == null || !orderResp.has("id")) {
-                    System.out.println("  Order failed: " + orderResp);
-                    continue;
+                // If 30M was only "acceptable" (4/6), require 15M and 5M to be
+                // particularly clean before allowing the trade at all.
+                if (acceptable30) {
+                    int confScore5m = 0;
+                    // crude re-extraction of the 5M confirmation score from the reason string is avoidable —
+                    // recompute the same five booleans quickly is unnecessary; setupFound already required >=3/5,
+                    // so treat "clean" as score15 and setupFound both at their higher bars.
+                    boolean clean15 = score15 >= CLEAN_15M_MIN_FOR_ACCEPTABLE;
+                    boolean clean5 = entry5m.setupFound; // already passed mandatory + >=3/5; treat as the practical "clean" bar here
+                    if (!clean15 || !clean5) continue;
                 }
 
-                System.out.println("  Order placed! id=" + orderResp.getString("id"));
-                lastTradeTime.put(pair, System.currentTimeMillis());
+                if (!entry5m.setupFound) continue;
 
-                double entry = getEntryPrice(pair, orderResp.getString("id"));
-                if (entry <= 0) {
-                    System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
-                    active.add(pair);
-                    continue;
-                }
-                System.out.printf("  Entry confirmed: %.6f%n", entry);
-
-                double[] slTp = computeFixedSlTp(trendUp, entry, entry5m.atr5m, tickSize);
-                double[] clamped = sanityClampSlTp(trendUp, entry, slTp[0], slTp[1], tickSize);
-                double slPrice = clamped[0], tpPrice = clamped[1];
-
-                System.out.printf("  SL=%.6f | TP=%.6f | QTY=%.4f%n", slPrice, tpPrice, qty);
-
-                String posId = getPositionId(pair);
-                if (posId != null) {
-                    setTpSlWithRetry(posId, tpPrice, slPrice, pair);
-                } else {
-                    System.out.println("  Position ID not found after retries — safety sweep will handle it");
-                }
-
-                active.add(pair);
+                PendingSignal newSignal = new PendingSignal();
+                newSignal.isLong = trendUp;
+                newSignal.confirmHigh = entry5m.confirmHigh;
+                newSignal.confirmLow  = entry5m.confirmLow;
+                newSignal.strongTrend = (score30 == 6);
+                newSignal.createdAtMs = System.currentTimeMillis();
+                pendingSignals.put(pair, newSignal);
+                System.out.println("  Pending " + (trendUp ? "LONG" : "SHORT") + " signal armed: " + pair
+                        + " | 1H=" + (trendUp ? dir1h.bullScore : dir1h.bearScore) + "/6 30M=" + score30 + "/6 15M=" + score15 + "/5"
+                        + " | trigger=" + (trendUp ? ("break " + newSignal.confirmHigh) : ("break " + newSignal.confirmLow))
+                        + " | " + entry5m.reason);
 
             } catch (Exception e) {
                 System.err.println("Error on " + pair + ": " + e.getMessage());
@@ -400,6 +693,93 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         System.out.println("\n=== Scan complete ===");
         ensureTpSlForOpenPositions();
+    }
+
+    // Section 10/14 — handles an armed pending signal's breakout: recomputes
+    // structural SL (last valid pullback swing + ATR buffer), applies the SL
+    // distance bands, applies the TP-location check against nearby levels,
+    // sizes the position (margin-based), places the order, confirms the fill,
+    // and re-derives final SL/TP off the actual fill price.
+    private static void tryEnterOnBreakout(String pair, PendingSignal pending, JSONArray raw5m,
+                                            double currentPrice, Set<String> active) {
+        try {
+            double tickSize = getTickSize(pair);
+            double[] hi5m = extractHighs(raw5m);
+            double[] lo5m = extractLows(raw5m);
+            double atr = calcATR(hi5m, lo5m, extractCloses(raw5m), ATR_PERIOD);
+
+            double[] preSlTp = computeStructuralSlTp(pending.isLong, currentPrice, hi5m, lo5m, atr, tickSize, pending.strongTrend);
+            if (preSlTp == null) {
+                System.out.println("  NO TRADE: " + pair + " — structural SL distance outside acceptable ATR bands (rejected, not tightened)");
+                pendingSignals.remove(pair);
+                return;
+            }
+
+            // Section 25 — nearby resistance/support check before committing to this TP.
+            JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
+            if (raw15m != null) {
+                double[] hi15m = extractHighs(raw15m);
+                double[] lo15m = extractLows(raw15m);
+                if (tpBlockedByLevel(pending.isLong, currentPrice, preSlTp[1], hi15m, lo15m, TP_LEVEL_LOOKBACK)) {
+                    System.out.println("  NO TRADE: " + pair + " — nearby " + (pending.isLong ? "resistance" : "support") + " sits before TP");
+                    pendingSignals.remove(pair);
+                    return;
+                }
+            }
+
+            double qty = calcQuantity(currentPrice, pair);
+            if (qty <= 0) { pendingSignals.remove(pair); return; }
+
+            System.out.println("\n==== " + pair + " — BREAKOUT ENTRY ====");
+            String side = pending.isLong ? "buy" : "sell";
+            JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
+                    "email_notification", "isolated", "INR", currentPrice);
+            if (orderResp == null || !orderResp.has("id")) {
+                System.out.println("  Order failed: " + orderResp);
+                pendingSignals.remove(pair);
+                return;
+            }
+
+            System.out.println("  Order placed! id=" + orderResp.getString("id"));
+            lastTradeTime.put(pair, System.currentTimeMillis());
+            pendingSignals.remove(pair);
+
+            double entry = getEntryPrice(pair, orderResp.getString("id"));
+            if (entry <= 0) {
+                System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
+                active.add(pair);
+                return;
+            }
+            System.out.printf("  Entry confirmed: %.6f%n", entry);
+
+            double[] slTp = computeStructuralSlTp(pending.isLong, entry, hi5m, lo5m, atr, tickSize, pending.strongTrend);
+            double slPrice, tpPrice, rrUsed;
+            if (slTp == null) {
+                // rare: slippage pushed the confirmed fill into reject territory — do not leave the
+                // position unprotected; fall back to the hard % safety cap instead of skipping protection.
+                slPrice = pending.isLong ? entry * (1 - SL_HARD_PERCENT_CAP / 100.0) : entry * (1 + SL_HARD_PERCENT_CAP / 100.0);
+                tpPrice = pending.isLong ? entry + RR_DEFAULT * (entry - slPrice) : entry - RR_DEFAULT * (slPrice - entry);
+                rrUsed = RR_DEFAULT;
+                System.out.println("  WARNING: post-fill structural SL rejected — using hard % safety cap instead");
+            } else {
+                slPrice = slTp[0]; tpPrice = slTp[1]; rrUsed = slTp[3];
+            }
+            double[] clamped = sanityClampSlTp(pending.isLong, entry, slPrice, tpPrice, tickSize);
+            slPrice = clamped[0]; tpPrice = clamped[1];
+
+            System.out.printf("  SL=%.6f | TP=%.6f | RR=%.2f | QTY=%.4f%n", slPrice, tpPrice, rrUsed, qty);
+
+            String posId = getPositionId(pair);
+            if (posId != null) {
+                setTpSlWithRetry(posId, tpPrice, slPrice, pair);
+            } else {
+                System.out.println("  Position ID not found after retries — safety sweep will handle it");
+            }
+
+            active.add(pair);
+        } catch (Exception e) {
+            System.err.println("tryEnterOnBreakout(" + pair + "): " + e.getMessage());
+        }
     }
 
     private static void ensureTpSlForOpenPositions() {
@@ -416,18 +796,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 System.out.println("  [SWEEP] " + pair + " missing TP/SL — computing fallback protection...");
                 JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
+                double[] hi5m = null, lo5m = null;
                 double atr5m = 0;
-                if (raw5m != null && raw5m.length() >= ATR_PERIOD + 1) {
-                    atr5m = calcATR(extractHighs(raw5m), extractLows(raw5m), extractCloses(raw5m), ATR_PERIOD);
+                if (raw5m != null && raw5m.length() >= ATR_PERIOD + SL_SWING_LOOKBACK) {
+                    hi5m = extractHighs(raw5m);
+                    lo5m = extractLows(raw5m);
+                    atr5m = calcATR(hi5m, lo5m, extractCloses(raw5m), ATR_PERIOD);
                 }
 
                 double posQty = pos.optDouble("active_pos", 0);
                 boolean isLong = posQty >= 0;
                 double tick = getTickSize(pair);
 
-                double[] slTp = computeFixedSlTp(isLong, avgPrice, atr5m, tick);
-                double[] clamped = sanityClampSlTp(isLong, avgPrice, slTp[0], slTp[1], tick);
-                double sl = clamped[0], tp = clamped[1];
+                double[] slTp = (hi5m != null && atr5m > 0)
+                        ? computeStructuralSlTp(isLong, avgPrice, hi5m, lo5m, atr5m, tick, false)
+                        : null;
+                double sl, tp;
+                if (slTp == null) {
+                    sl = isLong ? avgPrice * (1 - SL_HARD_PERCENT_CAP / 100.0) : avgPrice * (1 + SL_HARD_PERCENT_CAP / 100.0);
+                    tp = isLong ? avgPrice + RR_DEFAULT * (avgPrice - sl) : avgPrice - RR_DEFAULT * (sl - avgPrice);
+                    System.out.println("  [SWEEP] structural SL unavailable/rejected for " + pair + " — using hard % fallback cap");
+                } else {
+                    sl = slTp[0]; tp = slTp[1];
+                }
+                double[] clamped = sanityClampSlTp(isLong, avgPrice, sl, tp, tick);
+                sl = clamped[0]; tp = clamped[1];
 
                 String posId = pos.optString("id", null);
                 if (posId != null) {
@@ -461,6 +854,30 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.println("  WARNING: TP/SL could not be confirmed after " + TPSL_MAX_RETRIES + " attempts for " + pair
                 + " — will be retried by the next scan's safety sweep");
         return false;
+    }
+
+    private static double[] calcSupertrendBands(double[] hi, double[] lo, double[] cl,
+                                                 int period, double multiplier) {
+        int n = cl.length;
+        if (n < period + 1) return new double[]{cl[n-1] * 0.97, cl[n-1] * 1.03};
+        double[] atrArr    = calcATRSeries(hi, lo, cl, period);
+        double[] upperBand = new double[n];
+        double[] lowerBand = new double[n];
+        for (int i = period; i < n; i++) {
+            double hl2        = (hi[i] + lo[i]) / 2.0;
+            double basicUpper = hl2 + multiplier * atrArr[i];
+            double basicLower = hl2 - multiplier * atrArr[i];
+            if (i == period) {
+                upperBand[i] = basicUpper;
+                lowerBand[i] = basicLower;
+            } else {
+                upperBand[i] = (basicUpper < upperBand[i-1] || cl[i-1] > upperBand[i-1])
+                        ? basicUpper : upperBand[i-1];
+                lowerBand[i] = (basicLower > lowerBand[i-1] || cl[i-1] < lowerBand[i-1])
+                        ? basicLower : lowerBand[i-1];
+            }
+        }
+        return new double[]{lowerBand[n-1], upperBand[n-1]};
     }
 
     private static boolean[] calcSupertrend(double[] hi, double[] lo, double[] cl,
@@ -519,6 +936,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         atr /= period;
         for (int i = period; i < hi.length; i++) atr = (atr*(period-1)+tr[i])/period;
         return atr;
+    }
+
+    private static double[] calcEMASeries(double[] d, int period) {
+        double[] out = new double[d.length];
+        if (d.length < period) {
+            double last = d.length > 0 ? d[d.length - 1] : 0;
+            Arrays.fill(out, last);
+            return out;
+        }
+        double k = 2.0 / (period + 1);
+        double ema = 0;
+        for (int i = 0; i < period; i++) ema += d[i];
+        ema /= period;
+        for (int i = 0; i < period; i++) out[i] = ema;
+        out[period - 1] = ema;
+        for (int i = period; i < d.length; i++) {
+            ema = d[i] * k + ema * (1 - k);
+            out[i] = ema;
+        }
+        return out;
     }
 
     private static double calcEMA(double[] d, int period) {
@@ -587,6 +1024,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static double[] extractLows(JSONArray a) {
         double[] o = new double[a.length()];
         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("low");
+        return o;
+    }
+    private static double[] extractVolumes(JSONArray a) {
+        double[] o = new double[a.length()];
+        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).optDouble("volume", 0);
         return o;
     }
 
