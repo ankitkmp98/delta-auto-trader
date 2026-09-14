@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 6;
+    private static final int LEVERAGE = 5;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -121,8 +121,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // SECTION 22-24 — RR-based TP.
     // =========================================================================
-    private static final double RR_DEFAULT = 0.6;
-    private static final double RR_STRONG  = 0.9; // used only for a clean 30M=6/6 + strong 1H + clean 15M setup
+    private static final double RR_DEFAULT = 1.2;
+    private static final double RR_STRONG  = 1.5; // used only for a clean 30M=6/6 + strong 1H + clean 15M setup
 
     // =========================================================================
     // Margin-based fixed position sizing.
