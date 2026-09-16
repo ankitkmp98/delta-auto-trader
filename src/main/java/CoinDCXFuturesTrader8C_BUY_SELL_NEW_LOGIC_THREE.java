@@ -48,7 +48,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // SECTION 3/24 — capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1000.0; // INR margin allocated per trade — never adjusted for SL distance
+    private static final double FIXED_MARGIN = 600.0; // INR margin allocated per trade — never adjusted for SL distance
     private static final int    LEVERAGE     = 5;
 
     // =========================================================================
