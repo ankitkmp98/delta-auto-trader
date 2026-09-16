@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 6;
+    private static final int LEVERAGE = 3;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -66,7 +66,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double ENTRY_EMA_SLOPE_MIN_ATR = 0.15;
 
     private static final int STRUCTURE_SWING_LOOKBACK = 30;
-    private static final int SL_SWING_LOOKBACK         = 20;
     private static final int TP_LEVEL_LOOKBACK         = 40;
 
     // =========================================================================
@@ -99,48 +98,52 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Pending breakout-entry signal.
     // =========================================================================
-    private static final long SIGNAL_MAX_VALID_MS = 15L * 60 * 1000L; // 15 minutes
+    private static final long SIGNAL_MAX_VALID_MS = 10L * 60 * 1000L; // 10 minutes — fresher signals, less chasing an exhausted move
+    private static final double BREAKOUT_MAX_CHASE_ATR = 0.5; // if price is already this far past the breakout trigger by the time we act, momentum is likely spent — skip instead of chasing
 
     // =========================================================================
-    // Structural SL: anchored to the pullback swing captured when the signal
-    // was ARMED (not re-searched at breakout time), + ATR buffer.
+    // Structural SL — now anchored to the 1H SUPERTREND BAND (lower band for
+    // LONG, upper band for SHORT), captured at arm time and never re-searched
+    // at breakout. All distance thresholds below are expressed in 1H-ATR
+    // units, since the anchor itself lives on the 1H timeframe.
     // =========================================================================
-    private static final double SL_BUFFER_ATR        = 1.0;
-    private static final double SL_MIN_DISTANCE_ATR  = 1.5;  // tighter -> SKIP (noise risk)
-    private static final double SL_PREFERRED_MAX_ATR = 3.0;  // up to here: GOOD
-    private static final double SL_STRONG_MAX_ATR    = 4.0;  // wider band only for strong setups
-    private static final double SL_HARD_PERCENT_CAP  = 5.0;  // safety-net fallback ONLY
+    private static final double SL_BUFFER_ATR_1H        = 0.3;  // small extra room beyond the raw ST band value
+    private static final double SL_MIN_DISTANCE_ATR_1H  = 0.5;  // tighter than this (in 1H ATR) -> SKIP, likely noise risk
+    private static final double SL_PREFERRED_MAX_ATR_1H = 2.0;  // up to here: GOOD
+    private static final double SL_STRONG_MAX_ATR_1H    = 3.0;  // wider band only for strong setups
+    private static final double SL_HARD_PERCENT_CAP     = 5.0;  // safety-net fallback ONLY
 
     // =========================================================================
     // RR-based TP. Kept simple: 1.5R for all valid setups. 1.8R is an
     // OPTIONAL upgrade only for an exceptionally clean 30M=6/6 setup.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.2;
-    private static final double RR_STRONG  = 1.5;
+    private static final double RR_DEFAULT = 1.5;
+    private static final double RR_STRONG  = 1.8;
 
     // =========================================================================
-    // Trailing system — 4 stages, driven by progress toward the ORIGINAL
+    // Trailing system — 3 stages, driven by progress toward the ORIGINAL
     // initial TP (never the extended one).
+    //   STAGE 0: initial SL/TP, no trailing yet.
+    //   STAGE 1 (>=50% progress): small locked profit (not pure breakeven).
+    //   STAGE 2+ (>=70% progress): SL follows the LIVE 1H Supertrend band —
+    //     recomputed fresh every cycle, ratchet-only (never loosens). This
+    //     replaces the old fixed-ATR-multiple trailing: since the SL anchor
+    //     itself is the 1H Supertrend, trailing simply means following that
+    //     same band as it steps forward with the trend.
     // =========================================================================
     private static final double BREAKEVEN_TRIGGER            = 0.50;
     private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.10; // %
-    private static final double TRAIL_STAGE2_TRIGGER = 0.70;
-    private static final double TRAIL_STAGE2_ATR      = 1.75;
-    private static final double TRAIL_STAGE3_TRIGGER = 0.85;
-    private static final double TRAIL_STAGE3_ATR      = 1.35;
-    private static final double MIN_SL_IMPROVEMENT_ATR = 0.10; // don't spam the API on tiny moves
+    private static final double TRAIL_ACTIVATE_TRIGGER = 0.70; // from here on, SL follows the live 1H ST band
+    private static final double MIN_SL_IMPROVEMENT_ATR_1H = 0.10; // don't spam the API on tiny moves (in 1H ATR units)
 
     // =========================================================================
-    // TP extension — only past stage 3, only while the trend is still valid.
+    // TP extension — only past 85% progress, only while the trend is still
+    // valid. Uses 5M ATR since it's about extending the near-term target, not
+    // about the SL anchor.
     // =========================================================================
+    private static final double TP_EXTENSION_TRIGGER = 0.85;
     private static final int    MAX_TP_EXTENSIONS = 2;
     private static final double TP_EXTENSION_ATR  = 1.5;
-
-    // =========================================================================
-    // Early exit system.
-    // =========================================================================
-    private static final int  EARLY_EXIT_15M_SCORE     = 2; // out of 4
-    private static final long EARLY_EXIT_COOLDOWN_MS   = 15L * 60 * 1000L;
 
     // =========================================================================
     // Margin-based fixed position sizing (unchanged).
@@ -155,8 +158,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static class PendingSignal {
         boolean isLong;
         double confirmHigh, confirmLow;
-        double setupSwingLevel; // the pullback swing captured AT ARM TIME — never re-searched later
-        boolean strongTrend;    // 30M scored a clean 6/6 at arm time -> eligible for RR_STRONG
+        double anchorLevel;  // the 1H Supertrend band value captured AT ARM TIME — never re-searched later
+        boolean strongTrend; // 30M scored a clean 6/6 at arm time -> eligible for RR_STRONG
         long   createdAtMs;
     }
     private static final Map<String, PendingSignal> pendingSignals = new ConcurrentHashMap<>();
@@ -167,7 +170,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double initialSL, initialTP, initialRisk;
         double currentSL, currentTP;
         double peakPrice;
-        int    stage;           // 0..3
+        int    stage;           // 0..2 (0=initial, 1=profit-locked, 2=following live 1H ST)
         int    extensionsUsed;
     }
     private static final Map<String, TrailInfo> trailState = new ConcurrentHashMap<>();
@@ -175,7 +178,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
-    private static final Map<String, Long> earlyExitTime = new ConcurrentHashMap<>();
 
     private static final String[] COIN_SYMBOLS = {
        "PIEVERSE","XAU","APE","ERA","US","RAVE","EDEN","LIT","BREV","MAGMA","BLESS","ZAMA",
@@ -228,7 +230,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             .toArray(String[]::new);
 
     // =========================================================================
-    // Market structure (HH/HL vs LL/LH). Returns +1 bullish, -1 bearish, 0.
+    // Market structure (HH/HL vs LL/LH), used only in the 1H/30M 6-point
+    // score. Returns +1 bullish, -1 bearish, 0 none/mixed.
     // =========================================================================
     private static int detectSwingStructure(double[] hi, double[] lo, int lookback) {
         int n = hi.length;
@@ -256,35 +259,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return 0;
     }
 
-    // Requires the swing to be at least 2 bars old ("matured") — the very
-    // freshest 1-2 bar micro-dip/spike is skipped so SL doesn't anchor to
-    // noise that hasn't been confirmed as a real pullback level yet.
-    private static double findRecentSwingLow(double[] lo, int lookback) {
-        int n = lo.length;
-        int start = Math.max(1, n - lookback);
-        for (int i = n - 4; i >= start; i--) {
-            if (lo[i] < lo[i - 1] && lo[i] < lo[i + 1]) return lo[i];
-        }
-        int fallbackStart = Math.max(0, n - 10);
-        double min = Double.POSITIVE_INFINITY;
-        for (int i = fallbackStart; i < n; i++) min = Math.min(min, lo[i]);
-        return min;
-    }
-
-    private static double findRecentSwingHigh(double[] hi, int lookback) {
-        int n = hi.length;
-        int start = Math.max(1, n - lookback);
-        for (int i = n - 4; i >= start; i--) {
-            if (hi[i] > hi[i - 1] && hi[i] > hi[i + 1]) return hi[i];
-        }
-        int fallbackStart = Math.max(0, n - 10);
-        double max = Double.NEGATIVE_INFINITY;
-        for (int i = fallbackStart; i < n; i++) max = Math.max(max, hi[i]);
-        return max;
-    }
-
     // Only a MEANINGFUL, CLOSE obstacle blocks the trade — a level sitting
-    // right next to TP itself is not treated as blocking.
+    // right next to TP itself is not treated as blocking. Unrelated to the SL
+    // anchor mechanism; this checks the 15M price structure for TP room.
     private static boolean tpBlockedByLevel(boolean isLong, double entry, double tp, double[] hi, double[] lo, int lookback) {
         double path = Math.abs(tp - entry);
         double nearThreshold = isLong ? entry + 0.7 * path : entry - 0.7 * path;
@@ -357,7 +334,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static class Setup15Result {
         boolean valid;
         int bullScore, bearScore;
-        double stLower, stUpper;
     }
 
     private static Setup15Result analyzeSetup15M(JSONArray candles) {
@@ -377,9 +353,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         boolean[] stSeries = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
         boolean stGreen = stSeries[stSeries.length - 1];
-        double[] bands = calcSupertrendBands(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
-        r.stLower = bands[0];
-        r.stUpper = bands[1];
 
         double[] ema9Series = calcEMASeries(cl, EMA_FAST);
         int n = ema9Series.length;
@@ -504,18 +477,35 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return out;
     }
 
-    // Shared SL/TP construction from a given anchor level — used both by
-    // the pending-signal path (anchor captured at arm time) and by the
-    // safety sweep / reconstruction path (anchor searched fresh).
-    private static double[] slTpFromLevel(boolean isLong, double entryPrice, double swingLevel,
-                                           double atr, double tickSize, boolean strongTrend) {
-        if (atr <= 0) return null;
-        double sl = isLong ? swingLevel - SL_BUFFER_ATR * atr : swingLevel + SL_BUFFER_ATR * atr;
-        double slDistanceAtr = Math.abs(entryPrice - sl) / atr;
+    // =========================================================================
+    // 1H Supertrend anchor helper — fetches fresh 1H candles and returns the
+    // current lower/upper Supertrend band (index 0 = lower, 1 = upper) plus
+    // the current 1H ATR (index 2). Used both to capture the anchor at arm
+    // time and to re-derive the LIVE band during trailing.
+    // =========================================================================
+    private static double[] get1HSupertrendBandAndAtr(String pair) {
+        JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
+        if (raw1h == null || raw1h.length() < ST_PERIOD + ATR_PERIOD + 2) return null;
+        double[] hi = extractHighs(raw1h);
+        double[] lo = extractLows(raw1h);
+        double[] cl = extractCloses(raw1h);
+        double[] bands = calcSupertrendBands(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
+        double atr1h = calcATR(hi, lo, cl, ATR_PERIOD);
+        return new double[]{bands[0], bands[1], atr1h};
+    }
 
-        if (slDistanceAtr < SL_MIN_DISTANCE_ATR) return null;
-        if (slDistanceAtr > SL_STRONG_MAX_ATR) return null;
-        if (slDistanceAtr > SL_PREFERRED_MAX_ATR && !strongTrend) return null;
+    // Shared SL/TP construction from the 1H Supertrend anchor level. Used by
+    // the pending-signal path (anchor captured at arm time) and by the safety
+    // sweep / reconstruction path (anchor derived fresh).
+    private static double[] slTpFromAnchor(boolean isLong, double entryPrice, double anchorLevel,
+                                            double atr1h, double tickSize, boolean strongTrend) {
+        if (atr1h <= 0) return null;
+        double sl = isLong ? anchorLevel - SL_BUFFER_ATR_1H * atr1h : anchorLevel + SL_BUFFER_ATR_1H * atr1h;
+        double slDistanceAtr1h = Math.abs(entryPrice - sl) / atr1h;
+
+        if (slDistanceAtr1h < SL_MIN_DISTANCE_ATR_1H) return null;
+        if (slDistanceAtr1h > SL_STRONG_MAX_ATR_1H) return null;
+        if (slDistanceAtr1h > SL_PREFERRED_MAX_ATR_1H && !strongTrend) return null;
 
         double rrTarget = strongTrend ? RR_STRONG : RR_DEFAULT;
         double risk = Math.abs(entryPrice - sl);
@@ -523,16 +513,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         sl = roundToTick(sl, tickSize);
         tp = roundToTick(tp, tickSize);
-        return new double[]{sl, tp, slDistanceAtr, rrTarget};
-    }
-
-    // Fresh swing search — only used when there is no captured setup anchor
-    // (safety sweep on an externally/pre-existing position, or a restart).
-    private static double[] computeFreshStructuralSlTp(boolean isLong, double entryPrice,
-                                                         double[] hi5m, double[] lo5m, double atr,
-                                                         double tickSize, boolean strongTrend) {
-        double swingLevel = isLong ? findRecentSwingLow(lo5m, SL_SWING_LOOKBACK) : findRecentSwingHigh(hi5m, SL_SWING_LOOKBACK);
-        return slTpFromLevel(isLong, entryPrice, swingLevel, atr, tickSize, strongTrend);
+        return new double[]{sl, tp, slDistanceAtr1h, rrTarget};
     }
 
     private static double[] sanityClampSlTp(boolean isLong, double entry, double sl, double tp, double tick) {
@@ -557,7 +538,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== Bot starting (trend-continuation + 4-stage trailing + 3-level early exit) ===");
+        System.out.println("=== Bot starting (trend-continuation cascade, SL anchored to 1H Supertrend, live-ST trailing, no early-exit system) ===");
         initInstrumentCache();
 
         while (true) {
@@ -584,7 +565,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         if (active.size() >= MAX_OPEN_POSITIONS) {
             System.out.println("MAX_OPEN_POSITIONS reached — skipping scan.");
-            updateTrailingAndExits();
+            updateTrailing();
             ensureTpSlForOpenPositions();
             return;
         }
@@ -595,9 +576,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (active.contains(pair)) continue;
 
                 long lastTrade = lastTradeTime.getOrDefault(pair, 0L);
-                long lastEarlyExit = earlyExitTime.getOrDefault(pair, 0L);
                 if (System.currentTimeMillis() - lastTrade < SCALP_COOLDOWN_MS) continue;
-                if (System.currentTimeMillis() - lastEarlyExit < EARLY_EXIT_COOLDOWN_MS) continue;
 
                 JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
                 if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + STRUCTURE_SWING_LOOKBACK) continue;
@@ -606,11 +585,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (pending != null) {
                     boolean cancelled = false;
+                    EntryResult quickCheck = null;
                     if (System.currentTimeMillis() - pending.createdAtMs > SIGNAL_MAX_VALID_MS) {
                         System.out.println("  Signal expired (stale setup): " + pair);
                         cancelled = true;
                     } else {
-                        EntryResult quickCheck = analyzeEntry5M(raw5m, pending.isLong);
+                        quickCheck = analyzeEntry5M(raw5m, pending.isLong);
                         if (quickCheck.valid && quickCheck.distanceAtr > OVEREXTENSION_SKIP_ATR) {
                             System.out.println("  Signal cancelled (price overextended "
                                     + String.format("%.2f", quickCheck.distanceAtr) + " ATR): " + pair);
@@ -638,7 +618,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                                     ? currentPrice > pending.confirmHigh
                                     : currentPrice < pending.confirmLow;
                             if (breakoutHit) {
-                                tryEnterOnBreakout(pair, pending, raw5m, currentPrice, active);
+                                // Don't chase — if price has already run well past the
+                                // trigger level by the time we notice, the impulsive
+                                // move is likely spent and entering now buys the top.
+                                double atrNow = (quickCheck != null && quickCheck.valid) ? quickCheck.atr5m : 0;
+                                double chaseDistance = pending.isLong
+                                        ? currentPrice - pending.confirmHigh
+                                        : pending.confirmLow - currentPrice;
+                                if (atrNow > 0 && chaseDistance > BREAKOUT_MAX_CHASE_ATR * atrNow) {
+                                    System.out.println("  Signal cancelled (breakout already ran "
+                                            + String.format("%.2f", chaseDistance / atrNow) + " ATR past trigger — not chasing): " + pair);
+                                    pendingSignals.remove(pair);
+                                } else {
+                                    tryEnterOnBreakout(pair, pending, raw5m, currentPrice, active);
+                                }
                             }
                         }
                         continue;
@@ -683,25 +676,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 if (!entry5m.setupFound) continue;
 
-                // Capture the pullback swing NOW — this is the anchor the SL
-                // will use at breakout, so it never drifts to a newer/farther
-                // swing while the signal is pending.
-                double[] hi5mArm = extractHighs(raw5m);
-                double[] lo5mArm = extractLows(raw5m);
-                double swingLevel = trendUp
-                        ? findRecentSwingLow(lo5mArm, SL_SWING_LOOKBACK)
-                        : findRecentSwingHigh(hi5mArm, SL_SWING_LOOKBACK);
+                // Capture the 1H Supertrend band NOW — this is the anchor the
+                // SL will use at breakout, so it never drifts to a newer band
+                // value while the signal is pending.
+                double[] hi1h = extractHighs(raw1h);
+                double[] lo1h = extractLows(raw1h);
+                double[] cl1h = extractCloses(raw1h);
+                double[] bands1h = calcSupertrendBands(hi1h, lo1h, cl1h, ST_PERIOD, ST_MULTIPLIER);
+                double anchorLevel = trendUp ? bands1h[0] : bands1h[1]; // lower band for long, upper for short
 
                 PendingSignal newSignal = new PendingSignal();
                 newSignal.isLong = trendUp;
                 newSignal.confirmHigh = entry5m.confirmHigh;
                 newSignal.confirmLow  = entry5m.confirmLow;
-                newSignal.setupSwingLevel = swingLevel;
+                newSignal.anchorLevel = anchorLevel;
                 newSignal.strongTrend = (score30 == 6);
                 newSignal.createdAtMs = System.currentTimeMillis();
                 pendingSignals.put(pair, newSignal);
                 System.out.println("  Pending " + (trendUp ? "LONG" : "SHORT") + " signal armed: " + pair
                         + " | 1H=" + (trendUp ? dir1h.bullScore : dir1h.bearScore) + "/6 30M=" + score30 + "/6 15M=" + score15 + "/5"
+                        + " | 1H-ST anchor=" + anchorLevel
                         + " | trigger=" + (trendUp ? ("break " + newSignal.confirmHigh) : ("break " + newSignal.confirmLow))
                         + " | " + entry5m.reason);
 
@@ -711,25 +705,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
 
         System.out.println("\n=== Scan complete ===");
-        updateTrailingAndExits();
+        updateTrailing();
         ensureTpSlForOpenPositions();
     }
 
-    // Handles an armed pending signal's breakout: uses the ANCHOR captured at
-    // arm time (never a newer swing), applies SL distance bands, TP-location
-    // check, sizes the position, places the order, confirms the fill, and
-    // re-derives final SL/TP off the actual fill price (same anchor).
+    // Handles an armed pending signal's breakout: uses the 1H Supertrend
+    // ANCHOR captured at arm time (never a newer band value), applies the
+    // 1H-ATR SL distance bands, the TP-location check, sizes the position,
+    // places the order, confirms the fill, and re-derives final SL/TP off the
+    // actual fill price (same anchor).
     private static void tryEnterOnBreakout(String pair, PendingSignal pending, JSONArray raw5m,
                                             double currentPrice, Set<String> active) {
         try {
             double tickSize = getTickSize(pair);
-            double[] hi5m = extractHighs(raw5m);
-            double[] lo5m = extractLows(raw5m);
-            double atr = calcATR(hi5m, lo5m, extractCloses(raw5m), ATR_PERIOD);
 
-            double[] preSlTp = slTpFromLevel(pending.isLong, currentPrice, pending.setupSwingLevel, atr, tickSize, pending.strongTrend);
+            double[] bandAndAtr = get1HSupertrendBandAndAtr(pair);
+            double atr1h = bandAndAtr != null ? bandAndAtr[2] : 0;
+
+            double[] preSlTp = slTpFromAnchor(pending.isLong, currentPrice, pending.anchorLevel, atr1h, tickSize, pending.strongTrend);
             if (preSlTp == null) {
-                System.out.println("  NO TRADE: " + pair + " — structural SL distance outside acceptable ATR bands (rejected, not tightened)");
+                System.out.println("  NO TRADE: " + pair + " — 1H-Supertrend SL distance outside acceptable ATR bands (rejected, not tightened)");
                 pendingSignals.remove(pair);
                 return;
             }
@@ -760,7 +755,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
             System.out.println("  Order placed! id=" + orderResp.getString("id"));
             lastTradeTime.put(pair, System.currentTimeMillis());
-            double swingAnchor = pending.setupSwingLevel;
+            double anchorLevel = pending.anchorLevel;
             boolean strongTrend = pending.strongTrend;
             boolean isLong = pending.isLong;
             pendingSignals.remove(pair);
@@ -773,13 +768,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-            double[] slTp = slTpFromLevel(isLong, entry, swingAnchor, atr, tickSize, strongTrend);
+            double[] slTp = slTpFromAnchor(isLong, entry, anchorLevel, atr1h, tickSize, strongTrend);
             double slPrice, tpPrice, rrUsed;
             if (slTp == null) {
                 slPrice = isLong ? entry * (1 - SL_HARD_PERCENT_CAP / 100.0) : entry * (1 + SL_HARD_PERCENT_CAP / 100.0);
                 tpPrice = isLong ? entry + RR_DEFAULT * (entry - slPrice) : entry - RR_DEFAULT * (slPrice - entry);
                 rrUsed = RR_DEFAULT;
-                System.out.println("  WARNING: post-fill structural SL rejected — using hard % safety cap instead");
+                System.out.println("  WARNING: post-fill 1H-Supertrend SL rejected — using hard % safety cap instead");
             } else {
                 slPrice = slTp[0]; tpPrice = slTp[1]; rrUsed = slTp[3];
             }
@@ -789,7 +784,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             double risk = Math.abs(entry - slPrice);
             System.out.println("[ENTRY] " + pair + " " + (isLong ? "LONG" : "SHORT")
                     + " Entry=" + entry + " SL=" + slPrice + " TP=" + tpPrice
-                    + " Risk=" + risk + " RR=" + String.format("%.2f", rrUsed));
+                    + " Risk=" + risk + " RR=" + String.format("%.2f", rrUsed)
+                    + " (SL anchor: 1H Supertrend " + anchorLevel + ")");
 
             String posId = getPositionId(pair);
             if (posId != null) {
@@ -818,18 +814,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Trailing + early exit monitor — runs every cycle for every open
-    // position. Priority: early-exit checks first (trend invalidation), then
-    // trailing (profit lock -> ATR trail -> tighter ATR trail), then TP
-    // extension. SL only ever moves in the profitable direction.
+    // Trailing monitor — runs every cycle for every open position. No early
+    // exit system: positions are only ever closed by TP, by SL, or manually.
+    //   STAGE 0: initial SL/TP, no trailing.
+    //   STAGE 1 (>=50% progress): small locked profit (not pure breakeven).
+    //   STAGE 2 (>=70% progress): SL follows the LIVE 1H Supertrend band,
+    //     ratchet-only (never loosens).
+    //   TP extension: past 85% progress, only while the trend is still valid.
     // =========================================================================
-    private static void updateTrailingAndExits() {
+    private static void updateTrailing() {
         Set<String> stillOpen = getActivePositions();
         for (String pair : stillOpen) {
             try {
                 JSONObject pos = findPosition(pair);
                 if (pos == null) continue;
-                double qty = Math.abs(pos.optDouble("active_pos", 0));
 
                 TrailInfo ti = trailState.get(pair);
                 if (ti == null) {
@@ -855,38 +853,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     if (ti.currentSL <= 0 || ti.currentTP <= 0) continue; // let the safety sweep set initial protection first
                 }
 
-                JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
-                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + 5) continue;
-                double[] hi5m = extractHighs(raw5m), lo5m = extractLows(raw5m), cl5m = extractCloses(raw5m);
-                double atr5m = calcATR(hi5m, lo5m, cl5m, ATR_PERIOD);
-                if (atr5m <= 0) continue;
-
-                JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
-                JSONArray raw30m = aggregateCandles(raw5m, GROUP_30M_FROM_5M);
-                JSONArray raw1h  = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
-                ScoredDirection dir1h = analyzeScored6(raw1h);
-
-                // ---- Early exit checks (highest priority) ----
-                boolean warning5m = has5MWarning(raw5m, ti.isLong); // logged only, never acts alone
-                int exit15Score = computeExit15MScore(raw15m, ti.isLong);
-                boolean major30 = isMajorInvalidation30M(raw30m, ti.isLong);
-                boolean reversal1h = dir1h.valid && (ti.isLong ? dir1h.bullScore < MACRO_1H_MIN_SCORE : dir1h.bearScore < MACRO_1H_MIN_SCORE);
-
-                if (warning5m) {
-                    System.out.println("  [5M WARNING] " + pair + " " + (ti.isLong ? "LONG" : "SHORT") + " weak 5M momentum — holding, not acting alone");
-                }
-
-                if (major30 || reversal1h || exit15Score >= EARLY_EXIT_15M_SCORE) {
-                    String tag = (major30 || reversal1h) ? "MAJOR EXIT" : "EARLY EXIT";
-                    String reason = major30 ? "30M trend invalidated" : reversal1h ? "1H macro reversal" : ("15M invalidation score=" + exit15Score + "/4");
-                    System.out.println("  [" + tag + "] " + pair + " " + (ti.isLong ? "LONG" : "SHORT") + " " + reason);
-                    closePositionMarket(pair, ti.isLong, qty);
-                    trailState.remove(pair);
-                    earlyExitTime.put(pair, System.currentTimeMillis());
-                    continue;
-                }
-
-                // ---- Trailing (only if we have a valid initial baseline) ----
                 if (ti.initialTP <= 0 || ti.initialRisk <= 0) continue;
 
                 double currentPrice = getLastPrice(pair);
@@ -897,11 +863,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (tpDistance <= 0) continue;
                 double progress = (ti.isLong ? (currentPrice - ti.entryPrice) : (ti.entryPrice - currentPrice)) / tpDistance;
 
-                int newStage = progress >= TRAIL_STAGE3_TRIGGER ? 3 : progress >= TRAIL_STAGE2_TRIGGER ? 2 : progress >= BREAKEVEN_TRIGGER ? 1 : 0;
+                int newStage = progress >= TRAIL_ACTIVATE_TRIGGER ? 2 : progress >= BREAKEVEN_TRIGGER ? 1 : 0;
                 if (newStage > ti.stage) ti.stage = newStage;
 
                 double tick = getTickSize(pair);
                 double candidateSL = ti.currentSL;
+                boolean changed = false;
 
                 if (ti.stage >= 1) {
                     double lockSL = ti.isLong
@@ -909,21 +876,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                             : ti.entryPrice * (1 - BREAKEVEN_LOCK_PROFIT_PERCENT / 100.0);
                     if (ti.isLong ? lockSL > candidateSL : lockSL < candidateSL) candidateSL = lockSL;
                 }
-                double trailMult = ti.stage >= 3 ? TRAIL_STAGE3_ATR : ti.stage == 2 ? TRAIL_STAGE2_ATR : 0;
-                if (trailMult > 0) {
-                    double atrSL = ti.isLong ? currentPrice - trailMult * atr5m : currentPrice + trailMult * atr5m;
-                    if (ti.isLong ? atrSL > candidateSL : atrSL < candidateSL) candidateSL = atrSL;
+
+                double atr1hForGate = 0;
+                if (ti.stage >= 2) {
+                    // Follow the LIVE 1H Supertrend band — recomputed fresh
+                    // every cycle. This is the whole trailing mechanism now:
+                    // as the trend progresses, the ST band itself steps
+                    // forward, and we simply ratchet our SL to match it.
+                    double[] bandAndAtr = get1HSupertrendBandAndAtr(pair);
+                    if (bandAndAtr != null) {
+                        double liveAnchor = ti.isLong ? bandAndAtr[0] : bandAndAtr[1];
+                        atr1hForGate = bandAndAtr[2];
+                        double liveSL = ti.isLong
+                                ? liveAnchor - SL_BUFFER_ATR_1H * atr1hForGate
+                                : liveAnchor + SL_BUFFER_ATR_1H * atr1hForGate;
+                        if (ti.isLong ? liveSL > candidateSL : liveSL < candidateSL) candidateSL = liveSL;
+                    }
                 }
 
-                boolean changed = false;
-                double minImprovement = Math.max(MIN_SL_IMPROVEMENT_ATR * atr5m, tick);
+                double minImprovement = Math.max(MIN_SL_IMPROVEMENT_ATR_1H * atr1hForGate, tick);
                 boolean meaningfulImprovement = ti.isLong
                         ? (candidateSL - ti.currentSL) >= minImprovement
                         : (ti.currentSL - candidateSL) >= minImprovement;
 
                 if (meaningfulImprovement) {
                     candidateSL = roundToTick(candidateSL, tick);
-                    // Never move SL backward — ratchet-only.
                     if (ti.isLong ? candidateSL > ti.currentSL : candidateSL < ti.currentSL) {
                         System.out.printf("  [TRAIL] %s %s progress=%.0f%% SL moved %.6f -> %.6f%n",
                                 pair, ti.isLong ? "LONG" : "SHORT", progress * 100, ti.currentSL, candidateSL);
@@ -934,19 +911,27 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     }
                 }
 
-                // ---- TP extension (only past stage 3, trend still valid) ----
-                if (ti.stage >= 3 && ti.extensionsUsed < MAX_TP_EXTENSIONS) {
-                    boolean trendValid = checkTrendStillValid(ti.isLong, dir1h, raw30m, raw15m);
-                    if (trendValid) {
-                        double newTP = ti.isLong ? currentPrice + atr5m * TP_EXTENSION_ATR : currentPrice - atr5m * TP_EXTENSION_ATR;
-                        newTP = roundToTick(newTP, tick);
-                        if (ti.isLong ? newTP > ti.currentTP : newTP < ti.currentTP) {
-                            System.out.println("  [TP EXTENSION] " + pair + " " + (ti.isLong ? "LONG" : "SHORT")
-                                    + " TP " + ti.currentTP + " -> " + newTP
-                                    + " Extension " + (ti.extensionsUsed + 1) + "/" + MAX_TP_EXTENSIONS);
-                            ti.currentTP = newTP;
-                            ti.extensionsUsed++;
-                            changed = true;
+                // ---- TP extension (only past 85% progress, trend still valid) ----
+                if (progress >= TP_EXTENSION_TRIGGER && ti.extensionsUsed < MAX_TP_EXTENSIONS) {
+                    JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
+                    if (raw5m != null && raw5m.length() >= EMA_MID + ST_PERIOD + 5) {
+                        double atr5m = calcATR(extractHighs(raw5m), extractLows(raw5m), extractCloses(raw5m), ATR_PERIOD);
+                        JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
+                        JSONArray raw30m = aggregateCandles(raw5m, GROUP_30M_FROM_5M);
+                        JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
+                        ScoredDirection dir1h = analyzeScored6(raw1h);
+                        boolean trendValid = checkTrendStillValid(ti.isLong, dir1h, raw30m, raw15m);
+                        if (trendValid && atr5m > 0) {
+                            double newTP = ti.isLong ? currentPrice + atr5m * TP_EXTENSION_ATR : currentPrice - atr5m * TP_EXTENSION_ATR;
+                            newTP = roundToTick(newTP, tick);
+                            if (ti.isLong ? newTP > ti.currentTP : newTP < ti.currentTP) {
+                                System.out.println("  [TP EXTENSION] " + pair + " " + (ti.isLong ? "LONG" : "SHORT")
+                                        + " TP " + ti.currentTP + " -> " + newTP
+                                        + " Extension " + (ti.extensionsUsed + 1) + "/" + MAX_TP_EXTENSIONS);
+                                ti.currentTP = newTP;
+                                ti.extensionsUsed++;
+                                changed = true;
+                            }
                         }
                     }
                 }
@@ -956,7 +941,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     if (posId != null) setTpSlWithRetry(posId, ti.currentTP, ti.currentSL, pair);
                 }
             } catch (Exception e) {
-                System.err.println("updateTrailingAndExits(" + pair + "): " + e.getMessage());
+                System.err.println("updateTrailing(" + pair + "): " + e.getMessage());
             }
         }
     }
@@ -979,89 +964,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return true;
     }
 
-    // Section 30 — 5M warning only. Never acts alone.
-    private static boolean has5MWarning(JSONArray raw5m, boolean isLong) {
-        if (raw5m == null || raw5m.length() < EMA_MID + 5) return false;
-        double[] cl = extractCloses(raw5m);
-        double ema9 = calcEMA(cl, EMA_FAST);
-        double price = cl[cl.length - 1];
-        return isLong ? price < ema9 : price > ema9;
-    }
-
-    // Section 31 — simple 15M exit score, out of 4. >=2 triggers exit.
-    private static int computeExit15MScore(JSONArray candles15m, boolean isLong) {
-        if (candles15m == null || candles15m.length() < EMA_MID + ST_PERIOD) return 0;
-        double[] cl = extractCloses(candles15m);
-        double[] hi = extractHighs(candles15m);
-        double[] lo = extractLows(candles15m);
-        double ema9 = calcEMA(cl, EMA_FAST);
-        double ema21 = calcEMA(cl, EMA_MID);
-        double price = cl[cl.length - 1];
-        boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
-        boolean stGreen = st[st.length - 1];
-        int structure = detectSwingStructure(hi, lo, STRUCTURE_SWING_LOOKBACK);
-
-        int score = 0;
-        if (isLong) {
-            if (price < ema9) score++;
-            if (ema9 < ema21) score++;
-            if (!stGreen) score++;
-            if (structure == -1) score++;
-        } else {
-            if (price > ema9) score++;
-            if (ema9 > ema21) score++;
-            if (stGreen) score++;
-            if (structure == 1) score++;
-        }
-        return score;
-    }
-
-    // Section 32 — 30M major invalidation: Supertrend AND EMA cross both flip.
-    private static boolean isMajorInvalidation30M(JSONArray candles30m, boolean isLong) {
-        if (candles30m == null || candles30m.length() < EMA_MID + ST_PERIOD) return false;
-        double[] cl = extractCloses(candles30m);
-        double[] hi = extractHighs(candles30m);
-        double[] lo = extractLows(candles30m);
-        double ema9 = calcEMA(cl, EMA_FAST);
-        double ema21 = calcEMA(cl, EMA_MID);
-        boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
-        boolean stGreen = st[st.length - 1];
-        if (isLong) return !stGreen && ema9 < ema21;
-        else return stGreen && ema9 > ema21;
-    }
-
-    // Closes an open position with a market order. NOTE: CoinDCX's exact
-    // reduce-only field for market orders is not verified here — this sends
-    // an opposite-side market order sized to the exact open quantity fetched
-    // from the position endpoint. Confirm behavior in a test/paper account
-    // before relying on this in size.
-    private static void closePositionMarket(String pair, boolean wasLong, double qty) {
-        try {
-            String side = wasLong ? "sell" : "buy";
-            JSONObject order = new JSONObject();
-            order.put("side", side);
-            order.put("pair", pair);
-            order.put("order_type", "market_order");
-            order.put("total_quantity", qty);
-            order.put("leverage", LEVERAGE);
-            order.put("notification", "email_notification");
-            order.put("time_in_force", "good_till_cancel");
-            order.put("hidden", false);
-            order.put("post_only", false);
-            order.put("position_margin_type", "isolated");
-            order.put("margin_currency_short_name", "INR");
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("order", order);
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/create", body.toString());
-            System.out.println("  [CLOSE] " + pair + " market close response: " + resp);
-        } catch (Exception e) {
-            System.err.println("closePositionMarket(" + pair + "): " + e.getMessage());
-        }
-    }
-
-    // Section 39/40 — never overwrite an existing better (possibly trailed)
-    // SL/TP. Only fills in whichever side is genuinely missing.
+    // Never overwrite an existing better (possibly trailed) SL/TP. Only fills
+    // in whichever side is genuinely missing.
     private static void ensureTpSlForOpenPositions() {
         try {
             Set<String> stillOpen = getActivePositions();
@@ -1083,19 +987,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (ti != null && ti.currentSL > 0 && ti.currentTP > 0) {
                     sl = ti.currentSL; tp = ti.currentTP; // trust our own tracked (possibly trailed) values
                 } else {
-                    JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
-                    double[] hi5m = null, lo5m = null; double atr5m = 0;
-                    if (raw5m != null && raw5m.length() >= ATR_PERIOD + SL_SWING_LOOKBACK) {
-                        hi5m = extractHighs(raw5m); lo5m = extractLows(raw5m);
-                        atr5m = calcATR(hi5m, lo5m, extractCloses(raw5m), ATR_PERIOD);
-                    }
-                    double[] slTp = (hi5m != null && atr5m > 0)
-                            ? computeFreshStructuralSlTp(isLong, avgPrice, hi5m, lo5m, atr5m, tick, false)
+                    double[] bandAndAtr = get1HSupertrendBandAndAtr(pair);
+                    double[] slTp = bandAndAtr != null
+                            ? slTpFromAnchor(isLong, avgPrice, isLong ? bandAndAtr[0] : bandAndAtr[1], bandAndAtr[2], tick, false)
                             : null;
                     if (slTp == null) {
                         sl = isLong ? avgPrice * (1 - SL_HARD_PERCENT_CAP / 100.0) : avgPrice * (1 + SL_HARD_PERCENT_CAP / 100.0);
                         tp = isLong ? avgPrice + RR_DEFAULT * (avgPrice - sl) : avgPrice - RR_DEFAULT * (sl - avgPrice);
-                        System.out.println("  [SWEEP] structural SL unavailable for " + pair + " — using hard % fallback cap");
+                        System.out.println("  [SWEEP] 1H-Supertrend SL unavailable/rejected for " + pair + " — using hard % fallback cap");
                     } else {
                         sl = slTp[0]; tp = slTp[1];
                     }
