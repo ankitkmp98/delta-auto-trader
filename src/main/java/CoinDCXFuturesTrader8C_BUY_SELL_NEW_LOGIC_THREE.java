@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 4;
+    private static final int LEVERAGE = 6;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -105,10 +105,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Structural SL: anchored to the pullback swing captured when the signal
     // was ARMED (not re-searched at breakout time), + ATR buffer.
     // =========================================================================
-    private static final double SL_BUFFER_ATR        = 0.65;
-    private static final double SL_MIN_DISTANCE_ATR  = 1.0;  // tighter -> SKIP (noise risk)
-    private static final double SL_PREFERRED_MAX_ATR = 2.5;  // up to here: GOOD
-    private static final double SL_STRONG_MAX_ATR    = 3.0;  // 2.5-3.0 only for strong setups
+    private static final double SL_BUFFER_ATR        = 1.0;
+    private static final double SL_MIN_DISTANCE_ATR  = 1.5;  // tighter -> SKIP (noise risk)
+    private static final double SL_PREFERRED_MAX_ATR = 3.0;  // up to here: GOOD
+    private static final double SL_STRONG_MAX_ATR    = 4.0;  // wider band only for strong setups
     private static final double SL_HARD_PERCENT_CAP  = 5.0;  // safety-net fallback ONLY
 
     // =========================================================================
