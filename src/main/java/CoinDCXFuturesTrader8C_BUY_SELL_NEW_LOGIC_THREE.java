@@ -107,7 +107,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SECTION 15 — fixed TP, RR = 2.0. Calculated once from the ACTUAL entry
     // and ACTUAL SL, then never touched again.
     // =========================================================================
-    private static final double TARGET_RR = 2.0;
+    private static final double TARGET_RR = 0.6;
 
     // =========================================================================
     // SECTION 19/20 — duplicate-position protection & cooldown.
