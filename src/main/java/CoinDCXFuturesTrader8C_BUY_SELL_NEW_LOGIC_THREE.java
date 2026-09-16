@@ -333,8 +333,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SECTION 3/4 — fixed margin position sizing.
     // =========================================================================
     private static double calcFixedQuantity(double entryPrice, String pair) {
-        double positionNotionalUsdt = FIXED_MARGIN / 98.0 * LEVERAGE; // FIXED_MARGIN is in INR; convert via approx USDT/INR rate
-        double qty = positionNotionalUsdt / entryPrice;
+        double usdtInrRate = 98.0;
+        double qty = FIXED_MARGIN / (entryPrice * usdtInrRate);
         double finalQty = INTEGER_QTY_PAIRS.contains(pair) ? Math.floor(qty) : Math.floor(qty * 100) / 100.0;
         return Math.max(finalQty, 0);
     }
@@ -461,13 +461,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double slPrice = slTp[0], tpPrice = slTp[1], slPercent = slTp[2];
 
                 double risk = Math.abs(entry - slPrice);
-                double positionNotional = (FIXED_MARGIN / 98.0) * LEVERAGE * 98.0; // INR notional, for logging
+                double positionValueInr = qty * entry * 98.0; // approx INR value at entry, for logging only
                 System.out.println("[ENTRY] " + pair);
                 System.out.println("  Side=" + (trendUp ? "LONG" : "SHORT"));
                 System.out.printf("  Entry=%.6f SL=%.6f TP=%.6f%n", entry, slPrice, tpPrice);
                 System.out.printf("  Risk=%.6f RR=%.2f SL%%=%.2f%n", risk, TARGET_RR, slPercent);
-                System.out.printf("  Fixed Margin=%.2f Leverage=%dx PositionNotional~=%.2f Quantity=%.4f%n",
-                        FIXED_MARGIN, LEVERAGE, positionNotional, qty);
+                System.out.printf("  Fixed Margin=%.2f Leverage=%dx PositionValue~=%.2f Quantity=%.4f%n",
+                        FIXED_MARGIN, LEVERAGE, positionValueInr, qty);
 
                 String posId = getPositionId(pair);
                 if (posId != null) {
