@@ -115,8 +115,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // RR-based TP. Kept simple: 1.5R for all valid setups. 1.8R is an
     // OPTIONAL upgrade only for an exceptionally clean 30M=6/6 setup.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.5;
-    private static final double RR_STRONG  = 1.8;
+    private static final double RR_DEFAULT = 1.2;
+    private static final double RR_STRONG  = 1.5;
 
     // =========================================================================
     // Trailing system — 4 stages, driven by progress toward the ORIGINAL
