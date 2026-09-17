@@ -96,7 +96,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // so think of this as a ceiling / aspirational target for a runaway trend,
     // not a realistic average outcome.
     // =========================================================================
-    private static final double TARGET_RR = 6.0; // was 2.0 — tune this for how "high" you want the ceiling
+    private static final double TARGET_RR = 3.0; // was 2.0 — tune this for how "high" you want the ceiling
 
     // =========================================================================
     // NEW — staged trailing system (reintroduced), driven by progress toward
