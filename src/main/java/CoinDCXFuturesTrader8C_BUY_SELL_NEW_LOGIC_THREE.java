@@ -49,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SECTION 3/24 — capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 600.0; // INR margin allocated per trade — never adjusted for SL distance
-    private static final int    LEVERAGE     = 3;
+    private static final int    LEVERAGE     = 5;
 
     // =========================================================================
     // SECTION 2/24 — indicators. 4H uses EMA50/EMA200/Supertrend for the
@@ -100,14 +100,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SECTION 11-14 — fixed structural SL.
     // =========================================================================
     private static final int    SWING_LOOKBACK = 10; // simple lowest-low / highest-high over this many 1H bars
-    private static final double SL_ATR_BUFFER  = 0.25;
-    private static final double MAX_SL_PERCENT = 5.0; // reject (skip), never tighten
+    private static final double SL_ATR_BUFFER  = 0.3;
+    private static final double MAX_SL_PERCENT = 4.0; // reject (skip), never tighten
 
     // =========================================================================
     // SECTION 15 — fixed TP, RR = 2.0. Calculated once from the ACTUAL entry
     // and ACTUAL SL, then never touched again.
     // =========================================================================
-    private static final double TARGET_RR = 1.2;
+    private static final double TARGET_RR = 2.0;
 
     // =========================================================================
     // SECTION 19/20 — duplicate-position protection & cooldown.
