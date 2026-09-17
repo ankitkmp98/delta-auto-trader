@@ -109,8 +109,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // the swing/ATR estimate lands.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.15; // small buffer off the swing (tighter than before)
-    private static final double SL_MIN_PERCENT  = 0.9;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 1.2;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT  = 0.3;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 0.5;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 5.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // =========================================================================
