@@ -124,9 +124,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // reflect real structure.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
-    private static final double SL_MIN_PERCENT  = 0.9;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 1.2;  // SL can never be wider than this — "very very small" SL, tune here
-    private static final double SL_HARD_PERCENT_CAP  = 5.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
+    private static final double SL_MIN_PERCENT  = 4.0;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 6.0;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_HARD_PERCENT_CAP  = 6.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
     // many ATRs, the entry location is treated as poor and the trade is
@@ -147,8 +147,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // this stays meaningful even once TP gets extended, and is the more
     // standard/readable way to reason about trade progress.
     // =========================================================================
-    private static final double BREAKEVEN_TRIGGER_R    = 0.50; // R
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.10; // %
+    private static final double BREAKEVEN_TRIGGER_R    = 0.60; // R
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.15; // %
     private static final double TRAIL_STAGE2_TRIGGER_R = 0.75; // R — structure+ATR hybrid trail begins
     private static final double TRAIL_STAGE2_ATR        = 1.75;
     private static final double TRAIL_STAGE3_TRIGGER_R = 1.00; // R — tighter hybrid trail
