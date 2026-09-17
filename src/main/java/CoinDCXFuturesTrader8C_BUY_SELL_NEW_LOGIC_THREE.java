@@ -118,8 +118,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.2;  // was 1.5 — tune this for how "high" you want the ceiling
-    private static final double RR_STRONG  = 1.5; // used only for a clean 30M=6/6 setup — was 1.8
+    private static final double RR_DEFAULT = 1.5;  // was 1.5 — tune this for how "high" you want the ceiling
+    private static final double RR_STRONG  = 2.0; // used only for a clean 30M=6/6 setup — was 1.8
 
     // =========================================================================
     // Trailing system — 4 stages, driven by progress toward the ORIGINAL
