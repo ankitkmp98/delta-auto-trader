@@ -87,8 +87,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final int    SWING_LOOKBACK = 10;
     private static final double SL_ATR_BUFFER  = 0.15; // tighter buffer than before (was 0.25)
-    private static final double SL_MIN_PERCENT = 0.5;  // SL can never be tighter than this (tick-noise floor)
-    private static final double SL_MAX_PERCENT = 1.5;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT = 0.6;  // SL can never be tighter than this (tick-noise floor)
+    private static final double SL_MAX_PERCENT = 0.9;  // SL can never be wider than this — "very very small" SL, tune here
 
     // =========================================================================
     // NEW — TP starts as a very high RR target. In practice, most trades will
