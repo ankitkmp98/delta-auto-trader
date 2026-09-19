@@ -214,10 +214,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // account (3000rs total, 120rs margin per trade is the most he wants to
     // commit to any one position).
     // =========================================================================
-    private static final double ACCOUNT_BALANCE          = 3000.0; // Ankit's total account balance (INR)
-    private static final double RISK_PER_TRADE_PERCENT    = 1.0;    // risk 1% of account (~30rs) per trade
+    private static final double ACCOUNT_BALANCE          = 2000.0; // Ankit's total account balance (INR)
+    private static final double RISK_PER_TRADE_PERCENT    = 2.0;    // risk 1% of account (~30rs) per trade
     private static final double MAX_MARGIN_CAP            = 1200.0; // hard notional ceiling — same value as the old MAX_MARGIN, now a SAFETY CAP rather than the sizing method itself (≈120rs margin @10x leverage)
-    private static final double USDT_INR_RATE             = 98.0;   // moved out of calcQuantity so both the risk and cap terms use the same rate
+    private static final double USDT_INR_RATE             = 102.0;   // moved out of calcQuantity so both the risk and cap terms use the same rate
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
