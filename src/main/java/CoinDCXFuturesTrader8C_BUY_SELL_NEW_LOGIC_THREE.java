@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 11;
+    private static final int LEVERAGE = 5;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -218,8 +218,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // reflect real structure.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
-    private static final double SL_MIN_PERCENT  = 2.0;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 3.0;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT  = 8.0;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 9.0;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 6.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -232,8 +232,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.0;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
-    private static final double RR_STRONG  = 1.5;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
+    private static final double RR_STRONG  = 1.8;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
 
     // =========================================================================
     // Trailing system — 4 stages. Staging is now measured in R-multiples
@@ -296,7 +296,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //       hybrid trail, no TP extension). Early-exit and partial booking
     //       still work independently of this switch.
     // =========================================================================
-    private static final boolean RISK_BASED_SIZING_ENABLED = true;
+    private static final boolean RISK_BASED_SIZING_ENABLED = false;
     private static final boolean TRAILING_ENABLED          = true;
 
     // =========================================================================
