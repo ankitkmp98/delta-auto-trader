@@ -218,8 +218,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // reflect real structure.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
-    private static final double SL_MIN_PERCENT  = 1.5;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 2.0;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT  = 4.0;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 6.0;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 6.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -232,8 +232,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.2;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
-    private static final double RR_STRONG  = 1.5;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
+    private static final double RR_STRONG  = 1.8;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
 
     // =========================================================================
     // Trailing system — 4 stages. Staging is now measured in R-multiples
@@ -1078,22 +1078,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 PendingSignal newSignal = new PendingSignal();
                 newSignal.isLong = trendUp;
-                // CHANGED — breakout level now comes from the 3M trigger candle
-                // (tight, fast) instead of the old 5M signal candle (far/laggy).
                 newSignal.confirmHigh = trig3m.confirmHigh;
                 newSignal.confirmLow  = trig3m.confirmLow;
                 newSignal.setupSwingLevel = swingLevel;
                 newSignal.strongTrend = (trendUp ? dir30.bullScore : dir30.bearScore) == 4; // clean 4/4 30M read
                 newSignal.createdAtMs = System.currentTimeMillis();
-                pendingSignals.put(pair, newSignal);
 
                 System.out.println("  [ACCEPT] " + pair
                         + "\n    30M: Direction=" + (trendUp ? "LONG" : "SHORT") + " Signals=" + (trendUp ? dir30.bullScore : dir30.bearScore) + "/4"
                         + "\n    15M: Confirmation=PASS Signals=" + (trendUp ? dir15.bullScore : dir15.bearScore) + "/3"
                         + "\n    5M: " + entry5m.reason
                         + "\n    3M: " + trig3m.reason
-                        + "\n    FINAL: " + (trendUp ? "LONG" : "SHORT") + " ENTRY ARMED (breakout trigger="
+                        + "\n    FINAL: " + (trendUp ? "LONG" : "SHORT") + " ENTRY TRIGGERED (3M already broke "
                         + (trendUp ? newSignal.confirmHigh : newSignal.confirmLow) + ")");
+
+                // CHANGED — BUG FIX: analyzeTrigger3M() already confirmed the
+                // breakout happened INSIDE the just-closed 3M candle
+                // (lastClose > recentHigh/recentLow). Arming a pending signal
+                // with confirmHigh/confirmLow = that SAME candle's own
+                // high/low and then waiting for price to exceed it again was
+                // asking for a SECOND, tighter breakout on top of the one
+                // that already occurred — exactly the "wait for another
+                // breakout" delay the new architecture was meant to remove.
+                // Since 3M is the actual execution trigger, entry happens
+                // immediately here instead of going through the pending/wait
+                // mechanism at all.
+                double currentPriceNow = getLastPrice(pair);
+                if (currentPriceNow > 0) {
+                    tryEnterOnBreakout(pair, newSignal, raw5m, currentPriceNow, active);
+                } else {
+                    // Live price fetch failed this cycle — fall back to the
+                    // old arm-and-wait path so the setup isn't lost outright;
+                    // SIGNAL_MAX_VALID_MS still bounds how stale it can get.
+                    pendingSignals.put(pair, newSignal);
+                }
 
             } catch (Exception e) {
                 System.err.println("Error on " + pair + ": " + e.getMessage());
