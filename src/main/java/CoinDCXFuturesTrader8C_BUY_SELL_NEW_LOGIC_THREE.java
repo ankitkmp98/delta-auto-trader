@@ -232,8 +232,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
-    private static final double RR_STRONG  = 1.8;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.2;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
+    private static final double RR_STRONG  = 1.5;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
 
     // =========================================================================
     // Trailing system — 4 stages. Staging is now measured in R-multiples
