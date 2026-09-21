@@ -218,8 +218,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // reflect real structure.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
-    private static final double SL_MIN_PERCENT  = 3.0;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 5.0;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT  = 4.0;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 6.0;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 3.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
