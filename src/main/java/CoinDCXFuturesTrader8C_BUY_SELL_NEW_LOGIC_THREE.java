@@ -37,7 +37,7 @@ import java.util.stream.Stream;
  * architecture.
  * =============================================================================
  */
-public class CoinDCXFuturesScalper {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // API Configuration (unchanged from existing bot)
