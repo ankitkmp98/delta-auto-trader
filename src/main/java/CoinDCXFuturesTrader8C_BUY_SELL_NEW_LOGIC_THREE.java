@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 210;
+    private static final int MAX_OPEN_POSITIONS = 6;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -219,7 +219,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
     private static final double SL_MIN_PERCENT  = 1.5;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 1.8;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MAX_PERCENT  = 2.5;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 6.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -232,8 +232,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.2;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
-    private static final double RR_STRONG  = 1.5;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 1.2 — average RR with partial booking was landing near ~0.9R after fees, this gives more room
+    private static final double RR_STRONG  = 2.0;  // CHANGED: was 1.5 — used only for a clean 30M=6/6 setup
 
     // =========================================================================
     // Trailing system — 4 stages. Staging is now measured in R-multiples
