@@ -47,7 +47,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 5;
+    private static final int LEVERAGE = 25;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -85,13 +85,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // Safety floor/ceiling so a freak ATR spike can't produce a silly SL —
     // this does NOT replace the SuperTrend-based SL, it only guards it.
-    private static final double SL_MIN_PERCENT = 8.0; // never tighter than this
-    private static final double SL_MAX_PERCENT = 10.0;  // never wider than this
+    private static final double SL_MIN_PERCENT = 1.2; // never tighter than this
+    private static final double SL_MAX_PERCENT = 1.5;  // never wider than this
 
     // =========================================================================
     // TP: fixed Risk:Reward multiple off the SL distance. Configurable.
     // =========================================================================
-    private static final double RR_TARGET = 1.5; // 1.5R initially; try 1.75/2.0 later
+    private static final double RR_TARGET = 0.4; // 1.5R initially; try 1.75/2.0 later
 
     // =========================================================================
     // Fixed-margin sizing (unchanged behaviour from the existing bot) — SL
