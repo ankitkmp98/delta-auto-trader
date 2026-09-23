@@ -57,7 +57,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 420;
+    private static final int MAX_OPEN_POSITIONS = 6;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -91,14 +91,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // TP: fixed Risk:Reward multiple off the SL distance. Configurable.
     // =========================================================================
-    private static final double RR_TARGET = 1.5; // 1.5R initially; try 1.75/2.0 later
+    private static final double RR_TARGET = 0.9; // 1.5R initially; try 1.75/2.0 later
 
     // =========================================================================
     // Fixed-margin sizing (unchanged behaviour from the existing bot) — SL
     // distance does NOT affect position size, every trade uses the same
     // notional cap.
     // =========================================================================
-    private static final double MAX_MARGIN_CAP = 1200.0; // INR notional cap per trade @ leverage
+    private static final double MAX_MARGIN_CAP = 2000.0; // INR notional cap per trade @ leverage
     private static final double USDT_INR_RATE  = 102.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
