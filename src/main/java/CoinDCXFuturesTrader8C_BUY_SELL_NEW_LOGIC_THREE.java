@@ -91,7 +91,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // TP: fixed Risk:Reward multiple off the SL distance. Configurable.
     // =========================================================================
-    private static final double RR_TARGET = 0.6; // 1.5R initially; try 1.75/2.0 later
+    private static final double RR_TARGET = 0.9; // 1.5R initially; try 1.75/2.0 later
 
     // =========================================================================
     // Fixed-margin sizing (unchanged behaviour from the existing bot) — SL
