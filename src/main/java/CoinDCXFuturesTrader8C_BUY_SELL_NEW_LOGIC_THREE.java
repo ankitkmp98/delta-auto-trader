@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // losses are cut early by early-exit and some reversals are caught by
     // the profit lock).
     // =========================================================================
-    private static final double RR_DEFAULT = 4.0;
-    private static final double RR_STRONG  = 6.0;
+    private static final double RR_DEFAULT = 3.0;
+    private static final double RR_STRONG  = 4.0;
 
     // tpBlockedByLevel() checks for resistance/support up to 70% of the path
     // to a target of TP_BLOCK_CHECK_R x risk. Kept equal to RR_DEFAULT so the
@@ -207,7 +207,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //       trade (no lock, no trail, no TP extension).
     // =========================================================================
     private static final boolean RISK_BASED_SIZING_ENABLED = false;
-    private static final boolean TRAILING_ENABLED          = true;
+    private static final boolean TRAILING_ENABLED          = false;
 
     // =========================================================================
     // Position sizing. Risk-based (account risk %) when enabled, always
