@@ -134,8 +134,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 4.0;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 6.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_MIN_PERCENT  = 2.0;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 3.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
     private static final double SL_HARD_PERCENT_CAP  = 8.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
     //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 2.0;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 0.60;  // CHANGED: was 0.75
+    private static final double RR_STRONG  = 0.75;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
 
     // NEW (v2): tpBlockedByLevel() used to check for resistance/support
     // along 70% of the path to TP. With TP now at 3R that would block almost
@@ -182,7 +182,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // PARTIAL_BOOKING_CLOSE_FRACTION of the position at market, and let the
     // remaining quantity keep running under the trailing/TP system.
     // =========================================================================
-    private static final boolean PARTIAL_BOOKING_ENABLED = true;
+    private static final boolean PARTIAL_BOOKING_ENABLED = false;
     private static final double  PARTIAL_BOOKING_TRIGGER_R      = 0.90;
     private static final double  PARTIAL_BOOKING_CLOSE_FRACTION = 0.33;
 
