@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -36,7 +38,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 120;
+    private static final int MAX_OPEN_POSITIONS = 4; // FINAL: was 120 — altcoins move together, cap simultaneous risk
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -134,9 +136,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 2.0;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 3.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
-    private static final double SL_HARD_PERCENT_CAP  = 8.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
+    private static final double SL_MIN_PERCENT  = 1.0;  // FINAL: noise/fee floor — tighter structural SLs are widened to this
+    private static final double SL_MAX_PERCENT  = 2.5;  // FINAL: raw structure farther than this -> trade SKIPPED
+    private static final double SL_HARD_PERCENT_CAP  = 3.0;  // FINAL: fallback ONLY (ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
     // many ATRs, the entry location is treated as poor and the trade is
@@ -144,35 +146,36 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
     // =========================================================================
-    // RR-based TP. CHANGED (v2): TP is now a far CEILING, not the normal exit.
-    // Previously RR_DEFAULT = 0.75 meant the exchange TP closed the FULL
-    // position at 0.75R — before partial booking (0.9R), stage-2 (1R),
-    // stage-3 (2R) or TP extension could ever trigger. Those features were
-    // effectively dead code. With TP at 3R/4R, the full lifecycle runs:
-    //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
-    //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
+    // RR-based TP (FINAL). TP is a real, fixed 1R target (1.5R for a clean
+    // 30M=6/6 setup). With a structural SL, 1R is a realistic 5M-breakout
+    // target and needs only ~50% win rate to break even (less, since some
+    // losses are cut early by early-exit and some reversals are caught by
+    // the profit lock).
     // =========================================================================
-    private static final double RR_DEFAULT = 0.60;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 0.75;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.0;
+    private static final double RR_STRONG  = 1.5;
 
-    // NEW (v2): tpBlockedByLevel() used to check for resistance/support
-    // along 70% of the path to TP. With TP now at 3R that would block almost
-    // every trade. The check now uses a fixed virtual target of
-    // TP_BLOCK_CHECK_R x risk, so (x 0.7 inside the check) it looks for
-    // obstacles up to ~0.9R — i.e. up to the partial-booking zone.
-    private static final double TP_BLOCK_CHECK_R = 1.3;
+    // tpBlockedByLevel() checks for resistance/support up to 70% of the path
+    // to a target of TP_BLOCK_CHECK_R x risk. Kept equal to RR_DEFAULT so the
+    // check covers the path to the real TP (~0.7R).
+    private static final double TP_BLOCK_CHECK_R = 1.0;
 
     // =========================================================================
-    // Trailing system — 4 stages, measured in R-multiples
-    // (move-in-favor / initialRisk).
+    // Protection (FINAL): ONLY the R-based profit lock is active.
+    //   - At BREAKEVEN_TRIGGER_R the SL moves into profit and keeps locking
+    //     BREAKEVEN_LOCK_R_FRACTION of the move as price advances.
+    //   - Stage 2/3 (5M-ATR hybrid trail) and TP extension are effectively
+    //     DISABLED by setting their triggers to 99R: a 5M-ATR trail is on a
+    //     much smaller scale than the trade and was getting hit by normal
+    //     pullbacks.
     // =========================================================================
     private static final double BREAKEVEN_TRIGGER_R    = 0.60; // R
     // Lock is a FRACTION of the move already made (moveInFavor), so it grows
     // every cycle the position stays in stage>=1.
     private static final double BREAKEVEN_LOCK_R_FRACTION = 0.35; // lock 35% of the move-in-favor as profit
-    private static final double TRAIL_STAGE2_TRIGGER_R = 1.00;
+    private static final double TRAIL_STAGE2_TRIGGER_R = 99.0; // FINAL: disabled
     private static final double TRAIL_STAGE2_ATR        = 2.00;
-    private static final double TRAIL_STAGE3_TRIGGER_R = 2.00;
+    private static final double TRAIL_STAGE3_TRIGGER_R = 99.0; // FINAL: disabled (also disables TP extension)
     private static final double TRAIL_STAGE3_ATR        = 1.50;
     private static final double MIN_SL_IMPROVEMENT_ATR  = 0.10; // don't spam the API on tiny moves
 
@@ -182,7 +185,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // PARTIAL_BOOKING_CLOSE_FRACTION of the position at market, and let the
     // remaining quantity keep running under the trailing/TP system.
     // =========================================================================
-    private static final boolean PARTIAL_BOOKING_ENABLED = false;
+    private static final boolean PARTIAL_BOOKING_ENABLED = false; // FINAL: off — keep exits simple (TP / lock / early-exit / SL)
     private static final double  PARTIAL_BOOKING_TRIGGER_R      = 0.90;
     private static final double  PARTIAL_BOOKING_CLOSE_FRACTION = 0.33;
 
@@ -208,7 +211,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Position sizing. Risk-based (account risk %) when enabled, always
-    // hard-capped at MAX_MARGIN_CAP notional (~100rs margin @12x leverage).
+    // hard-capped at MAX_MARGIN_CAP notional (~120rs margin @10x leverage).
+    // With SL <= 2.5% the cap always binds, so risk-based sizing is left OFF:
+    // loss per full-SL trade = SL% x 1200 = roughly 12-30rs.
     // =========================================================================
     private static final double ACCOUNT_BALANCE          = 2000.0; // total account balance (INR)
     private static final double RISK_PER_TRADE_PERCENT    = 2.0;    // risk 2% of account (~40rs) per trade
@@ -219,6 +224,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long SCALP_COOLDOWN_MS            = 15 * 60 * 1000L;
     private static final long SCALP_ENTRY_SCAN_INTERVAL_MS = 20 * 1000L;
+    // FINAL: open positions (early exit + profit lock) are monitored on their
+    // own thread at this interval, independent of the slow ~450-coin entry scan.
+    private static final long POSITION_MONITOR_INTERVAL_SEC = 20L;
 
     private static class PendingSignal {
         boolean isLong;
@@ -290,6 +298,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         "COW","0G","IOTA","SNX","DYDX","WLD","1000SATS","ONDO","AEVO","BRETT","LAYER","CRV","TLM","KOMA"
     };
 
+    // KNOWN LIMITATION: every symbol is in this set, so qty is always floored
+    // to a whole number. For high-priced coins (BTC, ETH, SOL, ...) the
+    // ~1200rs notional is < 1 unit -> qty 0 -> the trade is silently skipped.
+    // Proper fix: use each instrument's quantity_increment from instrumentCache.
     private static final Set<String> INTEGER_QTY_PAIRS = Stream.of(COIN_SYMBOLS)
             .flatMap(s -> Stream.of("B-" + s + "_USDT", s + "_USDT"))
             .collect(Collectors.toCollection(HashSet::new));
@@ -695,12 +707,34 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             System.err.println("WARNING: PARTIAL_BOOKING_TRIGGER_R (" + PARTIAL_BOOKING_TRIGGER_R
                     + ") >= RR_DEFAULT (" + RR_DEFAULT + ") — TP pehle hit hoga, partial booking kabhi nahi chalegi!");
         }
-        if (TRAILING_ENABLED && TRAIL_STAGE2_TRIGGER_R >= RR_DEFAULT) {
+        if (TRAILING_ENABLED && TRAIL_STAGE2_TRIGGER_R >= RR_DEFAULT && TRAIL_STAGE2_TRIGGER_R < 50) { // >=50 means intentionally disabled
             System.err.println("WARNING: TRAIL_STAGE2_TRIGGER_R (" + TRAIL_STAGE2_TRIGGER_R
                     + ") >= RR_DEFAULT (" + RR_DEFAULT + ") — stage 2/3 trailing kabhi nahi chalega!");
         }
 
+        if (TRAILING_ENABLED && BREAKEVEN_TRIGGER_R >= RR_DEFAULT) {
+            System.err.println("WARNING: BREAKEVEN_TRIGGER_R (" + BREAKEVEN_TRIGGER_R
+                    + ") >= RR_DEFAULT (" + RR_DEFAULT + ") — TP pehle hit hoga, profit lock kabhi nahi chalega!");
+        }
+
         initInstrumentCache();
+
+        // FINAL: open-position monitor (early exit + profit lock) on its own
+        // thread, so it runs every POSITION_MONITOR_INTERVAL_SEC seconds
+        // instead of only after the full multi-minute entry scan. The catch is
+        // essential: an uncaught exception would silently kill a scheduled task.
+        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "position-monitor");
+            t.setDaemon(true);
+            return t;
+        });
+        monitor.scheduleWithFixedDelay(() -> {
+            try {
+                updateTrailing();
+            } catch (Throwable t) {
+                System.err.println("[MONITOR] error, continuing: " + t.getMessage());
+            }
+        }, 10, POSITION_MONITOR_INTERVAL_SEC, TimeUnit.SECONDS);
 
         while (true) {
             try {
@@ -726,8 +760,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         if (active.size() >= MAX_OPEN_POSITIONS) {
             System.out.println("MAX_OPEN_POSITIONS reached — skipping scan.");
-            updateTrailing();
-            ensureTpSlForOpenPositions();
+            ensureTpSlForOpenPositions(); // updateTrailing() now runs on the monitor thread
             return;
         }
 
@@ -850,8 +883,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
 
         System.out.println("\n=== Scan complete ===");
-        updateTrailing();
-        ensureTpSlForOpenPositions();
+        ensureTpSlForOpenPositions(); // updateTrailing() now runs on the monitor thread
     }
 
     // Handles an armed pending signal's breakout: uses the ANCHOR captured at
@@ -963,11 +995,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Trailing monitor — runs every cycle for every open position.
-    //   Stage 1 (0.6R):  profit lock (35% of move) — immediate, every cycle.
-    //   Partial (0.9R):  close 33% at market.
-    //   Stage 2 (1.0R):  hybrid structure+ATR trail (2.0 ATR).
-    //   Stage 3 (2.0R):  same hybrid trail, tighter (1.5 ATR).
+    // Position monitor — runs on its own thread every POSITION_MONITOR_INTERVAL_SEC.
+    //   Early exit (15M/30M reversal) — see checkEarlyExitForPosition().
+    //   Stage 1 (BREAKEVEN_TRIGGER_R): profit lock (35% of move), every cycle.
+    //   Partial booking / Stage 2 / Stage 3 are present but disabled in the
+    //   FINAL config (PARTIAL_BOOKING_ENABLED=false, stage triggers = 99R).
     //   Stage 2/3 trail decisions are CANDLE-CLOSE GATED.
     //   TP extension only past stage 3, only while trend still valid.
     //   SL only ever moves in the profitable direction (ratchet-only).
