@@ -49,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // anything else. When false, positions exit purely via TP/SL/trailing,
     // exactly like before.
     // =========================================================================
-    private static final boolean EARLY_EXIT_ENABLED = true;
+    private static final boolean EARLY_EXIT_ENABLED = false;
 
     // =========================================================================
     // Fixes for early-exit closing positions too fast / too often.
@@ -152,13 +152,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // losses are cut early by early-exit and some reversals are caught by
     // the profit lock).
     // =========================================================================
-    private static final double RR_DEFAULT = 1.0;
-    private static final double RR_STRONG  = 1.5;
+    private static final double RR_DEFAULT = 0.6;
+    private static final double RR_STRONG  = 0.9;
 
     // tpBlockedByLevel() checks for resistance/support up to 70% of the path
     // to a target of TP_BLOCK_CHECK_R x risk. Kept equal to RR_DEFAULT so the
     // check covers the path to the real TP (~0.7R).
-    private static final double TP_BLOCK_CHECK_R = 1.0;
+    private static final double TP_BLOCK_CHECK_R = 0.6;
 
     // =========================================================================
     // Protection (FINAL): ONLY the R-based profit lock is active.
@@ -207,7 +207,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //       trade (no lock, no trail, no TP extension).
     // =========================================================================
     private static final boolean RISK_BASED_SIZING_ENABLED = false;
-    private static final boolean TRAILING_ENABLED          = true;
+    private static final boolean TRAILING_ENABLED          = false;
 
     // =========================================================================
     // Position sizing. Risk-based (account risk %) when enabled, always
