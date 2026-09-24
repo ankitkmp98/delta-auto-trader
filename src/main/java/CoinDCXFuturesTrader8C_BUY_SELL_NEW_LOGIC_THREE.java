@@ -38,7 +38,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 4; // FINAL: was 120 — altcoins move together, cap simultaneous risk
+    private static final int MAX_OPEN_POSITIONS = 6; // FINAL: was 120 — altcoins move together, cap simultaneous risk
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
