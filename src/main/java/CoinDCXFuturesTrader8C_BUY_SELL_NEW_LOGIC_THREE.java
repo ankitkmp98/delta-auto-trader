@@ -138,7 +138,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
     private static final double SL_MIN_PERCENT  = 0.9;  // FINAL: noise/fee floor — tighter structural SLs are widened to this
     private static final double SL_MAX_PERCENT  = 1.2;  // FINAL: raw structure farther than this -> trade SKIPPED
-    private static final double SL_HARD_PERCENT_CAP  = 9.0;  // FINAL: fallback ONLY (ATR unavailable)
+    private static final double SL_HARD_PERCENT_CAP  = 2.0;  // FINAL: fallback ONLY (ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
     // many ATRs, the entry location is treated as poor and the trade is
@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // losses are cut early by early-exit and some reversals are caught by
     // the profit lock).
     // =========================================================================
-    private static final double RR_DEFAULT = 3.0;
-    private static final double RR_STRONG  = 4.0;
+    private static final double RR_DEFAULT = 0.4;
+    private static final double RR_STRONG  = 0.6;
 
     // tpBlockedByLevel() checks for resistance/support up to 70% of the path
     // to a target of TP_BLOCK_CHECK_R x risk. Kept equal to RR_DEFAULT so the
