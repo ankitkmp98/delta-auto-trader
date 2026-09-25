@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 11;
+    private static final int LEVERAGE = 5;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 40;
+    private static final int MAX_OPEN_POSITIONS = 4;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -134,8 +134,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 0.1;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 0.2;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_MIN_PERCENT  = 6.0;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 8.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
     private static final double SL_HARD_PERCENT_CAP  = 10.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -152,15 +152,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
     //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
     // =========================================================================
-    private static final double RR_DEFAULT = 6.6;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 8.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 0.6;  // CHANGED: was 0.75
+    private static final double RR_STRONG  = 0.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
 
     // NEW (v2): tpBlockedByLevel() used to check for resistance/support
     // along 70% of the path to TP. With TP now at 3R that would block almost
     // every trade. The check now uses a fixed virtual target of
     // TP_BLOCK_CHECK_R x risk, so (x 0.7 inside the check) it looks for
     // obstacles up to ~0.9R — i.e. up to the partial-booking zone.
-    private static final double TP_BLOCK_CHECK_R = 9.3;
+    private static final double TP_BLOCK_CHECK_R = 1.3;
 
     // =========================================================================
     // Trailing system — 4 stages, measured in R-multiples
@@ -212,7 +212,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double ACCOUNT_BALANCE          = 2000.0; // total account balance (INR)
     private static final double RISK_PER_TRADE_PERCENT    = 2.0;    // risk 2% of account (~40rs) per trade
-    private static final double MAX_MARGIN_CAP            = 1200.0; // hard notional ceiling (INR)
+    private static final double MAX_MARGIN_CAP            = 2500.0; // hard notional ceiling (INR)
     private static final double USDT_INR_RATE             = 102.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
