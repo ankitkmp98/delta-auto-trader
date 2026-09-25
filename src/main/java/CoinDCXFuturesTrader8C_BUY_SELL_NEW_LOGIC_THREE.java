@@ -134,9 +134,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 4.0;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 6.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
-    private static final double SL_HARD_PERCENT_CAP  = 8.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
+    private static final double SL_MIN_PERCENT  = 6.0;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 8.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_HARD_PERCENT_CAP  = 10.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
     // many ATRs, the entry location is treated as poor and the trade is
