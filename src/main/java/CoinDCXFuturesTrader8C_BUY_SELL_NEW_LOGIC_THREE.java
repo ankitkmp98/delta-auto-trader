@@ -76,8 +76,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Protection rules
     // =========================================================================
-    private static final long COOLDOWN_AFTER_EXIT_MS  = 5L * 60 * 1000;      // same coin: wait 45 min after a close
-    private static final int  MAX_CONSECUTIVE_LOSSES  = 10;
+    private static final long COOLDOWN_AFTER_EXIT_MS  = 45L * 60 * 1000;      // same coin: wait 45 min after a close
+    private static final int  MAX_CONSECUTIVE_LOSSES  = 3;
     private static final long LOSS_PAUSE_MS           = 2L * 60 * 60 * 1000;  // 3 losses in a row -> no new entries for 2h
 
     // =========================================================================
@@ -153,6 +153,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject>    instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
     private static int  consecutiveLosses = 0;
+    // DIAGNOSTICS: per-scan count of where each coin dropped out of the filter chain
+    private static final Map<String, Integer> funnel = new LinkedHashMap<>();
+    private static void bump(String k) { funnel.merge(k, 1, Integer::sum); }
     private static long pauseUntilMs = 0;
 
     private static final String[] COIN_SYMBOLS = {
@@ -270,27 +273,37 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
 
+        funnel.clear();
+        boolean samplePrinted = false;
         for (String pair : COINS_TO_TRADE) {
             try {
                 if (active.size() >= MAX_OPEN_POSITIONS) break;
-                if (active.contains(pair)) continue;
-                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_AFTER_EXIT_MS) continue;
+                if (active.contains(pair)) { bump("already open"); continue; }
+                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_AFTER_EXIT_MS) { bump("cooldown"); continue; }
 
                 // ---- 4H + 1H first (one 1H fetch serves both) ----
                 JSONArray raw1h = dropLastIfForming(getCandlestickData(pair, RES_1H, BASE_1H_FETCH_COUNT));
                 H4Info h4 = analyze4H(raw1h);
                 PendingSignal pending = pendingSignals.get(pair);
+                if (!samplePrinted) {
+                    samplePrinted = true;
+                    System.out.printf("  [4H-SAMPLE] %s 1H candles=%d -> 4H candles=%d valid=%s dir=%s line=%.6f atr=%.6f%n",
+                            pair, raw1h == null ? 0 : raw1h.length(), h4.count, h4.valid,
+                            h4.bullish ? "GREEN" : "RED", h4.line, h4.atr);
+                }
                 if (!h4.valid) {
+                    bump("4H data invalid");
                     if (pending != null) pendingSignals.remove(pair);
                     continue;
                 }
                 ScoredDirection d1h = analyzeScored6(raw1h);
-                if (!d1h.valid) continue;
+                if (!d1h.valid) { bump("1H data invalid"); continue; }
                 boolean isLong = h4.bullish;
                 int score1h = isLong ? d1h.bullScore : d1h.bearScore;
 
                 // ---- Pending signal: wait for the 5M breakout ----
                 if (pending != null) {
+                    bump("pending checked");
                     String cancelReason = null;
                     if (System.currentTimeMillis() - pending.createdAtMs > SIGNAL_MAX_VALID_MS) cancelReason = "expired";
                     else if (pending.isLong != isLong) cancelReason = "4H direction flipped";
@@ -317,35 +330,39 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 }
 
                 // ---- New signal search ----
-                if (score1h < MACRO_1H_MIN_SCORE) continue;
+                if (score1h < MACRO_1H_MIN_SCORE) { bump("1H score < " + MACRO_1H_MIN_SCORE); continue; }
 
                 JSONArray raw5m = dropLastIfForming(getCandlestickData(pair, RES_5M, BASE_5M_FETCH_COUNT));
-                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + STRUCTURE_SWING_LOOKBACK) continue;
+                if (raw5m == null || raw5m.length() < EMA_MID + ST_PERIOD + STRUCTURE_SWING_LOOKBACK) { bump("5M data missing"); continue; }
                 double[] cl5 = extractCloses(raw5m);
                 double lastClose = cl5[cl5.length - 1];
 
                 // 4H location: price must be in the pullback zone near the ST line
-                if (!h4LocationOk(isLong, lastClose, h4)) continue;
+                if (!h4LocationOk(isLong, lastClose, h4)) { bump("far from 4H line (> ATR)"); continue; }
+                if (slTpFrom4H(isLong, lastClose, h4.line, getTickSize(pair), false) == null) {
+                    bump("SL would be > " + SL_MAX_PERCENT + "%"); continue;
+                }
 
                 // 30M: momentum not against
                 ScoredDirection d30 = analyzeScored6(aggregateCandles(raw5m, GROUP_30M_FROM_5M));
-                if (!d30.valid) continue;
+                if (!d30.valid) { bump("30M data invalid"); continue; }
                 int score30 = isLong ? d30.bullScore : d30.bearScore;
                 int opp30   = isLong ? d30.bearScore : d30.bullScore;
-                if (score30 < CONFIRM_30M_MIN || opp30 > score30) continue;
+                if (score30 < CONFIRM_30M_MIN || opp30 > score30) { bump("30M fail"); continue; }
 
                 // 15M: healthy pullback
                 JSONArray raw15m = aggregateCandles(raw5m, GROUP_15M_FROM_5M);
                 Setup15Result s15 = analyzeSetup15M(raw15m);
-                if (!s15.valid) continue;
+                if (!s15.valid) { bump("15M data invalid"); continue; }
                 int score15 = isLong ? s15.bullScore : s15.bearScore;
-                if (score15 < SETUP_15M_MIN_SCORE) continue;
+                if (score15 < SETUP_15M_MIN_SCORE) { bump("15M score fail"); continue; }
                 int structure15 = detectSwingStructure(extractHighs(raw15m), extractLows(raw15m), STRUCTURE_SWING_LOOKBACK);
-                if (isLong ? structure15 == -1 : structure15 == 1) continue;
+                if (isLong ? structure15 == -1 : structure15 == 1) { bump("15M structure against"); continue; }
 
                 // 5M: trigger candle
                 EntryResult e5 = analyzeEntry5M(raw5m, isLong);
-                if (!e5.valid || !e5.setupFound) continue;
+                if (!e5.valid || !e5.setupFound) { bump("5M trigger fail"); continue; }
+                bump("ARMED");
 
                 PendingSignal sig = new PendingSignal();
                 sig.isLong = isLong;
@@ -360,10 +377,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         isLong ? e5.confirmHigh : e5.confirmLow, e5.reason);
 
             } catch (Exception e) {
+                bump("error");
                 System.err.println("Error on " + pair + ": " + e.getMessage());
             }
         }
 
+        System.out.println("  [FUNNEL] " + funnel);
         System.out.println("\n=== Scan complete ===");
         ensureTpSlForOpenPositions();
     }
@@ -523,11 +542,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         boolean bullish;
         double  line; // active ST line: lower band when bullish, upper band when bearish
         double  atr;
+        int     count; // number of closed 4H candles built
     }
 
     private static H4Info analyze4H(JSONArray raw1h) {
         H4Info r = new H4Info();
         JSONArray c4 = aggregateByTime(raw1h, FOUR_HOURS_MS, 4);
+        r.count = c4 == null ? 0 : c4.length();
         if (c4 == null || c4.length() < ST_PERIOD + ATR_PERIOD + 5) return r;
         double[] hi = extractHighs(c4), lo = extractLows(c4), cl = extractCloses(c4);
         boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
