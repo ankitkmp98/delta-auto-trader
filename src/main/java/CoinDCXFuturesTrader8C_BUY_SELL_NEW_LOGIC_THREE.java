@@ -38,7 +38,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 10; // FINAL: was 120 — altcoins move together, cap simultaneous risk
+    private static final int MAX_OPEN_POSITIONS = 6; // FINAL: was 120 — altcoins move together, cap simultaneous risk
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -158,7 +158,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // tpBlockedByLevel() checks for resistance/support up to 70% of the path
     // to a target of TP_BLOCK_CHECK_R x risk. Kept equal to RR_DEFAULT so the
     // check covers the path to the real TP (~0.7R).
-    private static final double TP_BLOCK_CHECK_R = 0.6;
+    private static final double TP_BLOCK_CHECK_R = 0.9;
 
     // =========================================================================
     // Protection (FINAL): ONLY the R-based profit lock is active.
@@ -217,7 +217,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double ACCOUNT_BALANCE          = 2000.0; // total account balance (INR)
     private static final double RISK_PER_TRADE_PERCENT    = 2.0;    // risk 2% of account (~40rs) per trade
-    private static final double MAX_MARGIN_CAP            = 1200.0; // hard notional ceiling (INR)
+    private static final double MAX_MARGIN_CAP            = 2000.0; // hard notional ceiling (INR)
     private static final double USDT_INR_RATE             = 102.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
