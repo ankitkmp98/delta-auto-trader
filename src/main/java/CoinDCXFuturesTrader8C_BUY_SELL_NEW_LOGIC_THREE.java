@@ -42,7 +42,7 @@ import java.util.stream.Stream;
  * 4H candles are built from 1H candles, 15M candles from 5M candles, both
  * aligned to UTC time buckets. Only CLOSED candles are ever used.
  */
-public class CoinDCXFuturesTrader_TrendPullbackFixedSLTP {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // 1. API / ACCOUNT CONFIG
