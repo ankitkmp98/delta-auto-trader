@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader_TrendPullbackFixedSLTP {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int    LEVERAGE        = 5;
+    private static final int    LEVERAGE        = 6;
     private static final String MARGIN_TYPE     = "isolated";
     private static final String MARGIN_CURRENCY = "INR";
 
