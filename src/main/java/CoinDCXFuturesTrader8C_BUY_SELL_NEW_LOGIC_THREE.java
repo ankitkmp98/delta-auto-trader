@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
     //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.2;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 1.5;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.8;  // CHANGED: was 0.75
+    private static final double RR_STRONG  = 2.4;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
 
     // NEW (v2): tpBlockedByLevel() used to check for resistance/support
     // along 70% of the path to TP. With TP now at 3R that would block almost
