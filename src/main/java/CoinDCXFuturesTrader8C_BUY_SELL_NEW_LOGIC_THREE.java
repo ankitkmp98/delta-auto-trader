@@ -205,11 +205,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // PHASE 1: SL anchor = 15M pullback low/high. ALL SL ATR values below are 15M ATR.
     private static final double SL_BUFFER_ATR   = 0.30; // 15M ATR beyond the pullback swing
-    private static final double SL_MIN_PERCENT  = 1.0;  // tighter -> widened to this
-    private static final double SL_MAX_PERCENT  = 3.5;  // wider  -> trade skipped (risk sizing keeps INR loss fixed)
-    private static final double SL_MAX_ATR      = 3.0;  // 15M ATR; wider -> trade skipped
-    private static final double RR_NORMAL       = 1.8;
-    private static final double RR_STRONG       = 2.2;
+    private static final double SL_MIN_PERCENT  = 3.0;  // tighter -> widened to this
+    private static final double SL_MAX_PERCENT  = 4.5;  // wider  -> trade skipped (risk sizing keeps INR loss fixed)
+    private static final double SL_MAX_ATR      = 5.0;  // 15M ATR; wider -> trade skipped
+    private static final double RR_NORMAL       = 1.2;
+    private static final double RR_STRONG       = 1.5;
 
     // Opposing structure ("major resistance above a LONG / support below a SHORT")
     private static final int    OBSTACLE_LOOKBACK_15M = 40;
