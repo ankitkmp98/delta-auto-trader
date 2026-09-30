@@ -78,7 +78,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double  ACCOUNT_BALANCE_INR       = 2000.0;
     private static final double  RISK_PER_TRADE_PERCENT    = 1.5;   // ~30 INR per SL on a 2000 INR account
 
-    private static final int  MAX_OPEN_POSITIONS = 5;   // PHASE 1 testing: keeps margin within the account
+    private static final int  MAX_OPEN_POSITIONS = 10;   // PHASE 1 testing: keeps margin within the account
     private static final long PAIR_COOLDOWN_MS   = 15 * 60 * 1000L;
     private static final long SCAN_INTERVAL_MS   = 20 * 1000L;
     // During a long scan, re-check armed signals every N pairs so breakouts
