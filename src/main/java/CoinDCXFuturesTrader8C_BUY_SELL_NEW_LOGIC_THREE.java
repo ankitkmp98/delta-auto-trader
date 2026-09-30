@@ -4,10 +4,13 @@ import org.json.JSONObject;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
@@ -41,8 +44,18 @@ import java.util.stream.Stream;
  *
  * 4H candles are built from 1H candles, 15M candles from 5M candles, both
  * aligned to UTC time buckets. Only CLOSED candles are ever used.
+ *
+ * PHASE 1 CHANGES (v2):
+ *   1. SL anchor = 15M pullback low/high, buffer = SL_BUFFER_ATR x 15M ATR
+ *   2. Risk-based sizing ON (fixed INR loss per trade, capped by notional)
+ *   3. Breakout trigger = 5M candle high/low +/- BREAKOUT_BUFFER_ATR x 5M ATR
+ *      (optional: BREAKOUT_NEEDS_5M_CLOSE = true -> wait for a 5M close beyond it)
+ *   4. 5M candle quality: body >= 45%, close in top/bottom 35% of range
+ *   5. BTC filter: no trade against a BTC 1H trend
+ *   6. MFE / MAE tracking + trade_journal.csv for analysis
+ *   Unchanged: RR 1.8 / 2.2, 5M optional 3/5, RSI ranges, 15M rules.
  */
-public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
+public class CoinDCXFuturesTrader_TrendPullbackFixedSLTP {
 
     // =========================================================================
     // 1. API / ACCOUNT CONFIG
@@ -52,7 +65,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int    LEVERAGE        = 6;
+    private static final int    LEVERAGE        = 5;
     private static final String MARGIN_TYPE     = "isolated";
     private static final String MARGIN_CURRENCY = "INR";
 
@@ -61,11 +74,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double USDT_INR_RATE         = 102.0;
 
     // Optional risk-based sizing (always capped by POSITION_NOTIONAL_INR).
-    private static final boolean RISK_BASED_SIZING_ENABLED = false;
+    private static final boolean RISK_BASED_SIZING_ENABLED = true;   // PHASE 1: ON
     private static final double  ACCOUNT_BALANCE_INR       = 2000.0;
-    private static final double  RISK_PER_TRADE_PERCENT    = 2.0;
+    private static final double  RISK_PER_TRADE_PERCENT    = 1.5;   // ~30 INR per SL on a 2000 INR account
 
-    private static final int  MAX_OPEN_POSITIONS = 10;
+    private static final int  MAX_OPEN_POSITIONS = 5;   // PHASE 1 testing: keeps margin within the account
     private static final long PAIR_COOLDOWN_MS   = 15 * 60 * 1000L;
     private static final long SCAN_INTERVAL_MS   = 20 * 1000L;
     // During a long scan, re-check armed signals every N pairs so breakouts
@@ -75,6 +88,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // true  -> one log line for EVERY skip (4H/1H/15M/5M/SL/room reason)
     // false -> only arms, cancels, entries, protection and errors are logged
     private static final boolean LOG_ALL_SKIPS = true;
+
+    // Every closed trade is appended here (win/loss estimate, SL%, MFE, MAE...).
+    private static final String TRADE_JOURNAL_FILE = "trade_journal.csv";
 
     // Orders
     private static final double LIMIT_ORDER_BUFFER_PCT  = 0.0005; // entry limit 0.05% through the market
@@ -119,9 +135,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MIN_BARS_4H = 50;
     private static final int MIN_BARS    = 60; // 1H / 15M / 5M
 
-    // Swing pivots: HTF (4H/15M) need 2 bars each side, 5M needs 1.
+    // Swing pivots (4H / 15M): 2 bars each side.
     private static final int PIVOT_STRENGTH_HTF = 2;
-    private static final int PIVOT_STRENGTH_LTF = 1;
 
     // =========================================================================
     // 4. 4H — MASTER TREND
@@ -159,8 +174,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 7. 5M — ENTRY CONFIRMATION
     // =========================================================================
-    private static final double M5_BODY_RATIO_MIN      = 0.40;
-    private static final double M5_CLOSE_IN_RANGE_MIN  = 0.60; // "rejection": close in top/bottom 40% of range
+    private static final double M5_BODY_RATIO_MIN      = 0.45; // PHASE 1: was 0.40
+    private static final double M5_CLOSE_IN_RANGE_MIN  = 0.65; // PHASE 1: was 0.60 — close in top/bottom 35% of range
     private static final double M5_SLOPE_MIN_ATR       = 0.15;
     private static final double M5_MAX_EMA_DIST_ATR    = 1.5;
     private static final double M5_MAX_CANDLE_RANGE_ATR = 2.5; // bigger candle = overextended trigger
@@ -168,22 +183,31 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    M5_OPTIONAL_STRONG     = 4;
     private static final double M5_RSI_LONG_MIN  = 40, M5_RSI_LONG_MAX  = 70;
     private static final double M5_RSI_SHORT_MIN = 30, M5_RSI_SHORT_MAX = 60;
-    private static final int    M5_SWING_LOOKBACK      = 20;
 
     // =========================================================================
     // 8. SIGNAL ARMING
     // =========================================================================
     private static final long   SIGNAL_EXPIRY_MS          = 15 * 60 * 1000L;
     private static final double PENDING_MAX_EXTENSION_ATR = 2.0; // price left the pullback area
-    private static final double MAX_BREAKOUT_CHASE_ATR    = 0.5; // price already too far past trigger
+    private static final double MAX_BREAKOUT_CHASE_ATR    = 0.5; // price already too far past the (buffered) trigger
+
+    // PHASE 1: breakout must clear the 5M candle high/low by this many 5M ATRs.
+    private static final double  BREAKOUT_BUFFER_ATR     = 0.10;
+    // true -> additionally wait for a CLOSED 5M candle beyond the buffered trigger.
+    private static final boolean BREAKOUT_NEEDS_5M_CLOSE = false;
+
+    // PHASE 1: BTC filter — skip trades while BTC's 1H trend points the other way.
+    private static final boolean BTC_FILTER_ENABLED = true;
+    private static final String  BTC_PAIR           = "B-BTC_USDT";
 
     // =========================================================================
     // 9. FIXED SL / FIXED TP
     // =========================================================================
-    private static final double SL_BUFFER_ATR   = 0.35;
+    // PHASE 1: SL anchor = 15M pullback low/high. ALL SL ATR values below are 15M ATR.
+    private static final double SL_BUFFER_ATR   = 0.30; // 15M ATR beyond the pullback swing
     private static final double SL_MIN_PERCENT  = 1.0;  // tighter -> widened to this
-    private static final double SL_MAX_PERCENT  = 2.5;  // wider  -> trade skipped
-    private static final double SL_MAX_ATR      = 2.5;  // wider  -> trade skipped
+    private static final double SL_MAX_PERCENT  = 3.5;  // wider  -> trade skipped (risk sizing keeps INR loss fixed)
+    private static final double SL_MAX_ATR      = 3.0;  // 15M ATR; wider -> trade skipped
     private static final double RR_NORMAL       = 1.8;
     private static final double RR_STRONG       = 2.2;
 
@@ -248,7 +272,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final class PullbackResult {
         PullbackStatus status = PullbackStatus.INSUFFICIENT_DATA;
         boolean clean;
-        double extreme;
+        double extreme; // pullback low (LONG) / high (SHORT) — the SL anchor
+        double atr;     // 15M ATR — the SL buffer unit
         String reason = "";
     }
 
@@ -282,11 +307,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         String pair;
         Direction dir;
         String timeframe = "5M";
-        double triggerPrice;
+        double triggerPrice;     // candle high/low +/- breakout buffer
+        double rawTrigger;       // the 5M confirmation candle's high/low itself
         long   triggerCandleTime;
         long   createdAtMs;
-        double swingAnchor;
-        double atr5m;
+        double swingAnchor;      // 15M pullback swing
+        double slAtr;            // 15M ATR used for the SL buffer
+        double atr5m;            // 5M ATR (breakout buffer / chase / extension checks)
         double rr;
         boolean strongTrend;
         int score4h, score1h, score5mOptional;
@@ -303,6 +330,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         long openedAtMs;
         String source; // SIGNAL / ADOPTED / FALLBACK
         boolean protectionConfirmed;
+        boolean strong;
+        double slPercent;
+        double bestFav;   // MFE in R (max move in favour)
+        double worstAdv;  // MAE in R (max move against, negative)
     }
 
     private static final class CachedSeries {
@@ -397,12 +428,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static void printConfig() {
         log("=== Strategy: 4H trend -> 1H confirm -> 15M pullback -> 5M confirmation -> trigger breakout -> FIXED SL + FIXED TP ===");
-        log(String.format("=== SL: swing +/- %.2f ATR, min %.1f%%, max %.1f%% / %.1f ATR (wider = SKIP) | RR normal=%.1f strong=%.1f ===",
+        log(String.format("=== SL: 15M pullback swing +/- %.2f x 15M ATR, min %.1f%%, max %.1f%% / %.1f ATR15 (wider = SKIP) | RR normal=%.1f strong=%.1f ===",
                 SL_BUFFER_ATR, SL_MIN_PERCENT, SL_MAX_PERCENT, SL_MAX_ATR, RR_NORMAL, RR_STRONG));
+        log(String.format("=== Breakout: 5M high/low +/- %.2f x 5M ATR%s | 5M candle body>=%.0f%% close>=%.0f%% | BTC filter=%s ===",
+                BREAKOUT_BUFFER_ATR, BREAKOUT_NEEDS_5M_CLOSE ? " + 5M CLOSE beyond it" : " (tick break)",
+                M5_BODY_RATIO_MIN * 100, M5_CLOSE_IN_RANGE_MIN * 100, BTC_FILTER_ENABLED));
         log("=== Trailing=OFF  Partial=OFF  Breakeven=OFF  EarlyExit=OFF  DynamicTP/SL=OFF ===");
         double marginPerTrade = POSITION_NOTIONAL_INR / LEVERAGE;
-        log(String.format("=== Sizing: notional %.0f INR @%dx -> ~%.0f INR margin/trade | max %d positions | risk-sizing=%s ===",
-                POSITION_NOTIONAL_INR, LEVERAGE, marginPerTrade, MAX_OPEN_POSITIONS, RISK_BASED_SIZING_ENABLED));
+        log(String.format("=== Sizing: risk-sizing=%s (%.1f%% of %.0f INR = ~%.0f INR per SL) | notional cap %.0f INR @%dx -> max ~%.0f INR margin/trade | max %d positions ===",
+                RISK_BASED_SIZING_ENABLED, RISK_PER_TRADE_PERCENT, ACCOUNT_BALANCE_INR,
+                ACCOUNT_BALANCE_INR * RISK_PER_TRADE_PERCENT / 100.0, POSITION_NOTIONAL_INR, LEVERAGE, marginPerTrade, MAX_OPEN_POSITIONS));
+        log("=== Trade journal: " + new File(TRADE_JOURNAL_FILE).getAbsolutePath() + " ===");
         if (marginPerTrade * MAX_OPEN_POSITIONS > ACCOUNT_BALANCE_INR) {
             logErr(String.format("WARNING: %d positions x %.0f INR margin = %.0f INR > account %.0f INR — later orders may be rejected for margin.",
                     MAX_OPEN_POSITIONS, marginPerTrade, marginPerTrade * MAX_OPEN_POSITIONS, ACCOUNT_BALANCE_INR));
@@ -422,6 +458,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         reconcileClosedPositions(active);
         protectOpenPositions(positions);
+        trackExcursions();
 
         pendingSignals.keySet().removeIf(active::contains);
         processPendingSignals(active);
@@ -470,6 +507,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         ConfirmResult c1 = analyze1H(s1h, dir);
         if (!c1.ok) { skip(pair, "1H", dir + " " + c1.reason); return; }
 
+        // ---- BTC filter (PHASE 1) ----
+        String btc = btcAgainst(pair, dir);
+        if (btc != null) { skip(pair, "BTC", dir + " " + btc); return; }
+
         // ---- 15M: healthy pullback? ----
         Series s5 = getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT);
         if (s5 == null) { skip(pair, "DATA", "5M candles unavailable"); return; }
@@ -491,13 +532,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (tick <= 0) { skip(pair, "META", "tick size unknown"); return; }
 
         // ---- Trigger + SL anchor (captured NOW, never re-searched later) ----
+        // PHASE 1: trigger = candle high/low +/- 0.10 x 5M ATR;
+        //          anchor  = 15M pullback low/high (never above/below the trigger candle's own extreme);
+        //          SL buffer unit = 15M ATR.
         boolean L = dir.isLong();
-        double trigger = L ? e5.triggerHigh : e5.triggerLow;
-        double anchor = L
-                ? Math.min(recentSwingLow(s5.l, M5_SWING_LOOKBACK, PIVOT_STRENGTH_LTF), e5.triggerLow)
-                : Math.max(recentSwingHigh(s5.h, M5_SWING_LOOKBACK, PIVOT_STRENGTH_LTF), e5.triggerHigh);
+        double rawTrigger = L ? e5.triggerHigh : e5.triggerLow;
+        double trigger = L ? rawTrigger + BREAKOUT_BUFFER_ATR * e5.atr : rawTrigger - BREAKOUT_BUFFER_ATR * e5.atr;
+        trigger = roundToTick(trigger, tick, L ? RoundingMode.CEILING : RoundingMode.FLOOR);
+        double anchor = L ? Math.min(p15.extreme, e5.triggerLow) : Math.max(p15.extreme, e5.triggerHigh);
+        double slAtr = p15.atr;
 
-        SlPlan prelim = buildSlTp(dir, trigger, anchor, e5.atr, RR_NORMAL, tick, false);
+        SlPlan prelim = buildSlTp(dir, trigger, anchor, slAtr, RR_NORMAL, tick, false);
         if (!prelim.ok) {
             skip(pair, "SL", dir + " " + prelim.reason);
             lastUsedTriggerCandle.put(pair, e5.candleTime);
@@ -514,15 +559,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         // ---- RR decided BEFORE entry, never changed afterwards ----
         boolean strong = t4.score() == 4 && c1.strong && p15.clean && e5.strong && room.strongRoom;
         double rr = strong ? RR_STRONG : RR_NORMAL;
-        SlPlan planned = strong ? buildSlTp(dir, trigger, anchor, e5.atr, rr, tick, false) : prelim;
+        SlPlan planned = strong ? buildSlTp(dir, trigger, anchor, slAtr, rr, tick, false) : prelim;
 
         PendingSignal p = new PendingSignal();
         p.pair = pair;
         p.dir = dir;
         p.triggerPrice = trigger;
+        p.rawTrigger = rawTrigger;
         p.triggerCandleTime = e5.candleTime;
         p.createdAtMs = now;
         p.swingAnchor = anchor;
+        p.slAtr = slAtr;
         p.atr5m = e5.atr;
         p.rr = rr;
         p.strongTrend = strong;
@@ -534,10 +581,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         pendingSignals.put(pair, p);
         lastUsedTriggerCandle.put(pair, e5.candleTime);
 
-        log(String.format("[ARMED] %s %s | 4H=%d/4 1H=%d/5 15M=%s%s 5M-opt=%d/5 | trigger=%s anchor=%s ATR5m=%s | "
-                        + "plan@trigger SL=%s (%.2f%%, raw %.2f ATR%s) TP=%s RR=%.1f%s | %s | expires in %d min",
+        log(String.format("[ARMED] %s %s | 4H=%d/4 1H=%d/5 15M=%s%s 5M-opt=%d/5 | candle %s=%s trigger=%s (+%.2f ATR5m%s) "
+                        + "anchor(15M)=%s ATR15=%s | plan@trigger SL=%s (%.2f%%, raw %.2f ATR15%s) TP=%s RR=%.1f%s | %s | expires in %d min",
                 dir, pair, t4.score(), c1.score, p15.status, p15.clean ? "(clean)" : "", e5.optionalScore,
-                px(trigger), px(anchor), px(e5.atr),
+                L ? "high" : "low", px(rawTrigger), px(trigger), BREAKOUT_BUFFER_ATR,
+                BREAKOUT_NEEDS_5M_CLOSE ? ", needs 5M close" : "", px(anchor), px(slAtr),
                 px(planned.sl), planned.slPercent, planned.rawSlAtr, planned.widened ? ", widened to min" : "",
                 px(planned.tp), rr, strong ? " STRONG" : "", room.reason, SIGNAL_EXPIRY_MS / 60000));
     }
@@ -644,6 +692,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double[] atrS = atrSeries(s.h, s.l, s.c, ATR_PERIOD);
         double atr = atrS[i];
         if (atr <= 0) { r.reason = "15M ATR unavailable"; return r; }
+        r.atr = atr;
         double rsi = rsi(s.c, RSI_PERIOD);
 
         // (a) Structure must survive the pullback
@@ -913,7 +962,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 double price = getLastPrice(pair);
                 if (price <= 0) continue;
                 boolean L = p.dir.isLong();
-                boolean hit = L ? price > p.triggerPrice : price < p.triggerPrice;
+                boolean hit;
+                if (BREAKOUT_NEEDS_5M_CLOSE) {
+                    // A CLOSED 5M candle (after the trigger candle) must finish beyond the buffered trigger,
+                    // and the live price must still be beyond it.
+                    Series s5c = getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT);
+                    if (s5c == null || s5c.n == 0) continue;
+                    int k = s5c.n - 1;
+                    boolean closedBeyond = s5c.t[k] > p.triggerCandleTime
+                            && (L ? s5c.c[k] > p.triggerPrice : s5c.c[k] < p.triggerPrice);
+                    hit = closedBeyond && (L ? price > p.triggerPrice : price < p.triggerPrice);
+                } else {
+                    hit = L ? price > p.triggerPrice : price < p.triggerPrice;
+                }
                 if (!hit) continue;
 
                 double chaseAtr = (L ? price - p.triggerPrice : p.triggerPrice - price) / p.atr5m;
@@ -944,6 +1005,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             ConfirmResult c1 = analyze1H(s1h, p.dir);
             if (!c1.ok) return "1H no longer confirms: " + c1.reason;
         }
+        String btc = btcAgainst(p.pair, p.dir);
+        if (btc != null) return btc;
 
         Series s5 = getClosedSeries(p.pair, RES_5M, TF_5M, FETCH_5M_COUNT);
         if (s5 == null || s5.n < MIN_BARS) return null; // cannot re-validate right now — keep waiting
@@ -973,7 +1036,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (tick <= 0) { cancelSignal(p, "tick size unknown"); return; }
 
         // Re-check SL width and room at the actual breakout price (same stored anchor/ATR/RR).
-        SlPlan pre = buildSlTp(p.dir, price, p.swingAnchor, p.atr5m, p.rr, tick, false);
+        SlPlan pre = buildSlTp(p.dir, price, p.swingAnchor, p.slAtr, p.rr, tick, false);
         if (!pre.ok) { cancelSignal(p, "at breakout price: " + pre.reason); return; }
         Series s5 = getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT);
         RoomResult room = checkRoom(aggregate(s5, TF_15M), p.dir, price, pre.risk);
@@ -1007,7 +1070,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double filledQty = Math.abs(pos.optDouble("active_pos", 0));
 
         // Final SL/TP from the ACTUAL fill price + the ORIGINAL anchor / ATR / RR.
-        SlPlan fin = buildSlTp(p.dir, entry, p.swingAnchor, p.atr5m, p.rr, tick, true);
+        SlPlan fin = buildSlTp(p.dir, entry, p.swingAnchor, p.slAtr, p.rr, tick, true);
         if (!fin.ok) {
             logErr("  [WARN] " + pair + " post-fill SL build failed (" + fin.reason + ") — using fixed " + SL_MAX_PERCENT + "% SL");
             fin = fixedPercentPlan(p.dir, entry, SL_MAX_PERCENT, p.rr, tick);
@@ -1022,17 +1085,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         plan.rr = p.rr;
         plan.risk = fin.risk;
         plan.anchor = p.swingAnchor;
-        plan.atr = p.atr5m;
+        plan.atr = p.slAtr;
         plan.qty = BigDecimal.valueOf(filledQty).stripTrailingZeros().toPlainString();
         plan.openedAtMs = System.currentTimeMillis();
         plan.source = "SIGNAL";
+        plan.strong = p.strongTrend;
+        plan.slPercent = fin.slPercent;
         activePlans.put(pair, plan);
         active.add(pair);
 
-        log(String.format("[ENTRY] %s %s | fill=%s qty=%s | anchor=%s ATR=%s | SL=%s (%.2f%%%s) risk=%s | RR=%.1f%s | TP=%s | "
+        double riskInr = filledQty * fin.risk * USDT_INR_RATE;
+        log(String.format("[ENTRY] %s %s | fill=%s qty=%s | anchor(15M)=%s ATR15=%s | SL=%s (%.2f%%%s) risk=%s (~%.0f INR) | RR=%.1f%s | TP=%s | "
                         + "4H=%d/4 1H=%d/5 15M clean=%s 5M-opt=%d/5",
-                p.dir, pair, px(entry), plan.qty, px(p.swingAnchor), px(p.atr5m), px(fin.sl), fin.slPercent,
-                fin.widened ? ", widened to min" : fin.clamped ? ", CLAMPED post-fill" : "", px(fin.risk), p.rr,
+                p.dir, pair, px(entry), plan.qty, px(p.swingAnchor), px(p.slAtr), px(fin.sl), fin.slPercent,
+                fin.widened ? ", widened to min" : fin.clamped ? ", CLAMPED post-fill" : "", px(fin.risk), riskInr, p.rr,
                 p.strongTrend ? " STRONG" : "", px(fin.tp), p.score4h, p.score1h, p.clean15m, p.score5mOptional));
 
         String posId = pos.optString("id", null);
@@ -1099,6 +1165,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                         plan.qty = BigDecimal.valueOf(Math.abs(activePos)).stripTrailingZeros().toPlainString();
                         plan.openedAtMs = System.currentTimeMillis();
                         plan.source = "ADOPTED";
+                        plan.slPercent = plan.risk / avg * 100.0;
                         plan.protectionConfirmed = true;
                         activePlans.put(pair, plan);
                         log(String.format("[ADOPTED] %s %s entry=%s SL=%s TP=%s — existing protection left untouched",
@@ -1142,19 +1209,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double tick = getTickSize(pair);
         SlPlan sp = null;
         double anchor = Double.NaN, atr = 0;
-        Series s5 = getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT);
-        if (s5 != null && s5.n >= MIN_BARS && tick > 0) {
-            double[] atrS = atrSeries(s5.h, s5.l, s5.c, ATR_PERIOD);
-            atr = atrS[s5.n - 1];
-            anchor = dir.isLong() ? recentSwingLow(s5.l, M5_SWING_LOOKBACK, PIVOT_STRENGTH_LTF)
-                                  : recentSwingHigh(s5.h, M5_SWING_LOOKBACK, PIVOT_STRENGTH_LTF);
+        Series s15 = aggregate(getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT), TF_15M);
+        if (s15 != null && s15.n >= MIN_BARS && tick > 0) {
+            double[] atrS = atrSeries(s15.h, s15.l, s15.c, ATR_PERIOD);
+            atr = atrS[s15.n - 1];
+            anchor = dir.isLong() ? recentSwingLow(s15.l, M15_PULLBACK_WINDOW * 2, PIVOT_STRENGTH_HTF)
+                                  : recentSwingHigh(s15.h, M15_PULLBACK_WINDOW * 2, PIVOT_STRENGTH_HTF);
             if (atr > 0) sp = buildSlTp(dir, avg, anchor, atr, RR_NORMAL, tick, true);
         }
         if (sp == null || !sp.ok) sp = fixedPercentPlan(dir, avg, SL_MAX_PERCENT, RR_NORMAL, tick);
 
         TradePlan plan = new TradePlan();
         plan.pair = pair; plan.dir = dir; plan.entry = avg; plan.sl = sp.sl; plan.tp = sp.tp;
-        plan.rr = RR_NORMAL; plan.risk = sp.risk; plan.anchor = anchor; plan.atr = atr;
+        plan.rr = RR_NORMAL; plan.risk = sp.risk; plan.anchor = anchor; plan.atr = atr; plan.slPercent = sp.slPercent;
         plan.qty = BigDecimal.valueOf(qty).stripTrailingZeros().toPlainString();
         plan.openedAtMs = System.currentTimeMillis();
         plan.source = "FALLBACK";
@@ -1168,13 +1235,82 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if (active.contains(pair)) continue;
             TradePlan plan = activePlans.remove(pair);
             if (plan == null) continue;
-            double price = getLastPrice(pair);
+
+            // Fold in the 5M candles since entry so wicks count toward MFE/MAE,
+            // and estimate which fixed level was touched first.
             String outcome = "unknown";
-            if (price > 0) outcome = Math.abs(price - plan.tp) < Math.abs(price - plan.sl) ? "TP (estimated)" : "SL (estimated)";
-            log(String.format("[CLOSED] %s %s entry=%s SL=%s TP=%s -> exit via %s | held %.0f min",
-                    plan.dir, pair, px(plan.entry), px(plan.sl), px(plan.tp), outcome,
-                    (System.currentTimeMillis() - plan.openedAtMs) / 60000.0));
+            Series s5 = getClosedSeries(pair, RES_5M, TF_5M, FETCH_5M_COUNT);
+            if (s5 != null && plan.risk > 0) {
+                long entryBar = (plan.openedAtMs / TF_5M) * TF_5M;
+                boolean L = plan.dir.isLong();
+                for (int i = 0; i < s5.n; i++) {
+                    if (s5.t[i] < entryBar) continue;
+                    double fav = (L ? s5.h[i] - plan.entry : plan.entry - s5.l[i]) / plan.risk;
+                    double adv = (L ? s5.l[i] - plan.entry : plan.entry - s5.h[i]) / plan.risk;
+                    if (s5.t[i] > entryBar) {               // entry bar partly pre-entry — skip it for MFE/MAE
+                        plan.bestFav = Math.max(plan.bestFav, fav);
+                        plan.worstAdv = Math.min(plan.worstAdv, adv);
+                    }
+                    if (outcome.equals("unknown")) {
+                        boolean slTouched = L ? s5.l[i] <= plan.sl : s5.h[i] >= plan.sl;
+                        boolean tpTouched = L ? s5.h[i] >= plan.tp : s5.l[i] <= plan.tp;
+                        if (slTouched && tpTouched) outcome = "SL/TP same candle";
+                        else if (slTouched) outcome = "SL";
+                        else if (tpTouched) outcome = "TP";
+                    }
+                }
+            }
+            if (outcome.equals("unknown")) {
+                double price = getLastPrice(pair);
+                if (price > 0) outcome = Math.abs(price - plan.tp) < Math.abs(price - plan.sl) ? "TP?" : "SL?";
+            }
+            double heldMin = (System.currentTimeMillis() - plan.openedAtMs) / 60000.0;
+            log(String.format("[CLOSED] %s %s entry=%s SL=%s (%.2f%%) TP=%s RR=%.1f -> exit via %s (estimated) | MFE=%.2fR MAE=%.2fR | held %.0f min",
+                    plan.dir, pair, px(plan.entry), px(plan.sl), plan.slPercent, px(plan.tp), plan.rr, outcome,
+                    plan.bestFav, plan.worstAdv, heldMin));
+            writeJournal(plan, outcome, heldMin);
         }
+    }
+
+    // MFE/MAE sampling of open trades each cycle (live price, in R).
+    private static void trackExcursions() {
+        for (TradePlan tp : activePlans.values()) {
+            if (tp.risk <= 0) continue;
+            double lp = getLastPrice(tp.pair);
+            if (lp <= 0) continue;
+            double fav = (tp.dir.isLong() ? lp - tp.entry : tp.entry - lp) / tp.risk;
+            tp.bestFav = Math.max(tp.bestFav, fav);
+            tp.worstAdv = Math.min(tp.worstAdv, fav);
+        }
+    }
+
+    // Appends one row per closed trade. Outcome is an ESTIMATE — verify with CoinDCX trade history.
+    private static void writeJournal(TradePlan p, String outcome, double heldMin) {
+        File f = new File(TRADE_JOURNAL_FILE);
+        boolean header = !f.exists();
+        try (PrintWriter w = new PrintWriter(new FileWriter(f, true))) {
+            if (header) {
+                w.println("closed_at,pair,dir,source,entry,sl,tp,sl_pct,rr,strong,outcome_est,mfe_r,mae_r,held_min");
+            }
+            w.println(String.format(Locale.US, "%s,%s,%s,%s,%s,%s,%s,%.3f,%.2f,%s,%s,%.2f,%.2f,%.0f",
+                    Instant.now().toString(), p.pair, p.dir, p.source, px(p.entry), px(p.sl), px(p.tp),
+                    p.slPercent, p.rr, p.strong, outcome, p.bestFav, p.worstAdv, heldMin));
+        } catch (IOException e) {
+            logErr("writeJournal: " + e.getMessage());
+        }
+    }
+
+    // PHASE 1: returns a reason if BTC's 1H trend points against `dir`, else null.
+    private static String btcAgainst(String pair, Direction dir) {
+        if (!BTC_FILTER_ENABLED || BTC_PAIR.equals(pair)) return null;
+        Series btc = getClosedSeries(BTC_PAIR, RES_1H, TF_1H, FETCH_1H_COUNT);
+        if (btc == null) return null;
+        Direction opp = dir == Direction.LONG ? Direction.SHORT : Direction.LONG;
+        ConfirmResult c = analyze1H(btc, opp);
+        if (c.score >= H1_MIN_SCORE && c.score > c.opposite) {
+            return String.format("BTC 1H trending %s (%d/5 vs %d/5)", opp, c.score, c.opposite);
+        }
+        return null;
     }
 
     // =========================================================================
@@ -1217,7 +1353,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
         r.ok = true;
         r.qty = qty;
-        r.reason = String.format("qty=%s (step=%s) notional=%.2f USDT", qty.toPlainString(), stepStr, notional);
+        double riskInr = qty.doubleValue() * Math.abs(price - sl) * USDT_INR_RATE;
+        r.reason = String.format("qty=%s (step=%s) notional=%.2f USDT risk~%.0f INR", qty.toPlainString(), stepStr, notional, riskInr);
         return r;
     }
 
