@@ -55,7 +55,7 @@ import java.util.stream.Stream;
  *   6. MFE / MAE tracking + trade_journal.csv for analysis
  *   Unchanged: RR 1.8 / 2.2, 5M optional 3/5, RSI ranges, 15M rules.
  */
-public class CoinDCXFuturesTrader_TrendPullbackFixedSLTP {
+public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // 1. API / ACCOUNT CONFIG
