@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 5;
+    private static final int LEVERAGE = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 12;
+    private static final int MAX_OPEN_POSITIONS = 4;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -134,8 +134,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 6.3;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 8.1;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_MIN_PERCENT  = 0.6;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 0.9;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
     private static final double SL_HARD_PERCENT_CAP  = 10.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
     //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 1.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 9.5;  // CHANGED: was 0.75
+    private static final double RR_STRONG  = 10.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
 
     // NEW (v2): tpBlockedByLevel() used to check for resistance/support
     // along 70% of the path to TP. With TP now at 3R that would block almost
