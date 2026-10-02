@@ -193,7 +193,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final int    MAX_TP_EXTENSIONS = 6;
     private static final double TP_EXTENSION_ATR  = 1.5;
-    private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.90;
+    private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80;
 
     // =========================================================================
     // Master on/off switches:
@@ -204,7 +204,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //       trade (no lock, no trail, no TP extension).
     // =========================================================================
     private static final boolean RISK_BASED_SIZING_ENABLED = false;
-    private static final boolean TRAILING_ENABLED          = false;
+    private static final boolean TRAILING_ENABLED          = true;
 
     // =========================================================================
     // Position sizing. Risk-based (account risk %) when enabled, always
