@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 15;
+    private static final int LEVERAGE = 10;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -134,8 +134,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 1.5;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 1.8;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_MIN_PERCENT  = 4.5;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 5.1;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
     private static final double SL_HARD_PERCENT_CAP  = 8.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
