@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 20;
+    private static final int MAX_OPEN_POSITIONS = 10;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -134,9 +134,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 1.2;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 1.5;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
-    private static final double SL_HARD_PERCENT_CAP  = 3.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
+    private static final double SL_MIN_PERCENT  = 1.5;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 1.8;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_HARD_PERCENT_CAP  = 8.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
     // many ATRs, the entry location is treated as poor and the trade is
@@ -152,8 +152,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   0.6R lock -> 0.9R partial -> 1R stage-2 trail -> 2R stage-3 trail
     //   -> ~2.7R+ TP extension. Most trades exit via the trailing SL.
     // =========================================================================
-    private static final double RR_DEFAULT = 4.5;  // CHANGED: was 0.75
-    private static final double RR_STRONG  = 6.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
+    private static final double RR_DEFAULT = 1.5;  // CHANGED: was 0.75
+    private static final double RR_STRONG  = 1.8;  // CHANGED: was 0.9 — used only for a clean 30M=6/6 setup
 
     // NEW (v2): tpBlockedByLevel() used to check for resistance/support
     // along 70% of the path to TP. With TP now at 3R that would block almost
@@ -166,15 +166,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Trailing system — 4 stages, measured in R-multiples
     // (move-in-favor / initialRisk).
     // =========================================================================
-    private static final double BREAKEVEN_TRIGGER_R    = 0.60; // R
+    private static final double BREAKEVEN_TRIGGER_R    = 1.20; // R
     // Lock is a FRACTION of the move already made (moveInFavor), so it grows
     // every cycle the position stays in stage>=1.
     private static final double BREAKEVEN_LOCK_R_FRACTION = 0.35; // lock 35% of the move-in-favor as profit
-    private static final double TRAIL_STAGE2_TRIGGER_R = 1.00;
-    private static final double TRAIL_STAGE2_ATR        = 2.00;
-    private static final double TRAIL_STAGE3_TRIGGER_R = 2.00;
-    private static final double TRAIL_STAGE3_ATR        = 1.50;
-    private static final double MIN_SL_IMPROVEMENT_ATR  = 0.10; // don't spam the API on tiny moves
+    private static final double TRAIL_STAGE2_TRIGGER_R = 1.50;
+    private static final double TRAIL_STAGE2_ATR        = 2.50;
+    private static final double TRAIL_STAGE3_TRIGGER_R = 2.50;
+    private static final double TRAIL_STAGE3_ATR        = 1.80;
+    private static final double MIN_SL_IMPROVEMENT_ATR  = 0.12; // don't spam the API on tiny moves
 
     // =========================================================================
     // Partial profit booking. Independent of the SL trailing above: once
@@ -182,8 +182,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // PARTIAL_BOOKING_CLOSE_FRACTION of the position at market, and let the
     // remaining quantity keep running under the trailing/TP system.
     // =========================================================================
-    private static final boolean PARTIAL_BOOKING_ENABLED = false;
-    private static final double  PARTIAL_BOOKING_TRIGGER_R      = 0.90;
+    private static final boolean PARTIAL_BOOKING_ENABLED = true;
+    private static final double  PARTIAL_BOOKING_TRIGGER_R      = 0.80;
     private static final double  PARTIAL_BOOKING_CLOSE_FRACTION = 0.33;
 
     // =========================================================================
