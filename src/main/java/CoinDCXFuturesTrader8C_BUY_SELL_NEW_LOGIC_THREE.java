@@ -134,8 +134,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // matters for the safety-sweep / reconstruction path.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // buffer off the swing
-    private static final double SL_MIN_PERCENT  = 3.0;  // CHANGED: was 3.0 — noise floor
-    private static final double SL_MAX_PERCENT  = 4.0;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
+    private static final double SL_MIN_PERCENT  = 0.3;  // CHANGED: was 3.0 — noise floor
+    private static final double SL_MAX_PERCENT  = 0.5;  // CHANGED: was 4.0 — structure wider than this -> trade skipped
     private static final double SL_HARD_PERCENT_CAP  = 1.0;  // CHANGED: was 6.0 — fallback ONLY (ATR unavailable); 6% @12x = 72% of margin
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -182,7 +182,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // PARTIAL_BOOKING_CLOSE_FRACTION of the position at market, and let the
     // remaining quantity keep running under the trailing/TP system.
     // =========================================================================
-    private static final boolean PARTIAL_BOOKING_ENABLED = true;
+    private static final boolean PARTIAL_BOOKING_ENABLED = false;
     private static final double  PARTIAL_BOOKING_TRIGGER_R      = 0.80;
     private static final double  PARTIAL_BOOKING_CLOSE_FRACTION = 0.33;
 
@@ -191,7 +191,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // and only once price has covered TP_EXTENSION_TRIGGER_FRACTION of the
     // distance to the (fixed) original TP.
     // =========================================================================
-    private static final int    MAX_TP_EXTENSIONS = 6;
+    private static final int    MAX_TP_EXTENSIONS = 20;
     private static final double TP_EXTENSION_ATR  = 1.5;
     private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80;
 
