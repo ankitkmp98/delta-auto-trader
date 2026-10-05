@@ -204,7 +204,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //       trade (no lock, no trail, no TP extension).
     // =========================================================================
     private static final boolean RISK_BASED_SIZING_ENABLED = false;
-    private static final boolean TRAILING_ENABLED          = false;
+    private static final boolean TRAILING_ENABLED          = true;
 
     // =========================================================================
     // Position sizing. Risk-based (account risk %) when enabled, always
