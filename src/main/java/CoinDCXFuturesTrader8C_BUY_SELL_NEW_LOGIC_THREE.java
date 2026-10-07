@@ -147,8 +147,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // this stays meaningful even once TP gets extended, and is the more
     // standard/readable way to reason about trade progress.
     // =========================================================================
-    private static final double BREAKEVEN_TRIGGER_R    = 0.60; // R
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.15; // %
+    private static final double BREAKEVEN_TRIGGER_R    = 0.80; // R
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.30; // %
     private static final double TRAIL_STAGE2_TRIGGER_R = 0.75; // R — structure+ATR hybrid trail begins
     private static final double TRAIL_STAGE2_ATR        = 1.75;
     private static final double TRAIL_STAGE3_TRIGGER_R = 1.00; // R — tighter hybrid trail
@@ -162,9 +162,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // this check anymore (too slow for a per-extension gate) — only 15M
     // structure + 5M momentum are required to still be healthy.
     // =========================================================================
-    private static final int    MAX_TP_EXTENSIONS = 2;
-    private static final double TP_EXTENSION_ATR  = 1.5;
-    private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.90; // was implicit ~0.85 via stage-3 gate
+    private static final int    MAX_TP_EXTENSIONS = 20;
+    private static final double TP_EXTENSION_ATR  = 1.0;
+    private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80; // was implicit ~0.85 via stage-3 gate
 
     // =========================================================================
     // Margin-based fixed position sizing (unchanged).
