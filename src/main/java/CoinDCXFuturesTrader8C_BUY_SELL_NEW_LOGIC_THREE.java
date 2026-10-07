@@ -162,7 +162,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // this check anymore (too slow for a per-extension gate) — only 15M
     // structure + 5M momentum are required to still be healthy.
     // =========================================================================
-    private static final int    MAX_TP_EXTENSIONS = 2;
+    private static final int    MAX_TP_EXTENSIONS = 0;
     private static final double TP_EXTENSION_ATR  = 1.0;
     private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80; // was implicit ~0.85 via stage-3 gate
 
