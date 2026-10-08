@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 30;
+    private static final int LEVERAGE = 5;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 10;
+    private static final int MAX_OPEN_POSITIONS = 4;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -124,8 +124,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // reflect real structure.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35; // widened buffer off the swing (was 0.15)
-    private static final double SL_MIN_PERCENT  = 1.5;  // SL can never be tighter than this (tick-noise floor) — tune here
-    private static final double SL_MAX_PERCENT  = 1.8;  // SL can never be wider than this — "very very small" SL, tune here
+    private static final double SL_MIN_PERCENT  = 10.5;  // SL can never be tighter than this (tick-noise floor) — tune here
+    private static final double SL_MAX_PERCENT  = 10.8;  // SL can never be wider than this — "very very small" SL, tune here
     private static final double SL_HARD_PERCENT_CAP  = 2.0;  // absolute safety-net fallback ONLY (e.g. ATR unavailable)
 
     // If the raw structural SL distance (before the clamp above) exceeds this
@@ -138,8 +138,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // trailing stop long before ever reaching this; think of it as an
     // aspirational target for a runaway trend, not a realistic average.
     // =========================================================================
-    private static final double RR_DEFAULT = 1.1;  // was 1.5 — tune this for how "high" you want the ceiling
-    private static final double RR_STRONG  = 1.2; // used only for a clean 30M=6/6 setup — was 1.8
+    private static final double RR_DEFAULT = 1.5;  // was 1.5 — tune this for how "high" you want the ceiling
+    private static final double RR_STRONG  = 1.8; // used only for a clean 30M=6/6 setup — was 1.8
 
     // =========================================================================
     // Trailing system — 4 stages. Staging is now measured in R-multiples
