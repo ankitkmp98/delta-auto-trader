@@ -635,7 +635,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         if (active.size() >= MAX_OPEN_POSITIONS) {
             System.out.println("MAX_OPEN_POSITIONS reached — skipping scan.");
-            updateTrailing();
+            // updateTrailing();   //commented to skip trailing sl tp logic
             ensureTpSlForOpenPositions();
             return;
         }
