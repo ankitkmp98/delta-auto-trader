@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 10;
+    private static final int LEVERAGE = 15;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //
     // EARLY_EXIT_ENABLED       -> independent 15M/30M reversal exit layer.
     // =========================================================================
-    private static final boolean TRAILING_ENABLED   = true;
+    private static final boolean TRAILING_ENABLED   = false;
     private static final boolean EARLY_EXIT_ENABLED = false;
 
     // =========================================================================
