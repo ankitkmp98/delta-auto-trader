@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.35;
-    private static final double SL_MIN_PERCENT  = 0.01;
-    private static final double SL_MAX_PERCENT  = 0.03;
+    private static final double SL_MIN_PERCENT  = 0.1;
+    private static final double SL_MAX_PERCENT  = 0.2;
     private static final double SL_HARD_PERCENT_CAP  = 2.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
