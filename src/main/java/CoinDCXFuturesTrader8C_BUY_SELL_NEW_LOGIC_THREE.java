@@ -133,8 +133,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double RR_TRAIL_DEFAULT = 2.0;
     private static final double RR_TRAIL_STRONG  = 3.0; // clean 30M = 6/6 only
-    private static final double RR_FIXED_DEFAULT = 1.5;
-    private static final double RR_FIXED_STRONG  = 1.8;
+    private static final double RR_FIXED_DEFAULT = 1.8;
+    private static final double RR_FIXED_STRONG  = 2.1;
 
     // =========================================================================
     // Trailing system (only used when TRAILING_ENABLED = true). All staging is
