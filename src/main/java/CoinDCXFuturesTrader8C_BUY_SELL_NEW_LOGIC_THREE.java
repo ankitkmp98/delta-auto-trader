@@ -173,7 +173,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Margin-based fixed position sizing (unchanged).
     // =========================================================================
-    private static final double MAX_MARGIN = 1400.0;
+    private static final double MAX_MARGIN = 1500.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
