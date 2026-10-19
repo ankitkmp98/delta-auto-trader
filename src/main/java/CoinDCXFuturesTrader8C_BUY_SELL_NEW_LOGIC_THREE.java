@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 10;
+    private static final int LEVERAGE = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.20;
-    private static final double SL_MIN_PERCENT  = 3.6;
-    private static final double SL_MAX_PERCENT  = 4.8;
+    private static final double SL_MIN_PERCENT  = 0.7;
+    private static final double SL_MAX_PERCENT  = 1.1;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.0;
 
@@ -131,8 +131,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //                               real exits come from the trailing stop.
     //   TRAILING_ENABLED = false -> normal fixed TP.
     // =========================================================================
-    private static final double RR_TRAIL_DEFAULT = 3.0;
-    private static final double RR_TRAIL_STRONG  = 4.0; // clean 30M = 6/6 only
+    private static final double RR_TRAIL_DEFAULT = 2.0;
+    private static final double RR_TRAIL_STRONG  = 2.5; // clean 30M = 6/6 only
     private static final double RR_FIXED_DEFAULT = 1.2;
     private static final double RR_FIXED_STRONG  = 1.5;
 
@@ -153,11 +153,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Structure-swing trailing is intentionally NOT used (it made the trail
     // too tight) — ATR trail only.
     // =========================================================================
-    private static final double BREAKEVEN_TRIGGER_R    = 0.7;
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.25;
-    private static final double TRAIL_STAGE2_TRIGGER_R = 1.2;
+    private static final double BREAKEVEN_TRIGGER_R    = 0.8;
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.20;
+    private static final double TRAIL_STAGE2_TRIGGER_R = 1.0;
     private static final double TRAIL_STAGE2_ATR15     = 1.5;
-    private static final double TRAIL_STAGE3_TRIGGER_R = 2.0;
+    private static final double TRAIL_STAGE3_TRIGGER_R = 1.5;
     private static final double TRAIL_STAGE3_ATR15     = 1.0;
     private static final double MIN_SL_IMPROVEMENT_ATR = 0.02; // fraction of 5M ATR; avoids API spam
 
@@ -166,7 +166,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // and only once price covered TP_EXTENSION_TRIGGER_FRACTION of the distance
     // to the ORIGINAL TP. New TP = price + TP_EXTENSION_ATR15 x ATR(15M).
     // =========================================================================
-    private static final int    MAX_TP_EXTENSIONS = 2;
+    private static final int    MAX_TP_EXTENSIONS = 1;
     private static final double TP_EXTENSION_ATR15 = 1.0;
     private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80;
 
