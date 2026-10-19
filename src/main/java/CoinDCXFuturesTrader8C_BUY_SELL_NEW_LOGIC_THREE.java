@@ -119,7 +119,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Structural SL (unchanged): swing anchor + ATR buffer, clamped into
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
-    private static final double SL_BUFFER_ATR   = 0.35;
+    private static final double SL_BUFFER_ATR   = 0.25;
     private static final double SL_MIN_PERCENT  = 0.6;
     private static final double SL_MAX_PERCENT  = 0.9;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
@@ -153,13 +153,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Structure-swing trailing is intentionally NOT used (it made the trail
     // too tight) — ATR trail only.
     // =========================================================================
-    private static final double BREAKEVEN_TRIGGER_R    = 1.0;
-    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.15;
-    private static final double TRAIL_STAGE2_TRIGGER_R = 1.5;
-    private static final double TRAIL_STAGE2_ATR15     = 2.5;
-    private static final double TRAIL_STAGE3_TRIGGER_R = 2.5;
-    private static final double TRAIL_STAGE3_ATR15     = 2.0;
-    private static final double MIN_SL_IMPROVEMENT_ATR = 0.10; // fraction of 5M ATR; avoids API spam
+    private static final double BREAKEVEN_TRIGGER_R    = 0.5;
+    private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.25;
+    private static final double TRAIL_STAGE2_TRIGGER_R = 1.0;
+    private static final double TRAIL_STAGE2_ATR15     = 1.2;
+    private static final double TRAIL_STAGE3_TRIGGER_R = 1.5;
+    private static final double TRAIL_STAGE3_ATR15     = 0.9;
+    private static final double MIN_SL_IMPROVEMENT_ATR = 0.02; // fraction of 5M ATR; avoids API spam
 
     // =========================================================================
     // TP extension — only past stage 3, only while the trend is still valid,
