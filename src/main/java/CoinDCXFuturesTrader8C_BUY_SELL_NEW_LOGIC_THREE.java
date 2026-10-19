@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //
     // EARLY_EXIT_ENABLED       -> independent 15M/30M reversal exit layer.
     // =========================================================================
-    private static final boolean TRAILING_ENABLED   = false;
+    private static final boolean TRAILING_ENABLED   = true;
     private static final boolean EARLY_EXIT_ENABLED = false;
 
     // =========================================================================
@@ -131,8 +131,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //                               real exits come from the trailing stop.
     //   TRAILING_ENABLED = false -> normal fixed TP.
     // =========================================================================
-    private static final double RR_TRAIL_DEFAULT = 2.0;
-    private static final double RR_TRAIL_STRONG  = 3.0; // clean 30M = 6/6 only
+    private static final double RR_TRAIL_DEFAULT = 1.5;
+    private static final double RR_TRAIL_STRONG  = 1.8; // clean 30M = 6/6 only
     private static final double RR_FIXED_DEFAULT = 1.2;
     private static final double RR_FIXED_STRONG  = 1.5;
 
