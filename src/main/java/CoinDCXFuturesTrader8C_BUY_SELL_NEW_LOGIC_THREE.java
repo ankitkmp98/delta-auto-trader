@@ -86,15 +86,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 1H macro direction / 30M confirmation, scored out of 6.
     // =========================================================================
-    private static final int MACRO_1H_MIN_SCORE     = 4;
+    private static final int MACRO_1H_MIN_SCORE     = 5;
     private static final int CONFIRM_30M_STRONG_MIN = 5;
-    private static final int CONFIRM_30M_ACCEPTABLE = 4;
-    private static final int CLEAN_15M_MIN_FOR_ACCEPTABLE = 4;
+    private static final int CONFIRM_30M_ACCEPTABLE = 5;
+    private static final int CLEAN_15M_MIN_FOR_ACCEPTABLE = 5;
 
     // =========================================================================
     // 15M setup, scored out of 5.
     // =========================================================================
-    private static final int SETUP_15M_MIN_SCORE = 3;
+    private static final int SETUP_15M_MIN_SCORE = 4;
 
     // =========================================================================
     // 5M pullback + rejection (mandatory) + slope (mandatory).
@@ -173,7 +173,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Margin-based fixed position sizing (unchanged).
     // =========================================================================
-    private static final double MAX_MARGIN = 6000.0;
+    private static final double MAX_MARGIN = 2000.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
