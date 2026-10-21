@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //
     // EARLY_EXIT_ENABLED       -> independent 15M/30M reversal exit layer.
     // =========================================================================
-    private static final boolean TRAILING_ENABLED   = false;
+    private static final boolean TRAILING_ENABLED   = true;
     private static final boolean EARLY_EXIT_ENABLED = false;
 
     // =========================================================================
