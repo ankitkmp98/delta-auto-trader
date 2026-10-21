@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 5;
+    private static final int LEVERAGE = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -119,11 +119,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Structural SL (unchanged): swing anchor + ATR buffer, clamped into
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
-    private static final double SL_BUFFER_ATR   = 0.20;
-    private static final double SL_MIN_PERCENT  = 2.1;
-    private static final double SL_MAX_PERCENT  = 3.0;
+    private static final double SL_BUFFER_ATR   = 0.25;
+    private static final double SL_MIN_PERCENT  = 1.2;
+    private static final double SL_MAX_PERCENT  = 1.5;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
-    private static final double MAX_STRUCTURAL_SL_ATR = 2.0;
+    private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
     // =========================================================================
     // RR-based TP.
@@ -131,10 +131,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //                               real exits come from the trailing stop.
     //   TRAILING_ENABLED = false -> normal fixed TP.
     // =========================================================================
-    private static final double RR_TRAIL_DEFAULT = 2.0;
-    private static final double RR_TRAIL_STRONG  = 2.5; // clean 30M = 6/6 only
-    private static final double RR_FIXED_DEFAULT = 0.7;
-    private static final double RR_FIXED_STRONG  = 0.9;
+    private static final double RR_TRAIL_DEFAULT = 1.0;
+    private static final double RR_TRAIL_STRONG  = 1.2; // clean 30M = 6/6 only
+    private static final double RR_FIXED_DEFAULT = 0.6;
+    private static final double RR_FIXED_STRONG  = 0.8;
 
     // =========================================================================
     // Trailing system (only used when TRAILING_ENABLED = true). All staging is
