@@ -106,7 +106,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 5M supporting confirmation score out of 5 (min 3/5).
     // =========================================================================
-    private static final int    ENTRY_CONFIRMATION_MIN_SCORE = 3;
+    private static final int    ENTRY_CONFIRMATION_MIN_SCORE = 4;
     private static final double RSI_LONG_MIN  = 40, RSI_LONG_MAX  = 70;
     private static final double RSI_SHORT_MIN = 30, RSI_SHORT_MAX = 60;
 
