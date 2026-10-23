@@ -94,7 +94,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 15M setup, scored out of 5.
     // =========================================================================
-    private static final int SETUP_15M_MIN_SCORE = 5;
+    private static final int SETUP_15M_MIN_SCORE = 4;
 
     // =========================================================================
     // 5M pullback + rejection (mandatory) + slope (mandatory).
@@ -106,7 +106,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 5M supporting confirmation score out of 5 (min 3/5).
     // =========================================================================
-    private static final int    ENTRY_CONFIRMATION_MIN_SCORE = 5;
+    private static final int    ENTRY_CONFIRMATION_MIN_SCORE = 4;
     private static final double RSI_LONG_MIN  = 40, RSI_LONG_MAX  = 70;
     private static final double RSI_SHORT_MIN = 30, RSI_SHORT_MAX = 60;
 
@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.30;
-    private static final double SL_MIN_PERCENT  = 1.0;
-    private static final double SL_MAX_PERCENT  = 1.2;
+    private static final double SL_MIN_PERCENT  = 3.0;
+    private static final double SL_MAX_PERCENT  = 4.2;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
