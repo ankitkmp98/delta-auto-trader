@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 6;
+    private static final int MAX_OPEN_POSITIONS = 3;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //
     // EARLY_EXIT_ENABLED       -> independent 15M/30M reversal exit layer.
     // =========================================================================
-    private static final boolean TRAILING_ENABLED   = false;
+    private static final boolean TRAILING_ENABLED   = true;
     private static final boolean EARLY_EXIT_ENABLED = false;
 
     // =========================================================================
@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.30;
-    private static final double SL_MIN_PERCENT  = 3.0;
-    private static final double SL_MAX_PERCENT  = 4.2;
+    private static final double SL_MIN_PERCENT  = 0.6;
+    private static final double SL_MAX_PERCENT  = 0.9;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
@@ -131,8 +131,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //                               real exits come from the trailing stop.
     //   TRAILING_ENABLED = false -> normal fixed TP.
     // =========================================================================
-    private static final double RR_TRAIL_DEFAULT = 1.5;
-    private static final double RR_TRAIL_STRONG  = 1.8; // clean 30M = 6/6 only
+    private static final double RR_TRAIL_DEFAULT = 1.2;
+    private static final double RR_TRAIL_STRONG  = 1.5; // clean 30M = 6/6 only
     private static final double RR_FIXED_DEFAULT = 1.2;
     private static final double RR_FIXED_STRONG  = 1.5;
 
@@ -155,8 +155,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double BREAKEVEN_TRIGGER_R    = 0.7;
     private static final double BREAKEVEN_LOCK_PROFIT_PERCENT = 0.15;
-    private static final double TRAIL_STAGE2_TRIGGER_R = 1.0;
-    private static final double TRAIL_STAGE2_ATR15     = 1.3;
+    private static final double TRAIL_STAGE2_TRIGGER_R = 0.9;
+    private static final double TRAIL_STAGE2_ATR15     = 1.2;
     private static final double TRAIL_STAGE3_TRIGGER_R = 1.5;
     private static final double TRAIL_STAGE3_ATR15     = 1.0;
     private static final double MIN_SL_IMPROVEMENT_ATR = 0.02; // fraction of 5M ATR; avoids API spam
@@ -166,14 +166,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // and only once price covered TP_EXTENSION_TRIGGER_FRACTION of the distance
     // to the ORIGINAL TP. New TP = price + TP_EXTENSION_ATR15 x ATR(15M).
     // =========================================================================
-    private static final int    MAX_TP_EXTENSIONS = 3;
+    private static final int    MAX_TP_EXTENSIONS = 6;
     private static final double TP_EXTENSION_ATR15 = 1.0;
     private static final double TP_EXTENSION_TRIGGER_FRACTION = 0.80;
 
     // =========================================================================
     // Margin-based fixed position sizing (unchanged).
     // =========================================================================
-    private static final double MAX_MARGIN = 4000.0;
+    private static final double MAX_MARGIN = 2000.0;
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
