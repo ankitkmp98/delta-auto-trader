@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 20;
+    private static final int LEVERAGE = 30;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -131,8 +131,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //                               real exits come from the trailing stop.
     //   TRAILING_ENABLED = false -> normal fixed TP.
     // =========================================================================
-    private static final double RR_TRAIL_DEFAULT = 0.6;
-    private static final double RR_TRAIL_STRONG  = 0.8; // clean 30M = 6/6 only
+    private static final double RR_TRAIL_DEFAULT = 1.2;
+    private static final double RR_TRAIL_STRONG  = 1.5; // clean 30M = 6/6 only
     private static final double RR_FIXED_DEFAULT = 0.8;
     private static final double RR_FIXED_STRONG  = 1.0;
 
