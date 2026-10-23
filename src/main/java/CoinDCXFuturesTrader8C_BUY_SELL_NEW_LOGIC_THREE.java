@@ -36,7 +36,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 6;
+    private static final int MAX_OPEN_POSITIONS = 12;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.30;
-    private static final double SL_MIN_PERCENT  = 3.6;
-    private static final double SL_MAX_PERCENT  = 3.9;
+    private static final double SL_MIN_PERCENT  = 4.5;
+    private static final double SL_MAX_PERCENT  = 5.4;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
@@ -133,8 +133,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double RR_TRAIL_DEFAULT = 1.2;
     private static final double RR_TRAIL_STRONG  = 1.5; // clean 30M = 6/6 only
-    private static final double RR_FIXED_DEFAULT = 1.5;
-    private static final double RR_FIXED_STRONG  = 1.8;
+    private static final double RR_FIXED_DEFAULT = 0.7;
+    private static final double RR_FIXED_STRONG  = 0.9;
 
     // =========================================================================
     // Trailing system (only used when TRAILING_ENABLED = true). All staging is
