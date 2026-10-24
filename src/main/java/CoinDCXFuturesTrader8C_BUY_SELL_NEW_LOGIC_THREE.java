@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 6;
+    private static final int LEVERAGE = 8;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -131,7 +131,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final double TOTAL_CAPITAL_BASE     = 5000.0; // INR — placeholder, set to your real capital
     private static final double RISK_PERCENT_PER_TRADE = 1.0;     // % of capital risked per trade
-    private static final double MAX_MARGIN             = 1000.0;  // hard safety ceiling, never exceeded regardless of risk sizing
+    private static final double MAX_MARGIN             = 2000.0;  // hard safety ceiling, never exceeded regardless of risk sizing
 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
