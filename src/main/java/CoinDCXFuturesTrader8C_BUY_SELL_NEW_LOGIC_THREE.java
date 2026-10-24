@@ -26,7 +26,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
 
-    private static final int LEVERAGE = 10;
+    private static final int LEVERAGE = 20;
 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
@@ -86,15 +86,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // 1H macro direction / 30M confirmation, scored out of 6.
     // =========================================================================
-    private static final int MACRO_1H_MIN_SCORE     = 5;
-    private static final int CONFIRM_30M_STRONG_MIN = 5;
-    private static final int CONFIRM_30M_ACCEPTABLE = 5;
-    private static final int CLEAN_15M_MIN_FOR_ACCEPTABLE = 5;
+    private static final int MACRO_1H_MIN_SCORE     = 4;
+    private static final int CONFIRM_30M_STRONG_MIN = 4;
+    private static final int CONFIRM_30M_ACCEPTABLE = 4;
+    private static final int CLEAN_15M_MIN_FOR_ACCEPTABLE = 4;
 
     // =========================================================================
     // 15M setup, scored out of 5.
     // =========================================================================
-    private static final int SETUP_15M_MIN_SCORE = 4;
+    private static final int SETUP_15M_MIN_SCORE = 3;
 
     // =========================================================================
     // 5M pullback + rejection (mandatory) + slope (mandatory).
@@ -120,8 +120,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // [SL_MIN_PERCENT, SL_MAX_PERCENT]. Raw structural SL too far -> skip trade.
     // =========================================================================
     private static final double SL_BUFFER_ATR   = 0.30;
-    private static final double SL_MIN_PERCENT  = 4.5;
-    private static final double SL_MAX_PERCENT  = 5.4;
+    private static final double SL_MIN_PERCENT  = 0.8;
+    private static final double SL_MAX_PERCENT  = 1.2;
     private static final double SL_HARD_PERCENT_CAP  = 15.0;  // fallback only (ATR unavailable)
     private static final double MAX_STRUCTURAL_SL_ATR = 2.5;
 
