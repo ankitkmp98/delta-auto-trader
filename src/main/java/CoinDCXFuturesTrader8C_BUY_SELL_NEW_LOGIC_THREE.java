@@ -40,7 +40,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 4; // overall bot-wide cap across all symbols
+    private static final int MAX_OPEN_POSITIONS = 8; // overall bot-wide cap across all symbols
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -101,7 +101,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final int    SWING_LOOKBACK = 10; // simple lowest-low / highest-high over this many 1H bars
     private static final double SL_ATR_BUFFER  = 0.25;
-    private static final double MAX_SL_PERCENT = 4.0; // reject (skip), never tighten
+    private static final double MAX_SL_PERCENT = 6.0; // reject (skip), never tighten
 
     // =========================================================================
     // SECTION 15 — fixed TP, RR = 2.0. Calculated once from the ACTUAL entry
