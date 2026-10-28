@@ -49,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // SECTION 3/24 — capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1200.0; // INR margin allocated per trade — never adjusted for SL distance
-    private static final int    LEVERAGE     = 10;
+    private static final int    LEVERAGE     = 20;
 
     // =========================================================================
     // SECTION 2/24 — indicators. 4H uses EMA50/EMA200/Supertrend for the
