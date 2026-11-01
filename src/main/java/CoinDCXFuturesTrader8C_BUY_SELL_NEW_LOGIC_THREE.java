@@ -314,7 +314,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 return null;
             }
         }
-        all.sort(Comparator.comparingLong(CoinDCXFuturesTrader8C_LOWTF::candleTimeMs));
+        all.sort(Comparator.comparingLong(CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE::candleTimeMs));
         JSONArray out = new JSONArray();
         long prev = -1;
         for (JSONObject c : all) {
