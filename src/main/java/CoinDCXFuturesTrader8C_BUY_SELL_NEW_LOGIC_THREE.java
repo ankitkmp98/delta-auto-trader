@@ -132,12 +132,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final int    SWING_LOOKBACK = 15;
     private static final double SL_ATR_BUFFER  = 0.35;
-    private static final double MAX_SL_PERCENT = 6.0; // reject (skip), never tighten
+    private static final double MAX_SL_PERCENT = 1.5; // reject (skip), never tighten
 
     // =========================================================================
     // Fixed TP — calculated once from the ACTUAL entry and ACTUAL SL.
     // =========================================================================
-    private static final double TARGET_RR = 0.6;
+    private static final double TARGET_RR = 0.75;
 
     // =========================================================================
     // Duplicate-position protection & cooldown
