@@ -59,7 +59,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1200.0; // INR value used in qty formula — never adjusted for SL distance
-    private static final int    LEVERAGE     = 10;
+    private static final int    LEVERAGE     = 5;
 
     // =========================================================================
     // Indicators
@@ -132,12 +132,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static final int    SWING_LOOKBACK = 15;
     private static final double SL_ATR_BUFFER  = 0.35;
-    private static final double MAX_SL_PERCENT = 2.0; // reject (skip), never tighten
+    private static final double MAX_SL_PERCENT = 10.0; // reject (skip), never tighten
 
     // =========================================================================
     // Fixed TP — calculated once from the ACTUAL entry and ACTUAL SL.
     // =========================================================================
-    private static final double TARGET_RR = 0.75;
+    private static final double TARGET_RR = 0.6;
 
     // =========================================================================
     // Duplicate-position protection & cooldown
