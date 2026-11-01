@@ -58,7 +58,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1200.0; // INR value used in qty formula — never adjusted for SL distance
+    private static final double FIXED_MARGIN = 1500.0; // INR value used in qty formula — never adjusted for SL distance
     private static final int    LEVERAGE     = 10;
 
     // =========================================================================
