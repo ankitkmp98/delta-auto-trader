@@ -1628,8 +1628,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration (unchanged)
     // =========================================================================
-    private static final double FIXED_MARGIN = 1000.0;
-    private static final int    LEVERAGE     = 5;
+    private static final double FIXED_MARGIN = 1200.0;
+    private static final int    LEVERAGE     = 10;
 
     // =========================================================================
     // Timeframes (minutes)
@@ -1639,8 +1639,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int TF_ENTRY = 5;
 
     // Optional entry refinement. Both OFF by default (more API load, more noise).
-    static final boolean USE_3M_CONFIRM = false;
-    static final boolean USE_1M_CONFIRM = false;
+    static final boolean USE_3M_CONFIRM = true;
+    static final boolean USE_1M_CONFIRM = true;
     static final int     REFINE_MAX_CANDLES = 3;
 
     // =========================================================================
