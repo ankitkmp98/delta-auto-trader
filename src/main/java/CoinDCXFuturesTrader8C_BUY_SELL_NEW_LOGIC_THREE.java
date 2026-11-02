@@ -1,1544 +1,1544 @@
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-// =============================================================================
-// SCALPING STRATEGY — 15M trend / 5M setup / 1M entry
-//
-//   15M TREND  : EMA50 vs EMA200 + Supertrend(10,3) + ADX14 >= 20
-//                -> LONG / SHORT / SKIP   (cached, refreshed once per 15M candle)
-//   BTC FILTER : altcoin LONG blocked if BTC 15M EMA/Supertrend is bearish (and v.v.)
-//   5M SETUP   : EMA9 vs EMA21, close vs EMA50, pullback to the EMA21 zone,
-//                RSI14 vs 50, volume >= 0.9 x SMA20  (evaluated once per closed 5M candle)
-//   1M ENTRY   : EMA9 vs EMA21, close vs EMA9, bullish/bearish candle that closes
-//                beyond the previous candle high/low, VWAP side, extension <= 1 ATR
-//
-//   SL = 1M swing low/high +/- 0.4 x ATR(5M)  (min 0.5 x ATR1M, max 1.5 x ATR5M)
-//   TP = fixed RR (1.2) from the ACTUAL fill price, set once.
-//   Breakeven / trailing exist but are OFF by default.
-//
-// Only COMPLETED candles are used. CoinDCX native resolutions "1" and "5" only;
-// 15M is built by TIME-ALIGNED aggregation of 5M (complete buckets only).
-// =============================================================================
-public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
-
-    // =========================================================================
-    // API configuration (unchanged)
-    // =========================================================================
-    private static final String API_KEY    = System.getenv("DELTA_API_KEY");
-    private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
-    private static final String BASE_URL       = "https://api.coindcx.com";
-    private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-
-    private static final int MAX_ENTRY_PRICE_CHECKS = 20;
-    private static final int ENTRY_CHECK_DELAY_MS    = 1000;
-
-    private static final int  TPSL_MAX_RETRIES    = 3;
-    private static final long TPSL_RETRY_DELAY_MS = 2000L;
-
-    private static final long TICK_CACHE_TTL_MS = 3_600_000L;
-
-    private static final int MAX_OPEN_POSITIONS = 5;
-
-    private static final int  POSITION_ID_MAX_RETRIES = 5;
-    private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
-
-    // =========================================================================
-    // Capital configuration
-    // =========================================================================
-    private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 10;
-
-    // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
-    // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
-    static final boolean USE_RISK_SIZING     = false;
-    static final double  RISK_PER_TRADE_INR  = 100.0;   // set your own value before enabling
-    static final double  MAX_NOTIONAL_INR    = 6000.0;
-    static final double  USDT_INR_RATE       = 102.0;
-
-    // =========================================================================
-    // Timeframes (minutes)
-    // =========================================================================
-    static final int TF_TREND = 15;
-    static final int TF_SETUP = 5;
-    static final int TF_ENTRY = 1;
-
-    // =========================================================================
-    // Indicators
-    // =========================================================================
-    static final int EMA_50  = 50;
-    static final int EMA_200 = 200;
-    static final int EMA_FAST = 9;
-    static final int EMA_SLOW = 21;
-    static final int    ST_PERIOD     = 10;
-    static final double ST_MULTIPLIER = 3.0;
-    static final int ATR_PERIOD = 14;
-    static final int ADX_PERIOD = 14;
-    static final int RSI_SETUP_PERIOD = 14;   // 5M
-    static final int RSI_ENTRY_PERIOD = 7;    // 1M (logged only, not a condition)
-
-    // =========================================================================
-    // Filters / flags (turn on/off one by one while testing)
-    // =========================================================================
-    static final double  ADX_MIN_TREND   = 20.0;  // 15M
-    static final boolean USE_BTC_FILTER  = false;
-    static final String  BTC_PAIR        = "B-BTC_USDT";
-    static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
-    static final boolean USE_VOLUME_FILTER = false;
-    static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
-    static final int     VOLUME_SMA_PERIOD = 20;
-    static final boolean USE_VWAP_FILTER = false;
-    static final int     VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT = 30; // VWAP skipped right after 00:00 UTC
-
-    // =========================================================================
-    // 5M setup / 1M entry parameters
-    // =========================================================================
-    static final int    SETUP_PULLBACK_BARS  = 4;     // last N closed 5M candles checked for the EMA21 pullback
-    static final double SETUP_PULLBACK_ZONE_ATR = 0.25; // "near EMA21" = within 0.25 ATR(5M) of it
-    static final double MAX_EMA_EXTENSION_ATR = 1.0;  // 1M close vs EMA9, in ATR(1M)
-
-    // =========================================================================
-    // Data fetching
-    // =========================================================================
-    // Max candles per request is NOT verified for CoinDCX; bigger requests are split into pages.
-    static final int  MAX_BARS_PER_CALL   = 500;
-    static final long MIN_REQUEST_GAP_MS  = 60L;
-
-    static final int TREND_BARS_15M     = 240;  // EMA200 + warm-up (= ~725 5M candles, 2 pages)
-    static final int SETUP_FETCH_5M     = 160;
-    static final int SETUP_MIN_BARS_5M  = 80;
-    static final int ENTRY_FETCH_1M     = 60;
-    static final int ENTRY_MIN_BARS_1M  = 40;
-
-    // =========================================================================
-    // SL / TP
-    // =========================================================================
-    static final int    SWING_LOOKBACK_1M   = 12;
-    static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
-    static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
-    static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 1.5;
-    static final double MIN_SL_PERCENT      = 0.30;  // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 0.75;
-
-    // =========================================================================
-    // Trade management (OFF by default). Moving the SL on the exchange re-sends
-    // create_tpsl for the position — verify that behaviour on a small size first.
-    // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = false;
-    static final double  BREAKEVEN_TRIGGER_R  = 0.8;
-    static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = false;
-    static final double  TRAIL_ACTIVATE_R     = 1.0;
-    static final double  TRAIL_ATR5_MULT      = 1.0;
-    static final int     SL_MODIFY_MAX_FAILS  = 3;
-
-    // =========================================================================
-    // Timing / duplicate protection
-    // =========================================================================
-    static final long ENTRY_MAX_AGE_MS = 75_000L;           // 1M signal must be <= 75s old
-    static final long COOLDOWN_MS      = 15L * 60 * 1000L;
-    static final long SCAN_STEP_MS     = 60_000L;
-    static final long SCAN_DELAY_MS    = 5_000L;
-    static final long TREND_USABLE_GRACE_MS = 5L * 60 * 1000L;
-
-    static final boolean LOG_TRADES_CSV = true;
-    static final String  TRADE_LOG_FILE = "trade_log_v3.csv";
-
-    private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
-
-    static class TradeInfo {
-        boolean isLong;
-        double entry, sl, tp;
-        double initialSl, risk;
-        double maxPrice, minPrice;
-        long openedMs;
-        String ctx = "";
-        int modifyFails = 0;
-    }
-    private static final Map<String, TradeInfo> tradeState = new ConcurrentHashMap<>();
-    private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
-    private static long lastCacheUpdate = 0;
-    private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
-    private static final Map<String, Long> lastSignalCandle = new ConcurrentHashMap<>();
-    private static final Map<String, Trend15> trendCache = new ConcurrentHashMap<>();
-    private static final Map<String, Setup5> setupCache = new ConcurrentHashMap<>();
-    private static boolean timeLoggedThisScan = false;
-    private static boolean staleWarnedThisScan = false;
-    private static boolean volumeWarned = false;
-
-    private static final String[] COIN_SYMBOLS = {
-       "PIEVERSE","XAU","APE","ERA","US","RAVE","EDEN","LIT","BREV","MAGMA","BLESS","ZAMA",
-        "FRAX","ACU","1000FLOKI","ELSA","LINEA","SPACE","CLO","FIGHT","UMA","MEGA","MAV","TRIA",
-        "YGG","OPN","ROBO","SUI","GLM","MANTRA","SEI","CAKE","AUCTION","SENT","BSB","BASED","IRYS",
-        "ACE","WET","CL","PRL","GENIUS","WIF","MANTA","LSK","AIGENSYN","PHAROS","JUP","AXL","BOME",
-        "SLX","ZEST","AIOT","VVV","CAP","DATAIP","GRVT","TAO","BR","TURBO","BTC","ETH","ZK","LISTA",
-        "A","LTC","XAG","COAI","HANA","ZRO","SKYAI","COPPER","RARE","ETC","M","AKE","XLM","PIXEL",
-        "XAN","ADA","CROSS","XMR","G","DASH","ZEC","ATOM","TRUTH","BCH","NEO","IOST","FLUX","ALGO",
-        "ZRX","COMP","WLFI","POL","DOGE","BAND","OPG","FIDA","PROM","SANTOS","RLC","1000000MOG",
-        "GRASS","PNUT","TRB","KAIA","ARX","XAI","S","4","COTI","CHR","SOLV","SAGA","ORCA","1000LUNC",
-        "MOVE","VIRTUAL","ME","IOTX","GIGGLE","AVA","VELODROME","AIXBT","KMNO","LA","DEXE","ZBT",
-        "GRIFFAIN","BLUAI","CTSI","ROSE","TURTLE","IMX","SUN","APR","TA","ON","BIO","COOKIE",
-        "AVAAI","DOT","TRUMP","MELANIA","GMT","FLOCK","CLANKER","CYS","SUSHI","VTHO","DIA",
-        "SLP","GOAT","BMT","KGEN","GWEI","MUBARAK","LDO","ESP","DRIFT","FORM","PLUME","NIL",
-        "UNI","ZORA","RECALL","INIT","BZ","PARTI","NATGAS","SPX","BANK","AVAX","RIVER","BILL",
-        "ATH","XRP","KERNEL","JST","PUNDIX","HAEDAL","ALPINE","SOON","SOPH","HUMA","TRX","LINK",
-        "HYPE","HIVE","TAIKO","TAG","MYX","NEWT","AIN","USUAL","PUMP","ICNT","BNB","H","BAT",
-        "QTUM","ARC","AIO","BEAT","BTR","ALCH","THETA","VELVET","ARIA","PTB","UB","LIGHT","FF",
-        "EVAAI","GMX","LYN","TAC","LAB","ENJ","AT","MMT","UAI","AAVE","JCT","KSM","HEI","JASMY",
-        "NEAR","TST","SOL","OP","PLAY","INJ","STG","HOLO","ASR","B","LUNA2","RSR","INX","KAT",
-        "ICP","QNT","MAGIC","T","MINA","STX","ACH","LQTY","ID","GRT","NEIRO","XVS","1INCH","SAND",
-        "ANKR","RVN","SFP","KAVA","MANA","HBAR","ARB","MTL","C98","TUT","SIREN","MASK","1000XEC",
-        "AR","ARPA","FIL","LPT","ENS","PEOPLE","LUMIA","DUSK","FLOW","XVG","ARKM","POPCAT","ARK",
-        "MOODENG","SAFE","AXS","BICO","BIGTIME","WAXP","GAS","POWR","TIA","CHIP","STO","ORDI",
-        "BEAMX","1000BONK","PYTH","ETHW","1000RATS","ANIME","OPEN","DYM","BERA","PORTAL","BB",
-        "BANANAS31","CFX","SSV","TNSR","EDU","JELLYJELLY","BLUR","WAL","FHE","WCT","DEEP","SXT",
-        "NAORIS","OG","CVC","AWE","O","BEL","JOE","SQD","1000PEPE","CARV","FET","SAPIEN","MEME",
-        "AVNT","XPIN","ILV","KAS","BNT","STBL","BSV","RIF","SUPER","USTC","METIS","ETHFI","ENA",
-        "1MBABYDOGE","CATI","HMSTR","GPS","SHELL","KAITO","ACT","RPL","BAN","THE","AKT","MORPHO",
-        "CHILLGUY","AERO","MOCA","PENGU","PHA","RED","EPIC","TREE","1000CAT","MAVIA","FARTCOIN",
-        "PAXG","IN","ORDER","VET","ZEN","STABLE","CHZ","NIGHT","NOM","ZKP","SKR","GRAM","BIRB",
-        "CTR","KNC","ZIL","YFI","EGLD","RUNE","ASTR","ONE","1000SHIB","API3","SPELL","WOO","APT",
-        "PENDLE","AGLD","CYBER","CKB","ONG","MOVR","POLYX","TWT","STEEM","ALT","ZETA","REZ","RENDER",
-        "RONIN","STRK","W","SCR","CETUS","IO","MEW","SWARMS","SONIC","PIPPIN","PROMPT","MERL","F",
-        "ESPORTS","PROVE","XNY","USELESS","HEMI","Q","SKY","ZKC","FLUID","MITO","CFG","EDGE","RE",
-        "YB","MET","DOS","FOGO","BTW","ALLO","BROCCOLI714","HYPER","XPL","RESOLV","ASTER","KITE",
-        "SIGN","HOME","MON","CC","SAHARA","MIRA","EUL","TOWNS","SYRUP","C","DOLO","ALICE","BABY",
-        "SOMI","NOT","BARD","SPK","POWER","2Z","BANANA","ENSO","SYN","NXPC","GUN","XTZ","ONT","SKL",
-        "HOT","JTO","DOGS","EIGEN","GTC","GALA","NMR","CGPT","ZEREBRO","VANA","OGN","CELO","USDC",
-        "COW","0G","IOTA","SNX","DYDX","WLD","1000SATS","ONDO","AEVO","BRETT","LAYER","CRV","TLM","KOMA"
-    };
-
-    // Liquid subset used when USE_LIQUID_LIST = true (edit freely).
-    private static final Set<String> LIQUID_SYMBOLS = new HashSet<>(Arrays.asList(
-        "BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","DOT","LTC","BCH","TRX","ATOM",
-        "NEAR","APT","ARB","OP","SUI","INJ","UNI","AAVE","FIL","ETC","XLM","HBAR","ICP","TIA","SEI",
-        "WLD","ONDO","1000PEPE","1000SHIB","FET","RENDER","TAO","ENA","JUP","PENDLE","STX","IMX",
-        "LDO","CRV","SAND","MANA","GALA","AXS","APE","ALGO","EGLD","THETA","VET","XMR","DASH","ZEC",
-        "NEO","QTUM","XTZ","FLOW","KAS","TRUMP","WIF","1000BONK","HYPE","PUMP","FARTCOIN","PENGU",
-        "WLFI","COMP","SNX","DYDX","GMX","1INCH","RUNE","POL","BERA","ORDI","PYTH","STRK","ZRO",
-        "EIGEN","ETHFI","AEVO"));
-
-    private static final Set<String> INTEGER_QTY_PAIRS = Stream.of(COIN_SYMBOLS)
-            .flatMap(s -> Stream.of("B-" + s + "_USDT", s + "_USDT"))
-            .collect(Collectors.toCollection(HashSet::new));
-
-    private static final String[] COINS_TO_TRADE = Stream.of(COIN_SYMBOLS)
-            .filter(s -> !USE_LIQUID_LIST || LIQUID_SYMBOLS.contains(s))
-            .map(s -> "B-" + s + "_USDT")
-            .toArray(String[]::new);
-
-    // =========================================================================
-    // Candle helpers
-    // =========================================================================
-    // Assumes the candle "time" field is the candle OPEN time (seconds or ms).
-    static long candleTimeMs(JSONObject c) {
-        double t = c.optDouble("time", -1);
-        if (t <= 0) return -1;
-        long v = (long) t;
-        return v < 100_000_000_000L ? v * 1000L : v;
-    }
-
-    static JSONArray dropLastIfForming(JSONArray arr) {
-        if (arr == null || arr.length() < 2) return arr;
-        JSONArray out = new JSONArray();
-        for (int i = 0; i < arr.length() - 1; i++) out.put(arr.getJSONObject(i));
-        return out;
-    }
-
-    static JSONArray tailOf(JSONArray arr, int n) {
-        if (arr == null || arr.length() <= n) return arr;
-        JSONArray out = new JSONArray();
-        for (int i = arr.length() - n; i < arr.length(); i++) out.put(arr.getJSONObject(i));
-        return out;
-    }
-
-    // True if the last candle in `closed` is the most recent COMPLETE tfMin bucket.
-    static boolean lastClosedIsLatest(JSONArray closed, int tfMin, long nowMs) {
-        if (closed == null || closed.length() == 0) return false;
-        long tfMs = tfMin * 60_000L;
-        long lastOpen = candleTimeMs(closed.getJSONObject(closed.length() - 1));
-        if (lastOpen <= 0) return false;
-        return lastOpen == (nowMs / tfMs) * tfMs - tfMs;
-    }
-
-    // Time-aligned aggregation: keeps ONLY complete buckets. Null if timestamps are missing.
-    static JSONArray aggregateByTime(JSONArray src, long bucketMs, long srcMs) {
-        if (src == null || src.length() == 0) return null;
-        int need = (int) (bucketMs / srcMs);
-        JSONArray out = new JSONArray();
-        int n = src.length();
-        int i = 0;
-        while (i < n) {
-            long t0 = candleTimeMs(src.getJSONObject(i));
-            if (t0 < 0) return null;
-            long bucketStart = (t0 / bucketMs) * bucketMs;
-            double open = src.getJSONObject(i).getDouble("open");
-            double close = open;
-            double high = Double.NEGATIVE_INFINITY, low = Double.POSITIVE_INFINITY, vol = 0;
-            int count = 0;
-            int j = i;
-            while (j < n) {
-                JSONObject c = src.getJSONObject(j);
-                long tj = candleTimeMs(c);
-                if (tj < 0 || (tj / bucketMs) * bucketMs != bucketStart) break;
-                high = Math.max(high, c.getDouble("high"));
-                low  = Math.min(low,  c.getDouble("low"));
-                vol += c.optDouble("volume", 0);
-                close = c.getDouble("close");
-                count++;
-                j++;
-            }
-            if (count == need) {
-                JSONObject m = new JSONObject();
-                m.put("open", open);
-                m.put("close", close);
-                m.put("high", high);
-                m.put("low", low);
-                m.put("volume", vol);
-                m.put("time", bucketStart);
-                out.put(m);
-            }
-            i = Math.max(j, i + 1);
-        }
-        return out;
-    }
-
-    // COMPLETED candles only, oldest first. Native "1"/"5"; other timeframes from 5M/1M.
-    static JSONArray getClosedCandles(String pair, int tfMin, int bars) {
-        if (tfMin == 1 || tfMin == 5) {
-            return dropLastIfForming(fetchCandlesPaged(pair, String.valueOf(tfMin), tfMin, bars + 1));
-        }
-        int base = (tfMin % 5 == 0) ? 5 : 1;
-        int ratio = tfMin / base;
-        int baseBars = bars * ratio + ratio + 2;
-        JSONArray closedBase = dropLastIfForming(fetchCandlesPaged(pair, String.valueOf(base), base, baseBars));
-        if (closedBase == null) return null;
-        JSONArray agg = aggregateByTime(closedBase, tfMin * 60_000L, base * 60_000L);
-        if (agg == null) return null;
-        return tailOf(agg, bars);
-    }
-
-    static JSONArray fetchCandlesPaged(String pair, String res, int minsPerBar, int count) {
-        long nowSec = Instant.now().getEpochSecond();
-        if (count <= MAX_BARS_PER_CALL) {
-            return getCandlestickRange(pair, res, nowSec - (long) minsPerBar * 60L * count, nowSec);
-        }
-        List<JSONObject> all = new ArrayList<>();
-        long toSec = nowSec;
-        int remaining = count;
-        boolean first = true;
-        while (remaining > 0) {
-            int n = Math.min(MAX_BARS_PER_CALL, remaining);
-            long fromSec = toSec - (long) minsPerBar * 60L * n;
-            JSONArray part = getCandlestickRange(pair, res, fromSec, toSec);
-            if (part == null) {
-                if (first) return null;
-                break;
-            }
-            for (int i = 0; i < part.length(); i++) all.add(part.getJSONObject(i));
-            first = false;
-            remaining -= n;
-            toSec = fromSec - 1;
-            if (part.length() == 0) break;
-        }
-        for (JSONObject c : all) {
-            if (candleTimeMs(c) < 0) {
-                System.err.println("  [ERROR] candle has no 'time' field — cannot merge pages for " + pair);
-                return null;
-            }
-        }
-        all.sort(Comparator.comparingLong(CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE::candleTimeMs));
-        JSONArray out = new JSONArray();
-        long prev = -1;
-        for (JSONObject c : all) {
-            long t = candleTimeMs(c);
-            if (t == prev) continue;
-            out.put(c);
-            prev = t;
-        }
-        return out;
-    }
-
-    private static long lastRequestAt = 0;
-    private static synchronized void throttle() {
-        long now = System.currentTimeMillis();
-        long wait = MIN_REQUEST_GAP_MS - (now - lastRequestAt);
-        if (wait > 0) {
-            try { Thread.sleep(wait); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-        }
-        lastRequestAt = System.currentTimeMillis();
-    }
-
-    private static JSONArray getCandlestickRange(String pair, String resolution, long from, long to) {
-        try {
-            throttle();
-            String url = PUBLIC_API_URL + "/market_data/candlesticks"
-                    + "?pair=" + pair + "&from=" + from + "&to=" + to
-                    + "&resolution=" + resolution + "&pcode=f";
-            HttpURLConnection conn = openGet(url);
-            int code = conn.getResponseCode();
-            if (code == 200) {
-                JSONObject r = new JSONObject(readStream(conn.getInputStream()));
-                if ("ok".equals(r.optString("s"))) return r.getJSONArray("data");
-                System.err.println("  Candle s=" + r.optString("s") + " " + pair + "/" + resolution);
-            } else {
-                System.err.println("  Candle HTTP " + code + " " + pair + "/" + resolution);
-            }
-        } catch (Exception e) {
-            System.err.println("  getCandlestickRange(" + pair + "/" + resolution + "): " + e.getMessage());
-        }
-        return null;
-    }
-
-    // =========================================================================
-    // 15M TREND: EMA50 vs EMA200 + Supertrend + ADX >= 20
-    // =========================================================================
-    static class Trend15 {
-        boolean valid, bullish, bearish, stGreen;
-        boolean emaStUp, emaStDown;   // EMA+Supertrend only (no ADX) — used by the BTC filter
-        double ema50, ema200, adx, plusDI, minusDI;
-        long lastCandleOpen;
-        String reason = "";
-    }
-
-    static Trend15 evaluate15mTrend(JSONArray c15) {
-        Trend15 r = new Trend15();
-        int need = EMA_200 + ST_PERIOD + 5;
-        if (c15 == null || c15.length() < need) {
-            r.reason = "not enough 15M candles (" + (c15 == null ? 0 : c15.length()) + "/" + need + ")";
-            return r;
-        }
-        double[] cl = extractCloses(c15), hi = extractHighs(c15), lo = extractLows(c15);
-        double[] adxArr = calcADX(hi, lo, cl, ADX_PERIOD);
-        if (adxArr == null) {
-            r.reason = "ADX data insufficient";
-            return r;
-        }
-        r.ema50 = calcEMA(cl, EMA_50);
-        r.ema200 = calcEMA(cl, EMA_200);
-        boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
-        r.stGreen = st[st.length - 1];
-        r.adx = adxArr[0]; r.plusDI = adxArr[1]; r.minusDI = adxArr[2];
-        r.lastCandleOpen = candleTimeMs(c15.getJSONObject(c15.length() - 1));
-        r.valid = true;
-        r.emaStUp = r.ema50 > r.ema200 && r.stGreen;
-        r.emaStDown = r.ema50 < r.ema200 && !r.stGreen;
-        boolean adxOk = r.adx >= ADX_MIN_TREND;
-        r.bullish = r.emaStUp && adxOk;
-        r.bearish = r.emaStDown && adxOk;
-        r.reason = String.format("15M EMA50=%.6f EMA200=%.6f Supertrend=%s ADX=%.1f(>=%.0f:%s) -> %s",
-                r.ema50, r.ema200, r.stGreen ? "GREEN" : "RED", r.adx, ADX_MIN_TREND, adxOk,
-                r.bullish ? "LONG trend" : (r.bearish ? "SHORT trend" : "SKIP (no clean trend)"));
-        return r;
-    }
-
-    static boolean trendUsable(Trend15 t, long nowMs) {
-        if (t == null || !t.valid || t.lastCandleOpen <= 0) return false;
-        return nowMs < t.lastCandleOpen + 2 * TF_TREND * 60_000L + TREND_USABLE_GRACE_MS;
-    }
-
-    // Background refresher: once at startup, then once per new 15M candle.
-    private static void startTrendRefresher() {
-        Thread t = new Thread(() -> {
-            boolean first = true;
-            while (!Thread.currentThread().isInterrupted()) {
-                try {
-                    if (!first) {
-                        long tfMs = TF_TREND * 60_000L;
-                        long now = System.currentTimeMillis();
-                        long next = (now / tfMs + 1) * tfMs + 10_000L;
-                        Thread.sleep(Math.max(1000L, next - now));
-                    }
-                    first = false;
-                    List<String> list = new ArrayList<>(Arrays.asList(COINS_TO_TRADE));
-                    if (USE_BTC_FILTER && !list.contains(BTC_PAIR)) list.add(0, BTC_PAIR);
-                    int ok = 0, bull = 0, bear = 0, bad = 0;
-                    for (String pair : list) {
-                        try {
-                            Trend15 tr = evaluate15mTrend(getClosedCandles(pair, TF_TREND, TREND_BARS_15M));
-                            trendCache.put(pair, tr);
-                            if (!tr.valid) { bad++; continue; }
-                            ok++;
-                            if (tr.bullish) bull++;
-                            if (tr.bearish) bear++;
-                        } catch (Exception e) {
-                            bad++;
-                            System.err.println("[TREND] " + pair + ": " + e.getMessage());
-                        }
-                    }
-                    Trend15 btc = trendCache.get(BTC_PAIR);
-                    System.out.println("[TREND] refresh done: valid=" + ok + " LONG=" + bull + " SHORT=" + bear
-                            + " no-data=" + bad + (btc != null && btc.valid ? " | BTC: " + btc.reason : ""));
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Throwable th) {
-                    System.err.println("[TREND] refresher error: " + th.getMessage());
-                }
-            }
-        }, "trend-refresher");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    // =========================================================================
-    // 5M SETUP: EMA9/21, close vs EMA50, pullback near EMA21, RSI14, volume
-    // =========================================================================
-    static class Setup5 {
-        boolean valid, pass, trendUp, volChecked;
-        double close, ema9, ema21, ema50, rsi, atr5, vol, volAvg;
-        long lastCandleOpen;
-        String reason = "";
-    }
-
-    static Setup5 evaluate5mSetup(JSONArray c5, boolean trendUp) {
-        Setup5 s = new Setup5();
-        s.trendUp = trendUp;
-        if (c5 == null || c5.length() < SETUP_MIN_BARS_5M) {
-            s.reason = "not enough 5M candles (" + (c5 == null ? 0 : c5.length()) + "/" + SETUP_MIN_BARS_5M + ")";
-            return s;
-        }
-        double[] cl = extractCloses(c5), hi = extractHighs(c5), lo = extractLows(c5), vo = extractVolumes(c5);
-        int n = cl.length;
-        double[] ema21s = calcEMASeries(cl, EMA_SLOW);
-        s.close = cl[n - 1];
-        s.ema9 = calcEMA(cl, EMA_FAST);
-        s.ema21 = ema21s[n - 1];
-        s.ema50 = calcEMA(cl, EMA_50);
-        s.atr5 = calcATR(hi, lo, cl, ATR_PERIOD);
-        s.rsi = calcRSI(cl, RSI_SETUP_PERIOD);
-        s.lastCandleOpen = candleTimeMs(c5.getJSONObject(n - 1));
-        s.valid = true;
-
-        boolean emaOk = trendUp ? s.ema9 > s.ema21 : s.ema9 < s.ema21;
-        boolean ema50Ok = trendUp ? s.close > s.ema50 : s.close < s.ema50;
-        boolean near = false;
-        for (int i = Math.max(0, n - SETUP_PULLBACK_BARS); i <= n - 1; i++) {
-            double zone = SETUP_PULLBACK_ZONE_ATR * s.atr5;
-            if (trendUp ? lo[i] <= ema21s[i] + zone : hi[i] >= ema21s[i] - zone) { near = true; break; }
-        }
-        boolean rsiOk = trendUp ? s.rsi > 50 : s.rsi < 50;
-
-        s.vol = vo[n - 1];
-        s.volAvg = smaBefore(vo, n - 1, VOLUME_SMA_PERIOD);
-        boolean volOk = true;
-        if (USE_VOLUME_FILTER) {
-            if (s.volAvg > 0) { s.volChecked = true; volOk = s.vol >= VOLUME_MULT * s.volAvg; }
-            else if (!volumeWarned) {
-                volumeWarned = true;
-                System.out.println("[WARN] volume data missing/zero in candles — volume filter skipped");
-            }
-        }
-        s.pass = emaOk && ema50Ok && near && rsiOk && volOk;
-        s.reason = String.format("5M ema9%s21=%s close%sEMA50=%s pullbackNearEMA21=%s RSI14=%.1f(ok=%s) vol=%.0f/avg%.0f(ok=%s%s) ATR5=%.6f",
-                trendUp ? ">" : "<", emaOk, trendUp ? ">" : "<", ema50Ok, near, s.rsi, rsiOk,
-                s.vol, s.volAvg, volOk, s.volChecked ? "" : ",skipped", s.atr5);
-        return s;
-    }
-
-    // =========================================================================
-    // 1M ENTRY TRIGGER (VWAP is evaluated separately, after the cheap checks pass)
-    // =========================================================================
-    static class Entry1 {
-        boolean valid, triggeredExVwap;
-        double close, ema9, ema21, atr1, rsi7, swingLevel;
-        long lastCandleOpen;
-        String reason = "";
-    }
-
-    static Entry1 evaluate1mEntry(JSONArray c1, boolean trendUp) {
-        Entry1 t = new Entry1();
-        if (c1 == null || c1.length() < ENTRY_MIN_BARS_1M) {
-            t.reason = "not enough 1M candles (" + (c1 == null ? 0 : c1.length()) + "/" + ENTRY_MIN_BARS_1M + ")";
-            return t;
-        }
-        double[] cl = extractCloses(c1), op = extractOpens(c1), hi = extractHighs(c1), lo = extractLows(c1);
-        int n = cl.length;
-        t.ema9 = calcEMA(cl, EMA_FAST);
-        t.ema21 = calcEMA(cl, EMA_SLOW);
-        t.atr1 = calcATR(hi, lo, cl, ATR_PERIOD);
-        t.rsi7 = calcRSI(cl, RSI_ENTRY_PERIOD);
-        t.close = cl[n - 1];
-        t.lastCandleOpen = candleTimeMs(c1.getJSONObject(n - 1));
-        t.valid = true;
-
-        boolean emaOk = trendUp ? t.ema9 > t.ema21 : t.ema9 < t.ema21;
-        boolean closeEma9 = trendUp ? t.close > t.ema9 : t.close < t.ema9;
-        boolean candleOk = trendUp ? cl[n - 1] > op[n - 1] : cl[n - 1] < op[n - 1];
-        boolean breakOk = trendUp ? cl[n - 1] > hi[n - 2] : cl[n - 1] < lo[n - 2];  // closes beyond previous candle high/low
-        double distAtr = t.atr1 > 0 ? Math.abs(t.close - t.ema9) / t.atr1 : Double.POSITIVE_INFINITY;
-        boolean extOk = distAtr <= MAX_EMA_EXTENSION_ATR;
-
-        t.swingLevel = trendUp ? recentLow(lo, SWING_LOOKBACK_1M) : recentHigh(hi, SWING_LOOKBACK_1M);
-        t.triggeredExVwap = emaOk && closeEma9 && candleOk && breakOk && extOk;
-        t.reason = String.format("1M ema9%s21=%s closeVsEMA9=%s directional=%s breakPrevCandle=%s extension=%.2fATR(ok=%s) RSI7=%.1f(log only)",
-                trendUp ? ">" : "<", emaOk, closeEma9, candleOk, breakOk, distAtr, extOk, t.rsi7);
-        return t;
-    }
-
-    // Anchored VWAP from UTC midnight. NaN if there is no volume.
-    static double dayVwap(JSONArray c1, long dayStartMs) {
-        double pv = 0, v = 0;
-        if (c1 == null) return Double.NaN;
-        for (int i = 0; i < c1.length(); i++) {
-            JSONObject c = c1.getJSONObject(i);
-            long t = candleTimeMs(c);
-            if (t < dayStartMs) continue;
-            double vol = c.optDouble("volume", 0);
-            double tp = (c.getDouble("high") + c.getDouble("low") + c.getDouble("close")) / 3.0;
-            pv += tp * vol;
-            v += vol;
-        }
-        return v > 0 ? pv / v : Double.NaN;
-    }
-
-    // VWAP side check. Skipped (true) when disabled, right after UTC midnight, or when volume is unavailable.
-    static boolean vwapAllows(boolean trendUp, double close, double vwap, long nowMs) {
-        if (!USE_VWAP_FILTER) return true;
-        long minutesSinceMidnight = (nowMs % 86_400_000L) / 60_000L;
-        if (minutesSinceMidnight < VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT) return true;
-        if (Double.isNaN(vwap)) return true;
-        return trendUp ? close > vwap : close < vwap;
-    }
-
-    static double recentLow(double[] lo, int lookback) {
-        int n = lo.length, start = Math.max(0, n - lookback);
-        double min = Double.POSITIVE_INFINITY;
-        for (int i = start; i < n; i++) min = Math.min(min, lo[i]);
-        return min;
-    }
-
-    static double recentHigh(double[] hi, int lookback) {
-        int n = hi.length, start = Math.max(0, n - lookback);
-        double max = Double.NEGATIVE_INFINITY;
-        for (int i = start; i < n; i++) max = Math.max(max, hi[i]);
-        return max;
-    }
-
-    // =========================================================================
-    // SL / TP
-    //   SL = 1M swing -/+ SL_ATR5_BUFFER x ATR(5M); widened to MIN_SL_ATR1 x ATR(1M) if closer.
-    //   Rejected (never tightened) if farther than MAX_SL_ATR5 x ATR(5M), wider than MAX_SL_PERCENT
-    //   or tighter than MIN_SL_PERCENT (fees). TP = entry +/- RR x risk.
-    // =========================================================================
-    static class SlTp {
-        boolean ok;
-        double sl, tp, slPercent, risk;
-        String reason = "";
-    }
-
-    static SlTp computeSlTp(boolean isLong, double entry, double swing1m, double atr1, double atr5, double tick) {
-        SlTp r = new SlTp();
-        if (atr1 <= 0 || atr5 <= 0 || entry <= 0 || Double.isInfinite(swing1m) || Double.isNaN(swing1m)) {
-            r.reason = "invalid ATR / entry / swing";
-            return r;
-        }
-        double sl = isLong ? swing1m - SL_ATR5_BUFFER * atr5 : swing1m + SL_ATR5_BUFFER * atr5;
-        if (isLong ? sl >= entry : sl <= entry) {
-            r.reason = "SL on wrong side of entry";
-            return r;
-        }
-        double minDist = MIN_SL_ATR1 * atr1;
-        if (Math.abs(entry - sl) < minDist) sl = isLong ? entry - minDist : entry + minDist; // widen only
-        double dist = Math.abs(entry - sl);
-        if (dist > MAX_SL_ATR5 * atr5) {
-            r.reason = String.format("SL too far (%.2f ATR5 > %.2f)", dist / atr5, MAX_SL_ATR5);
-            return r;
-        }
-        double slPct = dist / entry * 100.0;
-        if (slPct > MAX_SL_PERCENT) {
-            r.reason = String.format("SL too wide (%.2f%% > %.2f%%)", slPct, MAX_SL_PERCENT);
-            return r;
-        }
-        if (slPct < MIN_SL_PERCENT) {
-            r.reason = String.format("SL too tight for fees/slippage (%.2f%% < %.2f%%)", slPct, MIN_SL_PERCENT);
-            return r;
-        }
-        double tp = isLong ? entry + dist * TARGET_RR : entry - dist * TARGET_RR;
-        sl = roundToTick(sl, tick);
-        tp = roundToTick(tp, tick);
-        if (isLong ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry)) {
-            r.reason = "SL/TP collapsed onto entry after tick rounding";
-            return r;
-        }
-        r.ok = true; r.sl = sl; r.tp = tp; r.slPercent = slPct; r.risk = Math.abs(entry - sl);
-        return r;
-    }
-
-    // Legacy: notional = FIXED_MARGIN INR. Optional: risk-based sizing (USE_RISK_SIZING).
-    static double calcQuantity(double entryPrice, String pair, double slDistance) {
-        double qty = FIXED_MARGIN / (entryPrice * USDT_INR_RATE);
-        if (USE_RISK_SIZING && RISK_PER_TRADE_INR > 0 && slDistance > 0) {
-            double riskQty = RISK_PER_TRADE_INR / (slDistance * USDT_INR_RATE);
-            double capQty = MAX_NOTIONAL_INR / (entryPrice * USDT_INR_RATE);
-            qty = Math.min(riskQty, capQty);
-        }
-        double finalQty = INTEGER_QTY_PAIRS.contains(pair) ? Math.floor(qty) : Math.floor(qty * 100) / 100.0;
-        return Math.max(finalQty, 0);
-    }
-
-    // =========================================================================
-    // Breakeven / trailing: returns the new SL (never loosened, never beyond price).
-    // =========================================================================
-    static double managedSl(boolean isLong, double entry, double risk, double curSl, double price, double atr5,
-                            boolean beOn, boolean trailOn) {
-        if (risk <= 0 || price <= 0) return curSl;
-        double r = isLong ? (price - entry) / risk : (entry - price) / risk;
-        double newSl = curSl;
-        if (beOn && r >= BREAKEVEN_TRIGGER_R) {
-            double be = isLong ? entry * (1 + BREAKEVEN_OFFSET_PCT / 100.0) : entry * (1 - BREAKEVEN_OFFSET_PCT / 100.0);
-            newSl = isLong ? Math.max(newSl, be) : Math.min(newSl, be);
-        }
-        if (trailOn && atr5 > 0 && r >= TRAIL_ACTIVATE_R) {
-            double tr = isLong ? price - TRAIL_ATR5_MULT * atr5 : price + TRAIL_ATR5_MULT * atr5;
-            newSl = isLong ? Math.max(newSl, tr) : Math.min(newSl, tr);
-        }
-        if (isLong ? newSl <= curSl : newSl >= curSl) return curSl;     // only tighten in profit direction
-        if (isLong ? newSl >= price : newSl <= price) return curSl;     // must stay behind price
-        return newSl;
-    }
-
-    // =========================================================================
-    // Main loop — one cycle per minute (aligned to the minute boundary + a few seconds)
-    // =========================================================================
-    public static void main(String[] args) {
-        System.out.println("=== Bot starting (15M trend / 5M setup / 1M entry — RR " + TARGET_RR
-                + ", BTC filter=" + USE_BTC_FILTER + ", liquid list=" + USE_LIQUID_LIST
-                + " (" + COINS_TO_TRADE.length + " symbols), breakeven=" + ENABLE_BREAKEVEN
-                + ", trailing=" + ENABLE_TRAILING + ") ===");
-        initInstrumentCache();
-        startTrendRefresher();
-
-        while (true) {
-            try {
-                runCycle();
-            } catch (Throwable t) {
-                System.err.println("[MAIN-LOOP] Uncaught error, continuing: " + t.getMessage());
-                t.printStackTrace();
-            }
-            try {
-                long now = System.currentTimeMillis();
-                long next = (now / SCAN_STEP_MS + 1) * SCAN_STEP_MS + SCAN_DELAY_MS;
-                TimeUnit.MILLISECONDS.sleep(Math.max(1000L, next - now));
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-    }
-
-    private static void runCycle() {
-        Set<String> active = getActivePositions();
-        if (active == null) {
-            System.err.println("Positions API failed — skipping this cycle (no entries, no cleanup).");
-            return;
-        }
-        System.out.println("Active positions: " + active);
-        handleClosedTrades(active);
-        manageOpenTrades(active);
-
-        if (active.size() >= MAX_OPEN_POSITIONS) {
-            System.out.println("MAX_OPEN_POSITIONS reached — skipping entries.");
-        } else {
-            runEntryScan(active);
-        }
-        ensureTpSlForOpenPositions();  // ALWAYS runs — protection never depends on entry filters
-    }
-
-    private static void runEntryScan(Set<String> active) {
-        timeLoggedThisScan = false;
-        staleWarnedThisScan = false;
-        int noTrend = 0, btcBlocked = 0, stale = 0, late = 0, setupFail = 0, entryFail = 0, vwapFail = 0, signals = 0;
-
-        Trend15 btc = trendCache.get(BTC_PAIR);
-        boolean btcOk = !USE_BTC_FILTER || trendUsable(btc, System.currentTimeMillis());
-
-        for (String pair : COINS_TO_TRADE) {
-            try {
-                if (active.size() >= MAX_OPEN_POSITIONS) break;
-                if (active.contains(pair)) continue;
-                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
-
-                long now = System.currentTimeMillis();
-                Trend15 tr = trendCache.get(pair);
-                if (!trendUsable(tr, now)) { noTrend++; continue; }
-                if (tr.bullish && tr.bearish) {
-                    System.out.println("SKIP - " + pair + " - LONG and SHORT both true (inconsistent)");
-                    continue;
-                }
-                if (!tr.bullish && !tr.bearish) continue;   // 15M says SKIP
-                boolean trendUp = tr.bullish;
-                String dir = trendUp ? "LONG" : "SHORT";
-
-                if (USE_BTC_FILTER && !pair.equals(BTC_PAIR)) {
-                    if (!btcOk) { btcBlocked++; continue; }   // fail closed when BTC trend is unavailable
-                    if (trendUp ? btc.emaStDown : btc.emaStUp) { btcBlocked++; continue; }
-                }
-
-                // ---- 5M setup: evaluated once per closed 5M candle, then cached ----
-                long expected5 = (now / 300_000L) * 300_000L - 300_000L;
-                Setup5 su = setupCache.get(pair);
-                if (su == null || su.lastCandleOpen != expected5 || su.trendUp != trendUp) {
-                    JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, SETUP_FETCH_5M + 1));
-                    if (c5 == null || c5.length() < SETUP_MIN_BARS_5M) {
-                        System.err.println("  [ERROR] 5M data insufficient for " + pair);
-                        continue;
-                    }
-                    if (!lastClosedIsLatest(c5, TF_SETUP, now)) { stale++; continue; }
-                    su = evaluate5mSetup(c5, trendUp);
-                    setupCache.put(pair, su);
-                    System.out.println("  " + pair + " [" + dir + "] " + tr.reason + " | " + su.reason
-                            + " | SETUP " + (su.valid && su.pass ? "PASS" : "FAIL"));
-                }
-                if (!su.valid || !su.pass) { setupFail++; continue; }
-
-                // ---- 1M entry (shortlist only) ----
-                JSONArray c1 = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, ENTRY_FETCH_1M + 1));
-                if (c1 == null || c1.length() < ENTRY_MIN_BARS_1M) {
-                    System.err.println("  [ERROR] 1M data insufficient for " + pair);
-                    continue;
-                }
-                long lastOpen1 = candleTimeMs(c1.getJSONObject(c1.length() - 1));
-                if (!lastClosedIsLatest(c1, TF_ENTRY, now)) {
-                    stale++;
-                    if (!staleWarnedThisScan) {
-                        staleWarnedThisScan = true;
-                        long cur = (now / 60_000L) * 60_000L;
-                        System.out.println("[TIME-CHECK] " + pair + " last closed 1M open=" + lastOpen1 + " expected=" + (cur - 60_000L)
-                                + (lastOpen1 == cur ? "  WARNING: equals CURRENT minute -> API 'time' may be CLOSE time or last candle is forming"
-                                                    : "  (data lag or missing candle)"));
-                    }
-                    continue;
-                }
-                long ageMs = now - (lastOpen1 + 60_000L);
-                if (!timeLoggedThisScan) {
-                    timeLoggedThisScan = true;
-                    System.out.printf("[TIME-CHECK] %s last closed 1M open=%d age=%.1fs%n", pair, lastOpen1, ageMs / 1000.0);
-                }
-                if (ageMs > ENTRY_MAX_AGE_MS) { late++; continue; }
-
-                Entry1 e = evaluate1mEntry(c1, trendUp);
-                if (!e.valid || !e.triggeredExVwap) { entryFail++; continue; }
-
-                double vwap = Double.NaN;
-                if (USE_VWAP_FILTER) {
-                    long dayStart = (now / 86_400_000L) * 86_400_000L;
-                    int mins = (int) ((now - dayStart) / 60_000L) + 2;
-                    JSONArray day = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, mins));
-                    vwap = dayVwap(day, dayStart);
-                }
-                boolean vwapOk = vwapAllows(trendUp, e.close, vwap, now);
-                System.out.printf("  %s [%s] %s | VWAP=%.6f(ok=%s) | ENTRY %s%n", pair, dir, e.reason, vwap, vwapOk,
-                        vwapOk ? "PASS" : "FAIL");
-                if (!vwapOk) { vwapFail++; continue; }
-
-                Long prevSig = lastSignalCandle.get(pair);
-                if (prevSig != null && prevSig == e.lastCandleOpen) continue;   // one signal per symbol per 1M candle
-                lastSignalCandle.put(pair, e.lastCandleOpen);
-                signals++;
-
-                String ctx = String.format("adx15=%.1f rsi5=%.1f rsi1=%.1f atr1=%.6f atr5=%.6f",
-                        tr.adx, su.rsi, e.rsi7, e.atr1, su.atr5);
-                executeEntry(pair, trendUp, e.swingLevel, e.atr1, su.atr5, ctx, active);
-            } catch (Exception ex) {
-                System.err.println("Error on " + pair + ": " + ex.getMessage());
-            }
-        }
-        System.out.println("=== Scan complete | signals=" + signals + " noTrend=" + noTrend + " btcBlocked=" + btcBlocked
-                + " stale=" + stale + " late=" + late + " setupFail=" + setupFail + " entryFail=" + entryFail
-                + " vwapFail=" + vwapFail + " ===");
-    }
-
-    // =========================================================================
-    // Order execution — limit order, ACTUAL fill price, SL/TP computed ONCE from the fill,
-    // exchange-side TP/SL with retries.
-    // =========================================================================
-    private static boolean executeEntry(String pair, boolean trendUp, double swing1m, double atr1, double atr5,
-                                        String ctx, Set<String> active) {
-        try {
-            double currentPrice = getLastPrice(pair);
-            if (currentPrice <= 0) return false;
-            double tickSize = getTickSize(pair);
-
-            SlTp pre = computeSlTp(trendUp, currentPrice, swing1m, atr1, atr5, tickSize);
-            if (!pre.ok) {
-                System.out.println("SKIP - " + pair + " - " + pre.reason);
-                return false;
-            }
-            double qty = calcQuantity(currentPrice, pair, pre.risk);
-            if (qty <= 0) {
-                System.out.println("SKIP - " + pair + " - Invalid quantity");
-                return false;
-            }
-
-            System.out.println("\n==== " + pair + " — " + (trendUp ? "LONG" : "SHORT") + " (15M/5M/1M scalp) ====");
-            System.out.printf("  Price=%.6f swing1M=%.6f ATR1=%.6f ATR5=%.6f preSL=%.6f preTP=%.6f SL%%=%.2f | Qty=%.4f Lev=%dx%n",
-                    currentPrice, swing1m, atr1, atr5, pre.sl, pre.tp, pre.slPercent, qty, LEVERAGE);
-
-            String side = trendUp ? "buy" : "sell";
-            JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
-                    "email_notification", "isolated", "INR", currentPrice);
-            if (orderResp == null || !orderResp.has("id")) {
-                System.out.println("  Order failed: " + orderResp);
-                return false;
-            }
-            System.out.println("  Order placed! id=" + orderResp.getString("id"));
-            lastTradeTime.put(pair, System.currentTimeMillis());
-
-            double entry = getEntryPrice(pair, orderResp.getString("id"));
-            if (entry <= 0) {
-                System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
-                active.add(pair);
-                return true;
-            }
-            System.out.printf("  Entry confirmed: %.6f%n", entry);
-
-            SlTp fin = computeSlTp(trendUp, entry, swing1m, atr1, atr5, tickSize);
-            if (!fin.ok) {
-                System.out.println("SKIP-post-fill - " + pair + " - " + fin.reason
-                        + " at actual fill price; closing not automated here — check position manually");
-                active.add(pair);
-                return true;
-            }
-            System.out.println("[ENTRY] " + pair + " Side=" + (trendUp ? "LONG" : "SHORT"));
-            System.out.printf("  Entry=%.6f SL=%.6f TP=%.6f Risk=%.6f RR=%.2f SL%%=%.2f Qty=%.4f%n",
-                    entry, fin.sl, fin.tp, fin.risk, TARGET_RR, fin.slPercent, qty);
-
-            String posId = getPositionId(pair);
-            if (posId != null) {
-                setTpSlWithRetry(posId, fin.tp, fin.sl, pair);
-            } else {
-                System.out.println("  Position ID not found after retries — safety sweep will handle it");
-            }
-            TradeInfo trade = new TradeInfo();
-            trade.isLong = trendUp; trade.entry = entry; trade.sl = fin.sl; trade.tp = fin.tp;
-            trade.initialSl = fin.sl; trade.risk = fin.risk;
-            trade.maxPrice = entry; trade.minPrice = entry;
-            trade.openedMs = System.currentTimeMillis();
-            trade.ctx = ctx;
-            tradeState.put(pair, trade);
-            active.add(pair);
-            return true;
-        } catch (Exception e) {
-            System.err.println("executeEntry " + pair + ": " + e.getMessage());
-            return false;
-        }
-    }
-
-    // =========================================================================
-    // Closed-trade logging (approximate exit reason + MFE/MAE in R) -> console + CSV
-    // =========================================================================
-    private static void handleClosedTrades(Set<String> active) {
-        for (Iterator<Map.Entry<String, TradeInfo>> it = tradeState.entrySet().iterator(); it.hasNext();) {
-            Map.Entry<String, TradeInfo> en = it.next();
-            if (active.contains(en.getKey())) continue;
-            double px = getLastPrice(en.getKey());
-            logClosedTrade(en.getKey(), en.getValue(), px);
-            it.remove();
-        }
-    }
-
-    static String classifyExit(TradeInfo t, double lastPx) {
-        if (lastPx <= 0 || t.risk <= 0) return "UNKNOWN";
-        double dTp = Math.abs(lastPx - t.tp), dSl = Math.abs(lastPx - t.sl);
-        if (Math.min(dTp, dSl) > 0.35 * t.risk) return "OTHER(manual/liquidation?)";
-        if (dTp < dSl) return "TP(approx)";
-        return (t.sl != t.initialSl) ? "TRAIL_SL(approx)" : "SL(approx)";
-    }
-
-    static double[] mfeMaeR(TradeInfo t) {
-        if (t.risk <= 0) return new double[]{0, 0};
-        double mfe = t.isLong ? (t.maxPrice - t.entry) : (t.entry - t.minPrice);
-        double mae = t.isLong ? (t.entry - t.minPrice) : (t.maxPrice - t.entry);
-        return new double[]{Math.max(0, mfe) / t.risk, Math.max(0, mae) / t.risk};
-    }
-
-    private static synchronized void logClosedTrade(String pair, TradeInfo t, double lastPx) {
-        String exit = classifyExit(t, lastPx);
-        double[] m = mfeMaeR(t);
-        long heldMin = t.openedMs > 0 ? (System.currentTimeMillis() - t.openedMs) / 60_000L : -1;
-        System.out.printf("[CLOSED] %s %s exit=%s entry=%.6f sl=%.6f tp=%.6f lastPx=%.6f held=%dmin MFE=%.2fR MAE=%.2fR | %s%n",
-                pair, t.isLong ? "LONG" : "SHORT", exit, t.entry, t.sl, t.tp, lastPx, heldMin, m[0], m[1], t.ctx);
-        if (!LOG_TRADES_CSV) return;
-        try {
-            File f = new File(TRADE_LOG_FILE);
-            boolean fresh = !f.exists();
-            try (PrintWriter pw = new PrintWriter(new FileWriter(f, true))) {
-                if (fresh) pw.println("closed_utc,pair,direction,exit_approx,entry,initial_sl,final_sl,tp,last_price,held_min,mfe_r,mae_r,context");
-                pw.printf("%s,%s,%s,%s,%.8f,%.8f,%.8f,%.8f,%.8f,%d,%.2f,%.2f,\"%s\"%n",
-                        Instant.now(), pair, t.isLong ? "LONG" : "SHORT", exit, t.entry, t.initialSl, t.sl, t.tp,
-                        lastPx, heldMin, m[0], m[1], t.ctx);
-            }
-        } catch (Exception e) {
-            System.err.println("trade log write failed: " + e.getMessage());
-        }
-    }
-
-    // Tracks MFE/MAE for open trades and (optionally) applies breakeven / trailing.
-    private static void manageOpenTrades(Set<String> active) {
-        for (String pair : active) {
-            try {
-                TradeInfo t = tradeState.get(pair);
-                if (t == null || t.risk <= 0) continue;
-                double px = getLastPrice(pair);
-                if (px <= 0) continue;
-                t.maxPrice = Math.max(t.maxPrice, px);
-                t.minPrice = Math.min(t.minPrice, px);
-                if (!ENABLE_BREAKEVEN && !ENABLE_TRAILING) continue;
-                if (t.modifyFails >= SL_MODIFY_MAX_FAILS) continue;
-
-                double atr5 = 0;
-                if (ENABLE_TRAILING) {
-                    JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 41));
-                    if (c5 != null && c5.length() > ATR_PERIOD + 2)
-                        atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
-                }
-                double tick = getTickSize(pair);
-                double newSl = managedSl(t.isLong, t.entry, t.risk, t.sl, px, atr5, ENABLE_BREAKEVEN, ENABLE_TRAILING);
-                newSl = roundToTick(newSl, tick);
-                if (t.isLong ? newSl <= t.sl : newSl >= t.sl) continue;
-
-                JSONObject pos = findPosition(pair);
-                String posId = pos == null ? null : pos.optString("id", null);
-                if (posId == null) continue;
-                System.out.printf("  [MANAGE] %s moving SL %.6f -> %.6f (price=%.6f)%n", pair, t.sl, newSl, px);
-                setTpSl(posId, t.tp, newSl, pair);
-                TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS);
-                JSONObject chk = findPosition(pair);
-                double exSl = chk == null ? 0 : chk.optDouble("stop_loss_trigger", 0);
-                if (exSl > 0 && Math.abs(exSl - newSl) <= 2 * tick) {
-                    t.sl = newSl;
-                    System.out.println("  [MANAGE] " + pair + " SL update confirmed on exchange");
-                } else {
-                    t.modifyFails++;
-                    System.out.println("  [MANAGE] WARNING " + pair + " SL update NOT confirmed (exchange SL=" + exSl
-                            + ", fails=" + t.modifyFails + "/" + SL_MODIFY_MAX_FAILS + ")");
-                }
-            } catch (Exception e) {
-                System.err.println("manageOpenTrades " + pair + ": " + e.getMessage());
-            }
-        }
-    }
-
-    // =========================================================================
-    // Reliability-only safety sweep: restores MISSING TP/SL only, never modifies one that is set.
-    // =========================================================================
-    private static void ensureTpSlForOpenPositions() {
-        try {
-            Set<String> stillOpen = getActivePositions();
-            if (stillOpen == null) return;
-            for (String pair : stillOpen) {
-                JSONObject pos = findPosition(pair);
-                if (pos == null) continue;
-                double avgPrice = pos.optDouble("avg_price", 0);
-                double tpTrig   = pos.optDouble("take_profit_trigger", 0);
-                double slTrig   = pos.optDouble("stop_loss_trigger", 0);
-                if (avgPrice <= 0) continue;
-                if (tpTrig > 0 && slTrig > 0) continue;
-
-                System.out.println("  [SWEEP] " + pair + " missing TP and/or SL — restoring fixed protection...");
-                boolean isLong = pos.optDouble("active_pos", 0) >= 0;
-                double tick = getTickSize(pair);
-
-                TradeInfo trade = tradeState.get(pair);
-                double sl, tp;
-                if (trade != null && trade.sl > 0 && trade.tp > 0) {
-                    sl = trade.sl; tp = trade.tp;
-                } else {
-                    System.out.println("  [SWEEP] " + pair + " — no recorded trade state (likely restart); computing one-time fallback");
-                    JSONArray c1 = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, 41));
-                    JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 61));
-                    SlTp fb = null;
-                    if (c1 != null && c5 != null && c1.length() >= ENTRY_MIN_BARS_1M && c5.length() >= 40) {
-                        double[] h1 = extractHighs(c1), l1 = extractLows(c1), k1 = extractCloses(c1);
-                        double atr1 = calcATR(h1, l1, k1, ATR_PERIOD);
-                        double atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
-                        double swing = isLong ? recentLow(l1, SWING_LOOKBACK_1M) : recentHigh(h1, SWING_LOOKBACK_1M);
-                        fb = computeSlTp(isLong, avgPrice, swing, atr1, atr5, tick);
-                    }
-                    if (fb == null || !fb.ok) {
-                        sl = isLong ? avgPrice * (1 - MAX_SL_PERCENT / 100.0) : avgPrice * (1 + MAX_SL_PERCENT / 100.0);
-                        tp = isLong ? avgPrice + TARGET_RR * (avgPrice - sl) : avgPrice - TARGET_RR * (sl - avgPrice);
-                        System.out.println("  [SWEEP] structural SL unavailable for " + pair + " — using MAX_SL_PERCENT hard cap fallback");
-                    } else {
-                        sl = fb.sl; tp = fb.tp;
-                    }
-                }
-                if (slTrig > 0) sl = slTrig;
-                if (tpTrig > 0) tp = tpTrig;
-
-                String posId = pos.optString("id", null);
-                if (posId != null) {
-                    System.out.printf("  [SWEEP] %s SL=%.6f TP=%.6f%n", pair, sl, tp);
-                    setTpSlWithRetry(posId, tp, sl, pair);
-                    if (trade == null) {
-                        TradeInfo nt = new TradeInfo();
-                        nt.isLong = isLong; nt.entry = avgPrice; nt.sl = sl; nt.tp = tp;
-                        nt.initialSl = sl; nt.risk = Math.abs(avgPrice - sl);
-                        nt.maxPrice = avgPrice; nt.minPrice = avgPrice;
-                        nt.openedMs = System.currentTimeMillis();
-                        nt.ctx = "recovered-after-restart";
-                        tradeState.put(pair, nt);
-                    }
-                } else {
-                    System.out.println("  [SWEEP] " + pair + " — position ID missing, cannot set TP/SL");
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("ensureTpSlForOpenPositions: " + e.getMessage());
-        }
-    }
-
-    private static boolean setTpSlWithRetry(String posId, double tp, double sl, String pair) {
-        for (int attempt = 1; attempt <= TPSL_MAX_RETRIES; attempt++) {
-            setTpSl(posId, tp, sl, pair);
-            try { TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
-            try {
-                JSONObject pos = findPosition(pair);
-                if (pos != null && pos.optDouble("take_profit_trigger", 0) > 0
-                        && pos.optDouble("stop_loss_trigger", 0) > 0) {
-                    System.out.println("  TP/SL confirmed set on attempt " + attempt + " for " + pair);
-                    return true;
-                }
-            } catch (Exception ignored) {}
-            System.out.println("  TP/SL not confirmed yet (attempt " + attempt + "/" + TPSL_MAX_RETRIES + ") for " + pair + " — retrying...");
-        }
-        System.out.println("  WARNING: TP/SL could not be confirmed after " + TPSL_MAX_RETRIES + " attempts for " + pair
-                + " — will be retried by the next cycle's safety sweep");
-        return false;
-    }
-
-    // =========================================================================
-    // Indicators
-    // =========================================================================
-    static boolean[] calcSupertrend(double[] hi, double[] lo, double[] cl, int period, double multiplier) {
-        int n = cl.length;
-        boolean[] bullish = new boolean[n];
-        if (n < period + 1) { Arrays.fill(bullish, true); return bullish; }
-        double[] atrArr    = calcATRSeries(hi, lo, cl, period);
-        double[] upperBand = new double[n];
-        double[] lowerBand = new double[n];
-        for (int i = period; i < n; i++) {
-            double hl2        = (hi[i] + lo[i]) / 2.0;
-            double basicUpper = hl2 + multiplier * atrArr[i];
-            double basicLower = hl2 - multiplier * atrArr[i];
-            if (i == period) {
-                upperBand[i] = basicUpper; lowerBand[i] = basicLower;
-            } else {
-                upperBand[i] = (basicUpper < upperBand[i-1] || cl[i-1] > upperBand[i-1]) ? basicUpper : upperBand[i-1];
-                lowerBand[i] = (basicLower > lowerBand[i-1] || cl[i-1] < lowerBand[i-1]) ? basicLower : lowerBand[i-1];
-            }
-            if (i == period) bullish[i] = cl[i] > (hi[i] + lo[i]) / 2.0;
-            else bullish[i] = bullish[i-1] ? cl[i] >= lowerBand[i] : cl[i] > upperBand[i];
-        }
-        for (int i = 0; i < period; i++) bullish[i] = bullish[period];
-        return bullish;
-    }
-
-    static double[] calcATRSeries(double[] hi, double[] lo, double[] cl, int period) {
-        int n = hi.length;
-        double[] atr = new double[n];
-        if (n < 2) return atr;
-        double[] tr = new double[n];
-        tr[0] = hi[0] - lo[0];
-        for (int i = 1; i < n; i++)
-            tr[i] = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i-1]), Math.abs(lo[i] - cl[i-1])));
-        double sum = 0;
-        for (int i = 0; i < period && i < n; i++) sum += tr[i];
-        atr[period - 1] = sum / period;
-        for (int i = period; i < n; i++) atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period;
-        for (int i = 0; i < period - 1; i++) atr[i] = atr[period - 1];
-        return atr;
-    }
-
-    static double calcATR(double[] hi, double[] lo, double[] cl, int period) {
-        if (hi.length < period + 1) return 0;
-        double[] tr = new double[hi.length];
-        tr[0] = hi[0] - lo[0];
-        for (int i = 1; i < hi.length; i++)
-            tr[i] = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i-1]), Math.abs(lo[i] - cl[i-1])));
-        double atr = 0;
-        for (int i = 0; i < period; i++) atr += tr[i];
-        atr /= period;
-        for (int i = period; i < hi.length; i++) atr = (atr*(period-1)+tr[i])/period;
-        return atr;
-    }
-
-    // Wilder ADX. Returns {ADX, +DI, -DI}, or null if there is not enough data.
-    static double[] calcADX(double[] hi, double[] lo, double[] cl, int period) {
-        int n = hi.length;
-        if (n < period * 2 + 2) return null;
-        double trS = 0, pdmS = 0, mdmS = 0;
-        for (int i = 1; i <= period; i++) {
-            double up = hi[i] - hi[i - 1], dn = lo[i - 1] - lo[i];
-            pdmS += (up > dn && up > 0) ? up : 0;
-            mdmS += (dn > up && dn > 0) ? dn : 0;
-            trS  += Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i - 1]), Math.abs(lo[i] - cl[i - 1])));
-        }
-        double adx = 0, dxSum = 0, lastPdi = 0, lastMdi = 0;
-        int dxCount = 0;
-        for (int i = period + 1; i < n; i++) {
-            double up = hi[i] - hi[i - 1], dn = lo[i - 1] - lo[i];
-            double pdm = (up > dn && up > 0) ? up : 0;
-            double mdm = (dn > up && dn > 0) ? dn : 0;
-            double tr  = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i - 1]), Math.abs(lo[i] - cl[i - 1])));
-            trS  = trS  - trS  / period + tr;
-            pdmS = pdmS - pdmS / period + pdm;
-            mdmS = mdmS - mdmS / period + mdm;
-            double pdi = trS > 0 ? 100.0 * pdmS / trS : 0;
-            double mdi = trS > 0 ? 100.0 * mdmS / trS : 0;
-            double dx  = (pdi + mdi) > 0 ? 100.0 * Math.abs(pdi - mdi) / (pdi + mdi) : 0;
-            lastPdi = pdi; lastMdi = mdi;
-            dxCount++;
-            if (dxCount <= period) {
-                dxSum += dx;
-                if (dxCount == period) adx = dxSum / period;
-            } else {
-                adx = (adx * (period - 1) + dx) / period;
-            }
-        }
-        if (dxCount < period) return null;
-        return new double[]{adx, lastPdi, lastMdi};
-    }
-
-    // Wilder RSI on the last value. Returns 50 if there is not enough data.
-    static double calcRSI(double[] cl, int period) {
-        int n = cl.length;
-        if (n < period + 1) return 50;
-        double gain = 0, loss = 0;
-        for (int i = 1; i <= period; i++) {
-            double d = cl[i] - cl[i - 1];
-            if (d >= 0) gain += d; else loss -= d;
-        }
-        gain /= period; loss /= period;
-        for (int i = period + 1; i < n; i++) {
-            double d = cl[i] - cl[i - 1];
-            double g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
-            gain = (gain * (period - 1) + g) / period;
-            loss = (loss * (period - 1) + l) / period;
-        }
-        if (loss == 0) return gain == 0 ? 50 : 100;
-        double rs = gain / loss;
-        return 100.0 - 100.0 / (1.0 + rs);
-    }
-
-    // Average of the `period` values BEFORE index `endExclusive` (the current candle is excluded).
-    static double smaBefore(double[] v, int endExclusive, int period) {
-        int start = endExclusive - period;
-        if (start < 0) return 0;
-        double s = 0;
-        for (int i = start; i < endExclusive; i++) s += v[i];
-        return s / period;
-    }
-
-    static double calcEMA(double[] d, int period) {
-        if (d.length < period) return 0;
-        double k = 2.0 / (period + 1), ema = 0;
-        for (int i = 0; i < period; i++) ema += d[i];
-        ema /= period;
-        for (int i = period; i < d.length; i++) ema = d[i] * k + ema * (1 - k);
-        return ema;
-    }
-
-    // EMA value at every bar (entries before index period-1 are set to the first valid EMA).
-    static double[] calcEMASeries(double[] d, int period) {
-        double[] out = new double[d.length];
-        if (d.length < period) return out;
-        double k = 2.0 / (period + 1), ema = 0;
-        for (int i = 0; i < period; i++) ema += d[i];
-        ema /= period;
-        for (int i = 0; i < period; i++) out[i] = ema;
-        for (int i = period; i < d.length; i++) {
-            ema = d[i] * k + ema * (1 - k);
-            out[i] = ema;
-        }
-        return out;
-    }
-
-    private static BigDecimal roundToTickBD(double price, double tick) {
-        if (tick <= 0) return BigDecimal.valueOf(price);
-        BigDecimal bdPrice = BigDecimal.valueOf(price);
-        BigDecimal bdTick  = BigDecimal.valueOf(tick);
-        BigDecimal multiples = bdPrice.divide(bdTick, 0, RoundingMode.HALF_UP);
-        BigDecimal result = multiples.multiply(bdTick);
-        return result.setScale(bdTick.scale(), RoundingMode.HALF_UP);
-    }
-
-    static double roundToTick(double price, double tick) {
-        if (tick <= 0) return price;
-        return roundToTickBD(price, tick).doubleValue();
-    }
-
-    static double[] extractCloses(JSONArray a) {
-        double[] o = new double[a.length()];
-        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("close");
-        return o;
-    }
-    static double[] extractOpens(JSONArray a) {
-        double[] o = new double[a.length()];
-        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("open");
-        return o;
-    }
-    static double[] extractHighs(JSONArray a) {
-        double[] o = new double[a.length()];
-        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("high");
-        return o;
-    }
-    static double[] extractLows(JSONArray a) {
-        double[] o = new double[a.length()];
-        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("low");
-        return o;
-    }
-    static double[] extractVolumes(JSONArray a) {
-        double[] o = new double[a.length()];
-        for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).optDouble("volume", 0);
-        return o;
-    }
-
-    // =========================================================================
-    // Exchange plumbing (unchanged except getActivePositions returns null on API failure)
-    // =========================================================================
-    private static void initInstrumentCache() {
-        try {
-            long now = System.currentTimeMillis();
-            if (now - lastCacheUpdate < TICK_CACHE_TTL_MS) return;
-            instrumentCache.clear();
-            System.out.println("Refreshing instrument cache...");
-            JSONArray pairs = new JSONArray(publicGet(
-                    BASE_URL + "/exchange/v1/derivatives/futures/data/active_instruments"));
-            for (int i = 0; i < pairs.length(); i++) {
-                String p = pairs.getString(i);
-                try {
-                    String raw = publicGet(
-                            BASE_URL + "/exchange/v1/derivatives/futures/data/instrument?pair=" + p);
-                    instrumentCache.put(p, new JSONObject(raw).getJSONObject("instrument"));
-                } catch (Exception ignored) {}
-            }
-            lastCacheUpdate = now;
-            System.out.println("Instruments cached: " + instrumentCache.size());
-        } catch (Exception e) {
-            System.err.println("initInstrumentCache: " + e.getMessage());
-        }
-    }
-
-    private static double getTickSize(String pair) {
-        if (System.currentTimeMillis() - lastCacheUpdate > TICK_CACHE_TTL_MS) initInstrumentCache();
-        JSONObject d = instrumentCache.get(pair);
-        return d != null ? d.optDouble("price_increment", 0.0001) : 0.0001;
-    }
-
-    private static double getEntryPrice(String pair, String orderId) throws Exception {
-        for (int i = 0; i < MAX_ENTRY_PRICE_CHECKS; i++) {
-            TimeUnit.MILLISECONDS.sleep(ENTRY_CHECK_DELAY_MS);
-            JSONObject pos = findPosition(pair);
-            if (pos != null && pos.optDouble("avg_price", 0) > 0)
-                return pos.getDouble("avg_price");
-        }
-        return 0;
-    }
-
-    private static JSONObject findPosition(String pair) throws Exception {
-        JSONObject body = new JSONObject();
-        body.put("timestamp", Instant.now().toEpochMilli());
-        body.put("page", "1");
-        body.put("size", "100");
-        body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
-        String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
-        JSONArray arr = resp.startsWith("[") ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject p = arr.getJSONObject(i);
-            if (pair.equals(p.optString("pair"))) return p;
-        }
-        return null;
-    }
-
-    public static double getLastPrice(String pair) {
-        try {
-            HttpURLConnection conn = openGet(PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
-            if (conn.getResponseCode() == 200) {
-                String r = readStream(conn.getInputStream());
-                return r.startsWith("[")
-                        ? new JSONArray(r).getJSONObject(0).getDouble("p")
-                        : new JSONObject(r).getDouble("p");
-            }
-        } catch (Exception e) {
-            System.err.println("getLastPrice(" + pair + "): " + e.getMessage());
-        }
-        return 0;
-    }
-
-    public static JSONObject placeFuturesOrder(String side, String pair, double qty, int lev, String notif,
-                                               String marginType, String marginCcy, double currentPrice) {
-        try {
-            double rawLimitPrice = "buy".equalsIgnoreCase(side)
-                    ? currentPrice * (1 + LIMIT_ORDER_BUFFER_PCT)
-                    : currentPrice * (1 - LIMIT_ORDER_BUFFER_PCT);
-            double tick = getTickSize(pair);
-            BigDecimal limitPriceBD = roundToTickBD(rawLimitPrice, tick);
-
-            JSONObject order = new JSONObject();
-            order.put("side",                       side.toLowerCase());
-            order.put("pair",                       pair);
-            order.put("order_type",                 "limit_order");
-            order.put("price",                      limitPriceBD);
-            order.put("total_quantity",             qty);
-            order.put("leverage",                   lev);
-            order.put("notification",               notif);
-            order.put("time_in_force",              "good_till_cancel");
-            order.put("hidden",                     false);
-            order.put("post_only",                  false);
-            order.put("position_margin_type",       marginType);
-            order.put("margin_currency_short_name", marginCcy);
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("order", order);
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/create", body.toString());
-            return resp.startsWith("[") ? new JSONArray(resp).getJSONObject(0) : new JSONObject(resp);
-        } catch (Exception e) {
-            System.err.println("placeFuturesOrder: " + e.getMessage());
-            return null;
-        }
-    }
-
-    public static void setTpSl(String posId, double tp, double sl, String pair) {
-        try {
-            double tick = getTickSize(pair);
-            BigDecimal rtp = roundToTickBD(tp, tick);
-            BigDecimal rsl = roundToTickBD(sl, tick);
-            JSONObject tpObj = new JSONObject();
-            tpObj.put("stop_price",  rtp);
-            tpObj.put("limit_price", rtp);
-            tpObj.put("order_type",  "take_profit_market");
-            JSONObject slObj = new JSONObject();
-            slObj.put("stop_price",  rsl);
-            slObj.put("limit_price", rsl);
-            slObj.put("order_type",  "stop_market");
-            JSONObject payload = new JSONObject();
-            payload.put("timestamp",   Instant.now().toEpochMilli());
-            payload.put("id",          posId);
-            payload.put("take_profit", tpObj);
-            payload.put("stop_loss",   slObj);
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl", payload.toString());
-            JSONObject r = new JSONObject(resp);
-            System.out.println(r.has("err_code_dcx") ? "  TP/SL error: " + r : "  TP/SL set successfully!");
-        } catch (Exception e) {
-            System.err.println("setTpSl: " + e.getMessage());
-        }
-    }
-
-    public static String getPositionId(String pair) {
-        for (int attempt = 1; attempt <= POSITION_ID_MAX_RETRIES; attempt++) {
-            try {
-                JSONObject p = findPosition(pair);
-                if (p != null && p.has("id")) return p.getString("id");
-            } catch (Exception e) {
-                System.err.println("getPositionId attempt " + attempt + ": " + e.getMessage());
-            }
-            try { TimeUnit.MILLISECONDS.sleep(POSITION_ID_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
-        }
-        return null;
-    }
-
-    // Returns null if the positions API call fails (so callers never mistake an API error for "no positions").
-    private static Set<String> getActivePositions() {
-        Set<String> active = new HashSet<>();
-        try {
-            JSONObject body = new JSONObject();
-            body.put("timestamp", Instant.now().toEpochMilli());
-            body.put("page", "1");
-            body.put("size", "100");
-            body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
-            String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
-            JSONArray arr = resp.startsWith("[") ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
-            System.out.println("=== Open Positions (" + arr.length() + ") ===");
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject p    = arr.getJSONObject(i);
-                String    pair  = p.optString("pair", "");
-                boolean isActive = p.optDouble("active_pos", 0) > 0
-                        || p.optDouble("locked_margin", 0) > 0
-                        || p.optDouble("avg_price", 0) > 0
-                        || p.optDouble("take_profit_trigger", 0) > 0
-                        || p.optDouble("stop_loss_trigger", 0) > 0;
-                if (isActive) {
-                    System.out.printf("  %s | qty=%.2f | entry=%.6f | TP=%.4f | SL=%.4f%n",
-                            pair, p.optDouble("active_pos", 0), p.optDouble("avg_price", 0),
-                            p.optDouble("take_profit_trigger", 0), p.optDouble("stop_loss_trigger", 0));
-                    active.add(pair);
-                }
-            }
-            return active;
-        } catch (Exception e) {
-            System.err.println("getActivePositions: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private static HttpURLConnection openGet(String url) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setRequestMethod("GET");
-        c.setConnectTimeout(10_000);
-        c.setReadTimeout(10_000);
-        return c;
-    }
-
-    private static String publicGet(String url) throws IOException {
-        HttpURLConnection c = openGet(url);
-        if (c.getResponseCode() == 200) return readStream(c.getInputStream());
-        throw new IOException("HTTP " + c.getResponseCode() + " — " + url);
-    }
-
-    private static String authPost(String url, String json) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setRequestMethod("POST");
-        c.setRequestProperty("Content-Type",     "application/json");
-        c.setRequestProperty("X-AUTH-APIKEY",    API_KEY);
-        c.setRequestProperty("X-AUTH-SIGNATURE", sign(json));
-        c.setConnectTimeout(10_000);
-        c.setReadTimeout(10_000);
-        c.setDoOutput(true);
-        try (OutputStream os = c.getOutputStream()) {
-            os.write(json.getBytes(StandardCharsets.UTF_8));
-        }
-        InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
-        return readStream(is);
-    }
-
-    private static String readStream(InputStream is) throws IOException {
-        return new BufferedReader(new InputStreamReader(is)).lines().collect(Collectors.joining("\n"));
-    }
-
-    private static String sign(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(API_SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            byte[] b = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte x : b) sb.append(String.format("%02x", x));
-            return sb.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("HMAC sign failed", e);
-        }
-    }
-
-    public static String generateHmacSHA256(String secret, String payload) {
-        return sign(payload);
-    }
-}
+// import org.json.JSONArray;
+// import org.json.JSONObject;
+
+// import javax.crypto.Mac;
+// import javax.crypto.spec.SecretKeySpec;
+// import java.math.BigDecimal;
+// import java.math.RoundingMode;
+// import java.io.*;
+// import java.net.HttpURLConnection;
+// import java.net.URL;
+// import java.nio.charset.StandardCharsets;
+// import java.time.Instant;
+// import java.util.*;
+// import java.util.concurrent.ConcurrentHashMap;
+// import java.util.concurrent.TimeUnit;
+// import java.util.stream.Collectors;
+// import java.util.stream.Stream;
+
+// // =============================================================================
+// // SCALPING STRATEGY — 15M trend / 5M setup / 1M entry
+// //
+// //   15M TREND  : EMA50 vs EMA200 + Supertrend(10,3) + ADX14 >= 20
+// //                -> LONG / SHORT / SKIP   (cached, refreshed once per 15M candle)
+// //   BTC FILTER : altcoin LONG blocked if BTC 15M EMA/Supertrend is bearish (and v.v.)
+// //   5M SETUP   : EMA9 vs EMA21, close vs EMA50, pullback to the EMA21 zone,
+// //                RSI14 vs 50, volume >= 0.9 x SMA20  (evaluated once per closed 5M candle)
+// //   1M ENTRY   : EMA9 vs EMA21, close vs EMA9, bullish/bearish candle that closes
+// //                beyond the previous candle high/low, VWAP side, extension <= 1 ATR
+// //
+// //   SL = 1M swing low/high +/- 0.4 x ATR(5M)  (min 0.5 x ATR1M, max 1.5 x ATR5M)
+// //   TP = fixed RR (1.2) from the ACTUAL fill price, set once.
+// //   Breakeven / trailing exist but are OFF by default.
+// //
+// // Only COMPLETED candles are used. CoinDCX native resolutions "1" and "5" only;
+// // 15M is built by TIME-ALIGNED aggregation of 5M (complete buckets only).
+// // =============================================================================
+// public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
+
+//     // =========================================================================
+//     // API configuration (unchanged)
+//     // =========================================================================
+//     private static final String API_KEY    = System.getenv("DELTA_API_KEY");
+//     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
+//     private static final String BASE_URL       = "https://api.coindcx.com";
+//     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
+
+//     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
+//     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
+
+//     private static final int  TPSL_MAX_RETRIES    = 3;
+//     private static final long TPSL_RETRY_DELAY_MS = 2000L;
+
+//     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
+
+//     private static final int MAX_OPEN_POSITIONS = 5;
+
+//     private static final int  POSITION_ID_MAX_RETRIES = 5;
+//     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
+
+//     // =========================================================================
+//     // Capital configuration
+//     // =========================================================================
+//     private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+//     private static final int    LEVERAGE     = 10;
+
+//     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
+//     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
+//     static final boolean USE_RISK_SIZING     = false;
+//     static final double  RISK_PER_TRADE_INR  = 100.0;   // set your own value before enabling
+//     static final double  MAX_NOTIONAL_INR    = 6000.0;
+//     static final double  USDT_INR_RATE       = 102.0;
+
+//     // =========================================================================
+//     // Timeframes (minutes)
+//     // =========================================================================
+//     static final int TF_TREND = 15;
+//     static final int TF_SETUP = 5;
+//     static final int TF_ENTRY = 1;
+
+//     // =========================================================================
+//     // Indicators
+//     // =========================================================================
+//     static final int EMA_50  = 50;
+//     static final int EMA_200 = 200;
+//     static final int EMA_FAST = 9;
+//     static final int EMA_SLOW = 21;
+//     static final int    ST_PERIOD     = 10;
+//     static final double ST_MULTIPLIER = 3.0;
+//     static final int ATR_PERIOD = 14;
+//     static final int ADX_PERIOD = 14;
+//     static final int RSI_SETUP_PERIOD = 14;   // 5M
+//     static final int RSI_ENTRY_PERIOD = 7;    // 1M (logged only, not a condition)
+
+//     // =========================================================================
+//     // Filters / flags (turn on/off one by one while testing)
+//     // =========================================================================
+//     static final double  ADX_MIN_TREND   = 20.0;  // 15M
+//     static final boolean USE_BTC_FILTER  = false;
+//     static final String  BTC_PAIR        = "B-BTC_USDT";
+//     static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
+//     static final boolean USE_VOLUME_FILTER = false;
+//     static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
+//     static final int     VOLUME_SMA_PERIOD = 20;
+//     static final boolean USE_VWAP_FILTER = false;
+//     static final int     VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT = 30; // VWAP skipped right after 00:00 UTC
+
+//     // =========================================================================
+//     // 5M setup / 1M entry parameters
+//     // =========================================================================
+//     static final int    SETUP_PULLBACK_BARS  = 4;     // last N closed 5M candles checked for the EMA21 pullback
+//     static final double SETUP_PULLBACK_ZONE_ATR = 0.25; // "near EMA21" = within 0.25 ATR(5M) of it
+//     static final double MAX_EMA_EXTENSION_ATR = 1.0;  // 1M close vs EMA9, in ATR(1M)
+
+//     // =========================================================================
+//     // Data fetching
+//     // =========================================================================
+//     // Max candles per request is NOT verified for CoinDCX; bigger requests are split into pages.
+//     static final int  MAX_BARS_PER_CALL   = 500;
+//     static final long MIN_REQUEST_GAP_MS  = 60L;
+
+//     static final int TREND_BARS_15M     = 240;  // EMA200 + warm-up (= ~725 5M candles, 2 pages)
+//     static final int SETUP_FETCH_5M     = 160;
+//     static final int SETUP_MIN_BARS_5M  = 80;
+//     static final int ENTRY_FETCH_1M     = 60;
+//     static final int ENTRY_MIN_BARS_1M  = 40;
+
+//     // =========================================================================
+//     // SL / TP
+//     // =========================================================================
+//     static final int    SWING_LOOKBACK_1M   = 12;
+//     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
+//     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
+//     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
+//     static final double MAX_SL_PERCENT      = 1.5;
+//     static final double MIN_SL_PERCENT      = 0.30;  // fee/slippage guard: reject if SL tighter than this
+//     static final double TARGET_RR           = 0.75;
+
+//     // =========================================================================
+//     // Trade management (OFF by default). Moving the SL on the exchange re-sends
+//     // create_tpsl for the position — verify that behaviour on a small size first.
+//     // =========================================================================
+//     static final boolean ENABLE_BREAKEVEN     = false;
+//     static final double  BREAKEVEN_TRIGGER_R  = 0.8;
+//     static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
+//     static final boolean ENABLE_TRAILING      = false;
+//     static final double  TRAIL_ACTIVATE_R     = 1.0;
+//     static final double  TRAIL_ATR5_MULT      = 1.0;
+//     static final int     SL_MODIFY_MAX_FAILS  = 3;
+
+//     // =========================================================================
+//     // Timing / duplicate protection
+//     // =========================================================================
+//     static final long ENTRY_MAX_AGE_MS = 75_000L;           // 1M signal must be <= 75s old
+//     static final long COOLDOWN_MS      = 15L * 60 * 1000L;
+//     static final long SCAN_STEP_MS     = 60_000L;
+//     static final long SCAN_DELAY_MS    = 5_000L;
+//     static final long TREND_USABLE_GRACE_MS = 5L * 60 * 1000L;
+
+//     static final boolean LOG_TRADES_CSV = true;
+//     static final String  TRADE_LOG_FILE = "trade_log_v3.csv";
+
+//     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
+
+//     static class TradeInfo {
+//         boolean isLong;
+//         double entry, sl, tp;
+//         double initialSl, risk;
+//         double maxPrice, minPrice;
+//         long openedMs;
+//         String ctx = "";
+//         int modifyFails = 0;
+//     }
+//     private static final Map<String, TradeInfo> tradeState = new ConcurrentHashMap<>();
+//     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
+//     private static long lastCacheUpdate = 0;
+//     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
+//     private static final Map<String, Long> lastSignalCandle = new ConcurrentHashMap<>();
+//     private static final Map<String, Trend15> trendCache = new ConcurrentHashMap<>();
+//     private static final Map<String, Setup5> setupCache = new ConcurrentHashMap<>();
+//     private static boolean timeLoggedThisScan = false;
+//     private static boolean staleWarnedThisScan = false;
+//     private static boolean volumeWarned = false;
+
+//     private static final String[] COIN_SYMBOLS = {
+//        "PIEVERSE","XAU","APE","ERA","US","RAVE","EDEN","LIT","BREV","MAGMA","BLESS","ZAMA",
+//         "FRAX","ACU","1000FLOKI","ELSA","LINEA","SPACE","CLO","FIGHT","UMA","MEGA","MAV","TRIA",
+//         "YGG","OPN","ROBO","SUI","GLM","MANTRA","SEI","CAKE","AUCTION","SENT","BSB","BASED","IRYS",
+//         "ACE","WET","CL","PRL","GENIUS","WIF","MANTA","LSK","AIGENSYN","PHAROS","JUP","AXL","BOME",
+//         "SLX","ZEST","AIOT","VVV","CAP","DATAIP","GRVT","TAO","BR","TURBO","BTC","ETH","ZK","LISTA",
+//         "A","LTC","XAG","COAI","HANA","ZRO","SKYAI","COPPER","RARE","ETC","M","AKE","XLM","PIXEL",
+//         "XAN","ADA","CROSS","XMR","G","DASH","ZEC","ATOM","TRUTH","BCH","NEO","IOST","FLUX","ALGO",
+//         "ZRX","COMP","WLFI","POL","DOGE","BAND","OPG","FIDA","PROM","SANTOS","RLC","1000000MOG",
+//         "GRASS","PNUT","TRB","KAIA","ARX","XAI","S","4","COTI","CHR","SOLV","SAGA","ORCA","1000LUNC",
+//         "MOVE","VIRTUAL","ME","IOTX","GIGGLE","AVA","VELODROME","AIXBT","KMNO","LA","DEXE","ZBT",
+//         "GRIFFAIN","BLUAI","CTSI","ROSE","TURTLE","IMX","SUN","APR","TA","ON","BIO","COOKIE",
+//         "AVAAI","DOT","TRUMP","MELANIA","GMT","FLOCK","CLANKER","CYS","SUSHI","VTHO","DIA",
+//         "SLP","GOAT","BMT","KGEN","GWEI","MUBARAK","LDO","ESP","DRIFT","FORM","PLUME","NIL",
+//         "UNI","ZORA","RECALL","INIT","BZ","PARTI","NATGAS","SPX","BANK","AVAX","RIVER","BILL",
+//         "ATH","XRP","KERNEL","JST","PUNDIX","HAEDAL","ALPINE","SOON","SOPH","HUMA","TRX","LINK",
+//         "HYPE","HIVE","TAIKO","TAG","MYX","NEWT","AIN","USUAL","PUMP","ICNT","BNB","H","BAT",
+//         "QTUM","ARC","AIO","BEAT","BTR","ALCH","THETA","VELVET","ARIA","PTB","UB","LIGHT","FF",
+//         "EVAAI","GMX","LYN","TAC","LAB","ENJ","AT","MMT","UAI","AAVE","JCT","KSM","HEI","JASMY",
+//         "NEAR","TST","SOL","OP","PLAY","INJ","STG","HOLO","ASR","B","LUNA2","RSR","INX","KAT",
+//         "ICP","QNT","MAGIC","T","MINA","STX","ACH","LQTY","ID","GRT","NEIRO","XVS","1INCH","SAND",
+//         "ANKR","RVN","SFP","KAVA","MANA","HBAR","ARB","MTL","C98","TUT","SIREN","MASK","1000XEC",
+//         "AR","ARPA","FIL","LPT","ENS","PEOPLE","LUMIA","DUSK","FLOW","XVG","ARKM","POPCAT","ARK",
+//         "MOODENG","SAFE","AXS","BICO","BIGTIME","WAXP","GAS","POWR","TIA","CHIP","STO","ORDI",
+//         "BEAMX","1000BONK","PYTH","ETHW","1000RATS","ANIME","OPEN","DYM","BERA","PORTAL","BB",
+//         "BANANAS31","CFX","SSV","TNSR","EDU","JELLYJELLY","BLUR","WAL","FHE","WCT","DEEP","SXT",
+//         "NAORIS","OG","CVC","AWE","O","BEL","JOE","SQD","1000PEPE","CARV","FET","SAPIEN","MEME",
+//         "AVNT","XPIN","ILV","KAS","BNT","STBL","BSV","RIF","SUPER","USTC","METIS","ETHFI","ENA",
+//         "1MBABYDOGE","CATI","HMSTR","GPS","SHELL","KAITO","ACT","RPL","BAN","THE","AKT","MORPHO",
+//         "CHILLGUY","AERO","MOCA","PENGU","PHA","RED","EPIC","TREE","1000CAT","MAVIA","FARTCOIN",
+//         "PAXG","IN","ORDER","VET","ZEN","STABLE","CHZ","NIGHT","NOM","ZKP","SKR","GRAM","BIRB",
+//         "CTR","KNC","ZIL","YFI","EGLD","RUNE","ASTR","ONE","1000SHIB","API3","SPELL","WOO","APT",
+//         "PENDLE","AGLD","CYBER","CKB","ONG","MOVR","POLYX","TWT","STEEM","ALT","ZETA","REZ","RENDER",
+//         "RONIN","STRK","W","SCR","CETUS","IO","MEW","SWARMS","SONIC","PIPPIN","PROMPT","MERL","F",
+//         "ESPORTS","PROVE","XNY","USELESS","HEMI","Q","SKY","ZKC","FLUID","MITO","CFG","EDGE","RE",
+//         "YB","MET","DOS","FOGO","BTW","ALLO","BROCCOLI714","HYPER","XPL","RESOLV","ASTER","KITE",
+//         "SIGN","HOME","MON","CC","SAHARA","MIRA","EUL","TOWNS","SYRUP","C","DOLO","ALICE","BABY",
+//         "SOMI","NOT","BARD","SPK","POWER","2Z","BANANA","ENSO","SYN","NXPC","GUN","XTZ","ONT","SKL",
+//         "HOT","JTO","DOGS","EIGEN","GTC","GALA","NMR","CGPT","ZEREBRO","VANA","OGN","CELO","USDC",
+//         "COW","0G","IOTA","SNX","DYDX","WLD","1000SATS","ONDO","AEVO","BRETT","LAYER","CRV","TLM","KOMA"
+//     };
+
+//     // Liquid subset used when USE_LIQUID_LIST = true (edit freely).
+//     private static final Set<String> LIQUID_SYMBOLS = new HashSet<>(Arrays.asList(
+//         "BTC","ETH","SOL","XRP","DOGE","BNB","ADA","AVAX","LINK","DOT","LTC","BCH","TRX","ATOM",
+//         "NEAR","APT","ARB","OP","SUI","INJ","UNI","AAVE","FIL","ETC","XLM","HBAR","ICP","TIA","SEI",
+//         "WLD","ONDO","1000PEPE","1000SHIB","FET","RENDER","TAO","ENA","JUP","PENDLE","STX","IMX",
+//         "LDO","CRV","SAND","MANA","GALA","AXS","APE","ALGO","EGLD","THETA","VET","XMR","DASH","ZEC",
+//         "NEO","QTUM","XTZ","FLOW","KAS","TRUMP","WIF","1000BONK","HYPE","PUMP","FARTCOIN","PENGU",
+//         "WLFI","COMP","SNX","DYDX","GMX","1INCH","RUNE","POL","BERA","ORDI","PYTH","STRK","ZRO",
+//         "EIGEN","ETHFI","AEVO"));
+
+//     private static final Set<String> INTEGER_QTY_PAIRS = Stream.of(COIN_SYMBOLS)
+//             .flatMap(s -> Stream.of("B-" + s + "_USDT", s + "_USDT"))
+//             .collect(Collectors.toCollection(HashSet::new));
+
+//     private static final String[] COINS_TO_TRADE = Stream.of(COIN_SYMBOLS)
+//             .filter(s -> !USE_LIQUID_LIST || LIQUID_SYMBOLS.contains(s))
+//             .map(s -> "B-" + s + "_USDT")
+//             .toArray(String[]::new);
+
+//     // =========================================================================
+//     // Candle helpers
+//     // =========================================================================
+//     // Assumes the candle "time" field is the candle OPEN time (seconds or ms).
+//     static long candleTimeMs(JSONObject c) {
+//         double t = c.optDouble("time", -1);
+//         if (t <= 0) return -1;
+//         long v = (long) t;
+//         return v < 100_000_000_000L ? v * 1000L : v;
+//     }
+
+//     static JSONArray dropLastIfForming(JSONArray arr) {
+//         if (arr == null || arr.length() < 2) return arr;
+//         JSONArray out = new JSONArray();
+//         for (int i = 0; i < arr.length() - 1; i++) out.put(arr.getJSONObject(i));
+//         return out;
+//     }
+
+//     static JSONArray tailOf(JSONArray arr, int n) {
+//         if (arr == null || arr.length() <= n) return arr;
+//         JSONArray out = new JSONArray();
+//         for (int i = arr.length() - n; i < arr.length(); i++) out.put(arr.getJSONObject(i));
+//         return out;
+//     }
+
+//     // True if the last candle in `closed` is the most recent COMPLETE tfMin bucket.
+//     static boolean lastClosedIsLatest(JSONArray closed, int tfMin, long nowMs) {
+//         if (closed == null || closed.length() == 0) return false;
+//         long tfMs = tfMin * 60_000L;
+//         long lastOpen = candleTimeMs(closed.getJSONObject(closed.length() - 1));
+//         if (lastOpen <= 0) return false;
+//         return lastOpen == (nowMs / tfMs) * tfMs - tfMs;
+//     }
+
+//     // Time-aligned aggregation: keeps ONLY complete buckets. Null if timestamps are missing.
+//     static JSONArray aggregateByTime(JSONArray src, long bucketMs, long srcMs) {
+//         if (src == null || src.length() == 0) return null;
+//         int need = (int) (bucketMs / srcMs);
+//         JSONArray out = new JSONArray();
+//         int n = src.length();
+//         int i = 0;
+//         while (i < n) {
+//             long t0 = candleTimeMs(src.getJSONObject(i));
+//             if (t0 < 0) return null;
+//             long bucketStart = (t0 / bucketMs) * bucketMs;
+//             double open = src.getJSONObject(i).getDouble("open");
+//             double close = open;
+//             double high = Double.NEGATIVE_INFINITY, low = Double.POSITIVE_INFINITY, vol = 0;
+//             int count = 0;
+//             int j = i;
+//             while (j < n) {
+//                 JSONObject c = src.getJSONObject(j);
+//                 long tj = candleTimeMs(c);
+//                 if (tj < 0 || (tj / bucketMs) * bucketMs != bucketStart) break;
+//                 high = Math.max(high, c.getDouble("high"));
+//                 low  = Math.min(low,  c.getDouble("low"));
+//                 vol += c.optDouble("volume", 0);
+//                 close = c.getDouble("close");
+//                 count++;
+//                 j++;
+//             }
+//             if (count == need) {
+//                 JSONObject m = new JSONObject();
+//                 m.put("open", open);
+//                 m.put("close", close);
+//                 m.put("high", high);
+//                 m.put("low", low);
+//                 m.put("volume", vol);
+//                 m.put("time", bucketStart);
+//                 out.put(m);
+//             }
+//             i = Math.max(j, i + 1);
+//         }
+//         return out;
+//     }
+
+//     // COMPLETED candles only, oldest first. Native "1"/"5"; other timeframes from 5M/1M.
+//     static JSONArray getClosedCandles(String pair, int tfMin, int bars) {
+//         if (tfMin == 1 || tfMin == 5) {
+//             return dropLastIfForming(fetchCandlesPaged(pair, String.valueOf(tfMin), tfMin, bars + 1));
+//         }
+//         int base = (tfMin % 5 == 0) ? 5 : 1;
+//         int ratio = tfMin / base;
+//         int baseBars = bars * ratio + ratio + 2;
+//         JSONArray closedBase = dropLastIfForming(fetchCandlesPaged(pair, String.valueOf(base), base, baseBars));
+//         if (closedBase == null) return null;
+//         JSONArray agg = aggregateByTime(closedBase, tfMin * 60_000L, base * 60_000L);
+//         if (agg == null) return null;
+//         return tailOf(agg, bars);
+//     }
+
+//     static JSONArray fetchCandlesPaged(String pair, String res, int minsPerBar, int count) {
+//         long nowSec = Instant.now().getEpochSecond();
+//         if (count <= MAX_BARS_PER_CALL) {
+//             return getCandlestickRange(pair, res, nowSec - (long) minsPerBar * 60L * count, nowSec);
+//         }
+//         List<JSONObject> all = new ArrayList<>();
+//         long toSec = nowSec;
+//         int remaining = count;
+//         boolean first = true;
+//         while (remaining > 0) {
+//             int n = Math.min(MAX_BARS_PER_CALL, remaining);
+//             long fromSec = toSec - (long) minsPerBar * 60L * n;
+//             JSONArray part = getCandlestickRange(pair, res, fromSec, toSec);
+//             if (part == null) {
+//                 if (first) return null;
+//                 break;
+//             }
+//             for (int i = 0; i < part.length(); i++) all.add(part.getJSONObject(i));
+//             first = false;
+//             remaining -= n;
+//             toSec = fromSec - 1;
+//             if (part.length() == 0) break;
+//         }
+//         for (JSONObject c : all) {
+//             if (candleTimeMs(c) < 0) {
+//                 System.err.println("  [ERROR] candle has no 'time' field — cannot merge pages for " + pair);
+//                 return null;
+//             }
+//         }
+//         all.sort(Comparator.comparingLong(CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE::candleTimeMs));
+//         JSONArray out = new JSONArray();
+//         long prev = -1;
+//         for (JSONObject c : all) {
+//             long t = candleTimeMs(c);
+//             if (t == prev) continue;
+//             out.put(c);
+//             prev = t;
+//         }
+//         return out;
+//     }
+
+//     private static long lastRequestAt = 0;
+//     private static synchronized void throttle() {
+//         long now = System.currentTimeMillis();
+//         long wait = MIN_REQUEST_GAP_MS - (now - lastRequestAt);
+//         if (wait > 0) {
+//             try { Thread.sleep(wait); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+//         }
+//         lastRequestAt = System.currentTimeMillis();
+//     }
+
+//     private static JSONArray getCandlestickRange(String pair, String resolution, long from, long to) {
+//         try {
+//             throttle();
+//             String url = PUBLIC_API_URL + "/market_data/candlesticks"
+//                     + "?pair=" + pair + "&from=" + from + "&to=" + to
+//                     + "&resolution=" + resolution + "&pcode=f";
+//             HttpURLConnection conn = openGet(url);
+//             int code = conn.getResponseCode();
+//             if (code == 200) {
+//                 JSONObject r = new JSONObject(readStream(conn.getInputStream()));
+//                 if ("ok".equals(r.optString("s"))) return r.getJSONArray("data");
+//                 System.err.println("  Candle s=" + r.optString("s") + " " + pair + "/" + resolution);
+//             } else {
+//                 System.err.println("  Candle HTTP " + code + " " + pair + "/" + resolution);
+//             }
+//         } catch (Exception e) {
+//             System.err.println("  getCandlestickRange(" + pair + "/" + resolution + "): " + e.getMessage());
+//         }
+//         return null;
+//     }
+
+//     // =========================================================================
+//     // 15M TREND: EMA50 vs EMA200 + Supertrend + ADX >= 20
+//     // =========================================================================
+//     static class Trend15 {
+//         boolean valid, bullish, bearish, stGreen;
+//         boolean emaStUp, emaStDown;   // EMA+Supertrend only (no ADX) — used by the BTC filter
+//         double ema50, ema200, adx, plusDI, minusDI;
+//         long lastCandleOpen;
+//         String reason = "";
+//     }
+
+//     static Trend15 evaluate15mTrend(JSONArray c15) {
+//         Trend15 r = new Trend15();
+//         int need = EMA_200 + ST_PERIOD + 5;
+//         if (c15 == null || c15.length() < need) {
+//             r.reason = "not enough 15M candles (" + (c15 == null ? 0 : c15.length()) + "/" + need + ")";
+//             return r;
+//         }
+//         double[] cl = extractCloses(c15), hi = extractHighs(c15), lo = extractLows(c15);
+//         double[] adxArr = calcADX(hi, lo, cl, ADX_PERIOD);
+//         if (adxArr == null) {
+//             r.reason = "ADX data insufficient";
+//             return r;
+//         }
+//         r.ema50 = calcEMA(cl, EMA_50);
+//         r.ema200 = calcEMA(cl, EMA_200);
+//         boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
+//         r.stGreen = st[st.length - 1];
+//         r.adx = adxArr[0]; r.plusDI = adxArr[1]; r.minusDI = adxArr[2];
+//         r.lastCandleOpen = candleTimeMs(c15.getJSONObject(c15.length() - 1));
+//         r.valid = true;
+//         r.emaStUp = r.ema50 > r.ema200 && r.stGreen;
+//         r.emaStDown = r.ema50 < r.ema200 && !r.stGreen;
+//         boolean adxOk = r.adx >= ADX_MIN_TREND;
+//         r.bullish = r.emaStUp && adxOk;
+//         r.bearish = r.emaStDown && adxOk;
+//         r.reason = String.format("15M EMA50=%.6f EMA200=%.6f Supertrend=%s ADX=%.1f(>=%.0f:%s) -> %s",
+//                 r.ema50, r.ema200, r.stGreen ? "GREEN" : "RED", r.adx, ADX_MIN_TREND, adxOk,
+//                 r.bullish ? "LONG trend" : (r.bearish ? "SHORT trend" : "SKIP (no clean trend)"));
+//         return r;
+//     }
+
+//     static boolean trendUsable(Trend15 t, long nowMs) {
+//         if (t == null || !t.valid || t.lastCandleOpen <= 0) return false;
+//         return nowMs < t.lastCandleOpen + 2 * TF_TREND * 60_000L + TREND_USABLE_GRACE_MS;
+//     }
+
+//     // Background refresher: once at startup, then once per new 15M candle.
+//     private static void startTrendRefresher() {
+//         Thread t = new Thread(() -> {
+//             boolean first = true;
+//             while (!Thread.currentThread().isInterrupted()) {
+//                 try {
+//                     if (!first) {
+//                         long tfMs = TF_TREND * 60_000L;
+//                         long now = System.currentTimeMillis();
+//                         long next = (now / tfMs + 1) * tfMs + 10_000L;
+//                         Thread.sleep(Math.max(1000L, next - now));
+//                     }
+//                     first = false;
+//                     List<String> list = new ArrayList<>(Arrays.asList(COINS_TO_TRADE));
+//                     if (USE_BTC_FILTER && !list.contains(BTC_PAIR)) list.add(0, BTC_PAIR);
+//                     int ok = 0, bull = 0, bear = 0, bad = 0;
+//                     for (String pair : list) {
+//                         try {
+//                             Trend15 tr = evaluate15mTrend(getClosedCandles(pair, TF_TREND, TREND_BARS_15M));
+//                             trendCache.put(pair, tr);
+//                             if (!tr.valid) { bad++; continue; }
+//                             ok++;
+//                             if (tr.bullish) bull++;
+//                             if (tr.bearish) bear++;
+//                         } catch (Exception e) {
+//                             bad++;
+//                             System.err.println("[TREND] " + pair + ": " + e.getMessage());
+//                         }
+//                     }
+//                     Trend15 btc = trendCache.get(BTC_PAIR);
+//                     System.out.println("[TREND] refresh done: valid=" + ok + " LONG=" + bull + " SHORT=" + bear
+//                             + " no-data=" + bad + (btc != null && btc.valid ? " | BTC: " + btc.reason : ""));
+//                 } catch (InterruptedException ie) {
+//                     Thread.currentThread().interrupt();
+//                     break;
+//                 } catch (Throwable th) {
+//                     System.err.println("[TREND] refresher error: " + th.getMessage());
+//                 }
+//             }
+//         }, "trend-refresher");
+//         t.setDaemon(true);
+//         t.start();
+//     }
+
+//     // =========================================================================
+//     // 5M SETUP: EMA9/21, close vs EMA50, pullback near EMA21, RSI14, volume
+//     // =========================================================================
+//     static class Setup5 {
+//         boolean valid, pass, trendUp, volChecked;
+//         double close, ema9, ema21, ema50, rsi, atr5, vol, volAvg;
+//         long lastCandleOpen;
+//         String reason = "";
+//     }
+
+//     static Setup5 evaluate5mSetup(JSONArray c5, boolean trendUp) {
+//         Setup5 s = new Setup5();
+//         s.trendUp = trendUp;
+//         if (c5 == null || c5.length() < SETUP_MIN_BARS_5M) {
+//             s.reason = "not enough 5M candles (" + (c5 == null ? 0 : c5.length()) + "/" + SETUP_MIN_BARS_5M + ")";
+//             return s;
+//         }
+//         double[] cl = extractCloses(c5), hi = extractHighs(c5), lo = extractLows(c5), vo = extractVolumes(c5);
+//         int n = cl.length;
+//         double[] ema21s = calcEMASeries(cl, EMA_SLOW);
+//         s.close = cl[n - 1];
+//         s.ema9 = calcEMA(cl, EMA_FAST);
+//         s.ema21 = ema21s[n - 1];
+//         s.ema50 = calcEMA(cl, EMA_50);
+//         s.atr5 = calcATR(hi, lo, cl, ATR_PERIOD);
+//         s.rsi = calcRSI(cl, RSI_SETUP_PERIOD);
+//         s.lastCandleOpen = candleTimeMs(c5.getJSONObject(n - 1));
+//         s.valid = true;
+
+//         boolean emaOk = trendUp ? s.ema9 > s.ema21 : s.ema9 < s.ema21;
+//         boolean ema50Ok = trendUp ? s.close > s.ema50 : s.close < s.ema50;
+//         boolean near = false;
+//         for (int i = Math.max(0, n - SETUP_PULLBACK_BARS); i <= n - 1; i++) {
+//             double zone = SETUP_PULLBACK_ZONE_ATR * s.atr5;
+//             if (trendUp ? lo[i] <= ema21s[i] + zone : hi[i] >= ema21s[i] - zone) { near = true; break; }
+//         }
+//         boolean rsiOk = trendUp ? s.rsi > 50 : s.rsi < 50;
+
+//         s.vol = vo[n - 1];
+//         s.volAvg = smaBefore(vo, n - 1, VOLUME_SMA_PERIOD);
+//         boolean volOk = true;
+//         if (USE_VOLUME_FILTER) {
+//             if (s.volAvg > 0) { s.volChecked = true; volOk = s.vol >= VOLUME_MULT * s.volAvg; }
+//             else if (!volumeWarned) {
+//                 volumeWarned = true;
+//                 System.out.println("[WARN] volume data missing/zero in candles — volume filter skipped");
+//             }
+//         }
+//         s.pass = emaOk && ema50Ok && near && rsiOk && volOk;
+//         s.reason = String.format("5M ema9%s21=%s close%sEMA50=%s pullbackNearEMA21=%s RSI14=%.1f(ok=%s) vol=%.0f/avg%.0f(ok=%s%s) ATR5=%.6f",
+//                 trendUp ? ">" : "<", emaOk, trendUp ? ">" : "<", ema50Ok, near, s.rsi, rsiOk,
+//                 s.vol, s.volAvg, volOk, s.volChecked ? "" : ",skipped", s.atr5);
+//         return s;
+//     }
+
+//     // =========================================================================
+//     // 1M ENTRY TRIGGER (VWAP is evaluated separately, after the cheap checks pass)
+//     // =========================================================================
+//     static class Entry1 {
+//         boolean valid, triggeredExVwap;
+//         double close, ema9, ema21, atr1, rsi7, swingLevel;
+//         long lastCandleOpen;
+//         String reason = "";
+//     }
+
+//     static Entry1 evaluate1mEntry(JSONArray c1, boolean trendUp) {
+//         Entry1 t = new Entry1();
+//         if (c1 == null || c1.length() < ENTRY_MIN_BARS_1M) {
+//             t.reason = "not enough 1M candles (" + (c1 == null ? 0 : c1.length()) + "/" + ENTRY_MIN_BARS_1M + ")";
+//             return t;
+//         }
+//         double[] cl = extractCloses(c1), op = extractOpens(c1), hi = extractHighs(c1), lo = extractLows(c1);
+//         int n = cl.length;
+//         t.ema9 = calcEMA(cl, EMA_FAST);
+//         t.ema21 = calcEMA(cl, EMA_SLOW);
+//         t.atr1 = calcATR(hi, lo, cl, ATR_PERIOD);
+//         t.rsi7 = calcRSI(cl, RSI_ENTRY_PERIOD);
+//         t.close = cl[n - 1];
+//         t.lastCandleOpen = candleTimeMs(c1.getJSONObject(n - 1));
+//         t.valid = true;
+
+//         boolean emaOk = trendUp ? t.ema9 > t.ema21 : t.ema9 < t.ema21;
+//         boolean closeEma9 = trendUp ? t.close > t.ema9 : t.close < t.ema9;
+//         boolean candleOk = trendUp ? cl[n - 1] > op[n - 1] : cl[n - 1] < op[n - 1];
+//         boolean breakOk = trendUp ? cl[n - 1] > hi[n - 2] : cl[n - 1] < lo[n - 2];  // closes beyond previous candle high/low
+//         double distAtr = t.atr1 > 0 ? Math.abs(t.close - t.ema9) / t.atr1 : Double.POSITIVE_INFINITY;
+//         boolean extOk = distAtr <= MAX_EMA_EXTENSION_ATR;
+
+//         t.swingLevel = trendUp ? recentLow(lo, SWING_LOOKBACK_1M) : recentHigh(hi, SWING_LOOKBACK_1M);
+//         t.triggeredExVwap = emaOk && closeEma9 && candleOk && breakOk && extOk;
+//         t.reason = String.format("1M ema9%s21=%s closeVsEMA9=%s directional=%s breakPrevCandle=%s extension=%.2fATR(ok=%s) RSI7=%.1f(log only)",
+//                 trendUp ? ">" : "<", emaOk, closeEma9, candleOk, breakOk, distAtr, extOk, t.rsi7);
+//         return t;
+//     }
+
+//     // Anchored VWAP from UTC midnight. NaN if there is no volume.
+//     static double dayVwap(JSONArray c1, long dayStartMs) {
+//         double pv = 0, v = 0;
+//         if (c1 == null) return Double.NaN;
+//         for (int i = 0; i < c1.length(); i++) {
+//             JSONObject c = c1.getJSONObject(i);
+//             long t = candleTimeMs(c);
+//             if (t < dayStartMs) continue;
+//             double vol = c.optDouble("volume", 0);
+//             double tp = (c.getDouble("high") + c.getDouble("low") + c.getDouble("close")) / 3.0;
+//             pv += tp * vol;
+//             v += vol;
+//         }
+//         return v > 0 ? pv / v : Double.NaN;
+//     }
+
+//     // VWAP side check. Skipped (true) when disabled, right after UTC midnight, or when volume is unavailable.
+//     static boolean vwapAllows(boolean trendUp, double close, double vwap, long nowMs) {
+//         if (!USE_VWAP_FILTER) return true;
+//         long minutesSinceMidnight = (nowMs % 86_400_000L) / 60_000L;
+//         if (minutesSinceMidnight < VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT) return true;
+//         if (Double.isNaN(vwap)) return true;
+//         return trendUp ? close > vwap : close < vwap;
+//     }
+
+//     static double recentLow(double[] lo, int lookback) {
+//         int n = lo.length, start = Math.max(0, n - lookback);
+//         double min = Double.POSITIVE_INFINITY;
+//         for (int i = start; i < n; i++) min = Math.min(min, lo[i]);
+//         return min;
+//     }
+
+//     static double recentHigh(double[] hi, int lookback) {
+//         int n = hi.length, start = Math.max(0, n - lookback);
+//         double max = Double.NEGATIVE_INFINITY;
+//         for (int i = start; i < n; i++) max = Math.max(max, hi[i]);
+//         return max;
+//     }
+
+//     // =========================================================================
+//     // SL / TP
+//     //   SL = 1M swing -/+ SL_ATR5_BUFFER x ATR(5M); widened to MIN_SL_ATR1 x ATR(1M) if closer.
+//     //   Rejected (never tightened) if farther than MAX_SL_ATR5 x ATR(5M), wider than MAX_SL_PERCENT
+//     //   or tighter than MIN_SL_PERCENT (fees). TP = entry +/- RR x risk.
+//     // =========================================================================
+//     static class SlTp {
+//         boolean ok;
+//         double sl, tp, slPercent, risk;
+//         String reason = "";
+//     }
+
+//     static SlTp computeSlTp(boolean isLong, double entry, double swing1m, double atr1, double atr5, double tick) {
+//         SlTp r = new SlTp();
+//         if (atr1 <= 0 || atr5 <= 0 || entry <= 0 || Double.isInfinite(swing1m) || Double.isNaN(swing1m)) {
+//             r.reason = "invalid ATR / entry / swing";
+//             return r;
+//         }
+//         double sl = isLong ? swing1m - SL_ATR5_BUFFER * atr5 : swing1m + SL_ATR5_BUFFER * atr5;
+//         if (isLong ? sl >= entry : sl <= entry) {
+//             r.reason = "SL on wrong side of entry";
+//             return r;
+//         }
+//         double minDist = MIN_SL_ATR1 * atr1;
+//         if (Math.abs(entry - sl) < minDist) sl = isLong ? entry - minDist : entry + minDist; // widen only
+//         double dist = Math.abs(entry - sl);
+//         if (dist > MAX_SL_ATR5 * atr5) {
+//             r.reason = String.format("SL too far (%.2f ATR5 > %.2f)", dist / atr5, MAX_SL_ATR5);
+//             return r;
+//         }
+//         double slPct = dist / entry * 100.0;
+//         if (slPct > MAX_SL_PERCENT) {
+//             r.reason = String.format("SL too wide (%.2f%% > %.2f%%)", slPct, MAX_SL_PERCENT);
+//             return r;
+//         }
+//         if (slPct < MIN_SL_PERCENT) {
+//             r.reason = String.format("SL too tight for fees/slippage (%.2f%% < %.2f%%)", slPct, MIN_SL_PERCENT);
+//             return r;
+//         }
+//         double tp = isLong ? entry + dist * TARGET_RR : entry - dist * TARGET_RR;
+//         sl = roundToTick(sl, tick);
+//         tp = roundToTick(tp, tick);
+//         if (isLong ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry)) {
+//             r.reason = "SL/TP collapsed onto entry after tick rounding";
+//             return r;
+//         }
+//         r.ok = true; r.sl = sl; r.tp = tp; r.slPercent = slPct; r.risk = Math.abs(entry - sl);
+//         return r;
+//     }
+
+//     // Legacy: notional = FIXED_MARGIN INR. Optional: risk-based sizing (USE_RISK_SIZING).
+//     static double calcQuantity(double entryPrice, String pair, double slDistance) {
+//         double qty = FIXED_MARGIN / (entryPrice * USDT_INR_RATE);
+//         if (USE_RISK_SIZING && RISK_PER_TRADE_INR > 0 && slDistance > 0) {
+//             double riskQty = RISK_PER_TRADE_INR / (slDistance * USDT_INR_RATE);
+//             double capQty = MAX_NOTIONAL_INR / (entryPrice * USDT_INR_RATE);
+//             qty = Math.min(riskQty, capQty);
+//         }
+//         double finalQty = INTEGER_QTY_PAIRS.contains(pair) ? Math.floor(qty) : Math.floor(qty * 100) / 100.0;
+//         return Math.max(finalQty, 0);
+//     }
+
+//     // =========================================================================
+//     // Breakeven / trailing: returns the new SL (never loosened, never beyond price).
+//     // =========================================================================
+//     static double managedSl(boolean isLong, double entry, double risk, double curSl, double price, double atr5,
+//                             boolean beOn, boolean trailOn) {
+//         if (risk <= 0 || price <= 0) return curSl;
+//         double r = isLong ? (price - entry) / risk : (entry - price) / risk;
+//         double newSl = curSl;
+//         if (beOn && r >= BREAKEVEN_TRIGGER_R) {
+//             double be = isLong ? entry * (1 + BREAKEVEN_OFFSET_PCT / 100.0) : entry * (1 - BREAKEVEN_OFFSET_PCT / 100.0);
+//             newSl = isLong ? Math.max(newSl, be) : Math.min(newSl, be);
+//         }
+//         if (trailOn && atr5 > 0 && r >= TRAIL_ACTIVATE_R) {
+//             double tr = isLong ? price - TRAIL_ATR5_MULT * atr5 : price + TRAIL_ATR5_MULT * atr5;
+//             newSl = isLong ? Math.max(newSl, tr) : Math.min(newSl, tr);
+//         }
+//         if (isLong ? newSl <= curSl : newSl >= curSl) return curSl;     // only tighten in profit direction
+//         if (isLong ? newSl >= price : newSl <= price) return curSl;     // must stay behind price
+//         return newSl;
+//     }
+
+//     // =========================================================================
+//     // Main loop — one cycle per minute (aligned to the minute boundary + a few seconds)
+//     // =========================================================================
+//     public static void main(String[] args) {
+//         System.out.println("=== Bot starting (15M trend / 5M setup / 1M entry — RR " + TARGET_RR
+//                 + ", BTC filter=" + USE_BTC_FILTER + ", liquid list=" + USE_LIQUID_LIST
+//                 + " (" + COINS_TO_TRADE.length + " symbols), breakeven=" + ENABLE_BREAKEVEN
+//                 + ", trailing=" + ENABLE_TRAILING + ") ===");
+//         initInstrumentCache();
+//         startTrendRefresher();
+
+//         while (true) {
+//             try {
+//                 runCycle();
+//             } catch (Throwable t) {
+//                 System.err.println("[MAIN-LOOP] Uncaught error, continuing: " + t.getMessage());
+//                 t.printStackTrace();
+//             }
+//             try {
+//                 long now = System.currentTimeMillis();
+//                 long next = (now / SCAN_STEP_MS + 1) * SCAN_STEP_MS + SCAN_DELAY_MS;
+//                 TimeUnit.MILLISECONDS.sleep(Math.max(1000L, next - now));
+//             } catch (InterruptedException ignored) {
+//                 Thread.currentThread().interrupt();
+//                 break;
+//             }
+//         }
+//     }
+
+//     private static void runCycle() {
+//         Set<String> active = getActivePositions();
+//         if (active == null) {
+//             System.err.println("Positions API failed — skipping this cycle (no entries, no cleanup).");
+//             return;
+//         }
+//         System.out.println("Active positions: " + active);
+//         handleClosedTrades(active);
+//         manageOpenTrades(active);
+
+//         if (active.size() >= MAX_OPEN_POSITIONS) {
+//             System.out.println("MAX_OPEN_POSITIONS reached — skipping entries.");
+//         } else {
+//             runEntryScan(active);
+//         }
+//         ensureTpSlForOpenPositions();  // ALWAYS runs — protection never depends on entry filters
+//     }
+
+//     private static void runEntryScan(Set<String> active) {
+//         timeLoggedThisScan = false;
+//         staleWarnedThisScan = false;
+//         int noTrend = 0, btcBlocked = 0, stale = 0, late = 0, setupFail = 0, entryFail = 0, vwapFail = 0, signals = 0;
+
+//         Trend15 btc = trendCache.get(BTC_PAIR);
+//         boolean btcOk = !USE_BTC_FILTER || trendUsable(btc, System.currentTimeMillis());
+
+//         for (String pair : COINS_TO_TRADE) {
+//             try {
+//                 if (active.size() >= MAX_OPEN_POSITIONS) break;
+//                 if (active.contains(pair)) continue;
+//                 if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
+
+//                 long now = System.currentTimeMillis();
+//                 Trend15 tr = trendCache.get(pair);
+//                 if (!trendUsable(tr, now)) { noTrend++; continue; }
+//                 if (tr.bullish && tr.bearish) {
+//                     System.out.println("SKIP - " + pair + " - LONG and SHORT both true (inconsistent)");
+//                     continue;
+//                 }
+//                 if (!tr.bullish && !tr.bearish) continue;   // 15M says SKIP
+//                 boolean trendUp = tr.bullish;
+//                 String dir = trendUp ? "LONG" : "SHORT";
+
+//                 if (USE_BTC_FILTER && !pair.equals(BTC_PAIR)) {
+//                     if (!btcOk) { btcBlocked++; continue; }   // fail closed when BTC trend is unavailable
+//                     if (trendUp ? btc.emaStDown : btc.emaStUp) { btcBlocked++; continue; }
+//                 }
+
+//                 // ---- 5M setup: evaluated once per closed 5M candle, then cached ----
+//                 long expected5 = (now / 300_000L) * 300_000L - 300_000L;
+//                 Setup5 su = setupCache.get(pair);
+//                 if (su == null || su.lastCandleOpen != expected5 || su.trendUp != trendUp) {
+//                     JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, SETUP_FETCH_5M + 1));
+//                     if (c5 == null || c5.length() < SETUP_MIN_BARS_5M) {
+//                         System.err.println("  [ERROR] 5M data insufficient for " + pair);
+//                         continue;
+//                     }
+//                     if (!lastClosedIsLatest(c5, TF_SETUP, now)) { stale++; continue; }
+//                     su = evaluate5mSetup(c5, trendUp);
+//                     setupCache.put(pair, su);
+//                     System.out.println("  " + pair + " [" + dir + "] " + tr.reason + " | " + su.reason
+//                             + " | SETUP " + (su.valid && su.pass ? "PASS" : "FAIL"));
+//                 }
+//                 if (!su.valid || !su.pass) { setupFail++; continue; }
+
+//                 // ---- 1M entry (shortlist only) ----
+//                 JSONArray c1 = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, ENTRY_FETCH_1M + 1));
+//                 if (c1 == null || c1.length() < ENTRY_MIN_BARS_1M) {
+//                     System.err.println("  [ERROR] 1M data insufficient for " + pair);
+//                     continue;
+//                 }
+//                 long lastOpen1 = candleTimeMs(c1.getJSONObject(c1.length() - 1));
+//                 if (!lastClosedIsLatest(c1, TF_ENTRY, now)) {
+//                     stale++;
+//                     if (!staleWarnedThisScan) {
+//                         staleWarnedThisScan = true;
+//                         long cur = (now / 60_000L) * 60_000L;
+//                         System.out.println("[TIME-CHECK] " + pair + " last closed 1M open=" + lastOpen1 + " expected=" + (cur - 60_000L)
+//                                 + (lastOpen1 == cur ? "  WARNING: equals CURRENT minute -> API 'time' may be CLOSE time or last candle is forming"
+//                                                     : "  (data lag or missing candle)"));
+//                     }
+//                     continue;
+//                 }
+//                 long ageMs = now - (lastOpen1 + 60_000L);
+//                 if (!timeLoggedThisScan) {
+//                     timeLoggedThisScan = true;
+//                     System.out.printf("[TIME-CHECK] %s last closed 1M open=%d age=%.1fs%n", pair, lastOpen1, ageMs / 1000.0);
+//                 }
+//                 if (ageMs > ENTRY_MAX_AGE_MS) { late++; continue; }
+
+//                 Entry1 e = evaluate1mEntry(c1, trendUp);
+//                 if (!e.valid || !e.triggeredExVwap) { entryFail++; continue; }
+
+//                 double vwap = Double.NaN;
+//                 if (USE_VWAP_FILTER) {
+//                     long dayStart = (now / 86_400_000L) * 86_400_000L;
+//                     int mins = (int) ((now - dayStart) / 60_000L) + 2;
+//                     JSONArray day = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, mins));
+//                     vwap = dayVwap(day, dayStart);
+//                 }
+//                 boolean vwapOk = vwapAllows(trendUp, e.close, vwap, now);
+//                 System.out.printf("  %s [%s] %s | VWAP=%.6f(ok=%s) | ENTRY %s%n", pair, dir, e.reason, vwap, vwapOk,
+//                         vwapOk ? "PASS" : "FAIL");
+//                 if (!vwapOk) { vwapFail++; continue; }
+
+//                 Long prevSig = lastSignalCandle.get(pair);
+//                 if (prevSig != null && prevSig == e.lastCandleOpen) continue;   // one signal per symbol per 1M candle
+//                 lastSignalCandle.put(pair, e.lastCandleOpen);
+//                 signals++;
+
+//                 String ctx = String.format("adx15=%.1f rsi5=%.1f rsi1=%.1f atr1=%.6f atr5=%.6f",
+//                         tr.adx, su.rsi, e.rsi7, e.atr1, su.atr5);
+//                 executeEntry(pair, trendUp, e.swingLevel, e.atr1, su.atr5, ctx, active);
+//             } catch (Exception ex) {
+//                 System.err.println("Error on " + pair + ": " + ex.getMessage());
+//             }
+//         }
+//         System.out.println("=== Scan complete | signals=" + signals + " noTrend=" + noTrend + " btcBlocked=" + btcBlocked
+//                 + " stale=" + stale + " late=" + late + " setupFail=" + setupFail + " entryFail=" + entryFail
+//                 + " vwapFail=" + vwapFail + " ===");
+//     }
+
+//     // =========================================================================
+//     // Order execution — limit order, ACTUAL fill price, SL/TP computed ONCE from the fill,
+//     // exchange-side TP/SL with retries.
+//     // =========================================================================
+//     private static boolean executeEntry(String pair, boolean trendUp, double swing1m, double atr1, double atr5,
+//                                         String ctx, Set<String> active) {
+//         try {
+//             double currentPrice = getLastPrice(pair);
+//             if (currentPrice <= 0) return false;
+//             double tickSize = getTickSize(pair);
+
+//             SlTp pre = computeSlTp(trendUp, currentPrice, swing1m, atr1, atr5, tickSize);
+//             if (!pre.ok) {
+//                 System.out.println("SKIP - " + pair + " - " + pre.reason);
+//                 return false;
+//             }
+//             double qty = calcQuantity(currentPrice, pair, pre.risk);
+//             if (qty <= 0) {
+//                 System.out.println("SKIP - " + pair + " - Invalid quantity");
+//                 return false;
+//             }
+
+//             System.out.println("\n==== " + pair + " — " + (trendUp ? "LONG" : "SHORT") + " (15M/5M/1M scalp) ====");
+//             System.out.printf("  Price=%.6f swing1M=%.6f ATR1=%.6f ATR5=%.6f preSL=%.6f preTP=%.6f SL%%=%.2f | Qty=%.4f Lev=%dx%n",
+//                     currentPrice, swing1m, atr1, atr5, pre.sl, pre.tp, pre.slPercent, qty, LEVERAGE);
+
+//             String side = trendUp ? "buy" : "sell";
+//             JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
+//                     "email_notification", "isolated", "INR", currentPrice);
+//             if (orderResp == null || !orderResp.has("id")) {
+//                 System.out.println("  Order failed: " + orderResp);
+//                 return false;
+//             }
+//             System.out.println("  Order placed! id=" + orderResp.getString("id"));
+//             lastTradeTime.put(pair, System.currentTimeMillis());
+
+//             double entry = getEntryPrice(pair, orderResp.getString("id"));
+//             if (entry <= 0) {
+//                 System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
+//                 active.add(pair);
+//                 return true;
+//             }
+//             System.out.printf("  Entry confirmed: %.6f%n", entry);
+
+//             SlTp fin = computeSlTp(trendUp, entry, swing1m, atr1, atr5, tickSize);
+//             if (!fin.ok) {
+//                 System.out.println("SKIP-post-fill - " + pair + " - " + fin.reason
+//                         + " at actual fill price; closing not automated here — check position manually");
+//                 active.add(pair);
+//                 return true;
+//             }
+//             System.out.println("[ENTRY] " + pair + " Side=" + (trendUp ? "LONG" : "SHORT"));
+//             System.out.printf("  Entry=%.6f SL=%.6f TP=%.6f Risk=%.6f RR=%.2f SL%%=%.2f Qty=%.4f%n",
+//                     entry, fin.sl, fin.tp, fin.risk, TARGET_RR, fin.slPercent, qty);
+
+//             String posId = getPositionId(pair);
+//             if (posId != null) {
+//                 setTpSlWithRetry(posId, fin.tp, fin.sl, pair);
+//             } else {
+//                 System.out.println("  Position ID not found after retries — safety sweep will handle it");
+//             }
+//             TradeInfo trade = new TradeInfo();
+//             trade.isLong = trendUp; trade.entry = entry; trade.sl = fin.sl; trade.tp = fin.tp;
+//             trade.initialSl = fin.sl; trade.risk = fin.risk;
+//             trade.maxPrice = entry; trade.minPrice = entry;
+//             trade.openedMs = System.currentTimeMillis();
+//             trade.ctx = ctx;
+//             tradeState.put(pair, trade);
+//             active.add(pair);
+//             return true;
+//         } catch (Exception e) {
+//             System.err.println("executeEntry " + pair + ": " + e.getMessage());
+//             return false;
+//         }
+//     }
+
+//     // =========================================================================
+//     // Closed-trade logging (approximate exit reason + MFE/MAE in R) -> console + CSV
+//     // =========================================================================
+//     private static void handleClosedTrades(Set<String> active) {
+//         for (Iterator<Map.Entry<String, TradeInfo>> it = tradeState.entrySet().iterator(); it.hasNext();) {
+//             Map.Entry<String, TradeInfo> en = it.next();
+//             if (active.contains(en.getKey())) continue;
+//             double px = getLastPrice(en.getKey());
+//             logClosedTrade(en.getKey(), en.getValue(), px);
+//             it.remove();
+//         }
+//     }
+
+//     static String classifyExit(TradeInfo t, double lastPx) {
+//         if (lastPx <= 0 || t.risk <= 0) return "UNKNOWN";
+//         double dTp = Math.abs(lastPx - t.tp), dSl = Math.abs(lastPx - t.sl);
+//         if (Math.min(dTp, dSl) > 0.35 * t.risk) return "OTHER(manual/liquidation?)";
+//         if (dTp < dSl) return "TP(approx)";
+//         return (t.sl != t.initialSl) ? "TRAIL_SL(approx)" : "SL(approx)";
+//     }
+
+//     static double[] mfeMaeR(TradeInfo t) {
+//         if (t.risk <= 0) return new double[]{0, 0};
+//         double mfe = t.isLong ? (t.maxPrice - t.entry) : (t.entry - t.minPrice);
+//         double mae = t.isLong ? (t.entry - t.minPrice) : (t.maxPrice - t.entry);
+//         return new double[]{Math.max(0, mfe) / t.risk, Math.max(0, mae) / t.risk};
+//     }
+
+//     private static synchronized void logClosedTrade(String pair, TradeInfo t, double lastPx) {
+//         String exit = classifyExit(t, lastPx);
+//         double[] m = mfeMaeR(t);
+//         long heldMin = t.openedMs > 0 ? (System.currentTimeMillis() - t.openedMs) / 60_000L : -1;
+//         System.out.printf("[CLOSED] %s %s exit=%s entry=%.6f sl=%.6f tp=%.6f lastPx=%.6f held=%dmin MFE=%.2fR MAE=%.2fR | %s%n",
+//                 pair, t.isLong ? "LONG" : "SHORT", exit, t.entry, t.sl, t.tp, lastPx, heldMin, m[0], m[1], t.ctx);
+//         if (!LOG_TRADES_CSV) return;
+//         try {
+//             File f = new File(TRADE_LOG_FILE);
+//             boolean fresh = !f.exists();
+//             try (PrintWriter pw = new PrintWriter(new FileWriter(f, true))) {
+//                 if (fresh) pw.println("closed_utc,pair,direction,exit_approx,entry,initial_sl,final_sl,tp,last_price,held_min,mfe_r,mae_r,context");
+//                 pw.printf("%s,%s,%s,%s,%.8f,%.8f,%.8f,%.8f,%.8f,%d,%.2f,%.2f,\"%s\"%n",
+//                         Instant.now(), pair, t.isLong ? "LONG" : "SHORT", exit, t.entry, t.initialSl, t.sl, t.tp,
+//                         lastPx, heldMin, m[0], m[1], t.ctx);
+//             }
+//         } catch (Exception e) {
+//             System.err.println("trade log write failed: " + e.getMessage());
+//         }
+//     }
+
+//     // Tracks MFE/MAE for open trades and (optionally) applies breakeven / trailing.
+//     private static void manageOpenTrades(Set<String> active) {
+//         for (String pair : active) {
+//             try {
+//                 TradeInfo t = tradeState.get(pair);
+//                 if (t == null || t.risk <= 0) continue;
+//                 double px = getLastPrice(pair);
+//                 if (px <= 0) continue;
+//                 t.maxPrice = Math.max(t.maxPrice, px);
+//                 t.minPrice = Math.min(t.minPrice, px);
+//                 if (!ENABLE_BREAKEVEN && !ENABLE_TRAILING) continue;
+//                 if (t.modifyFails >= SL_MODIFY_MAX_FAILS) continue;
+
+//                 double atr5 = 0;
+//                 if (ENABLE_TRAILING) {
+//                     JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 41));
+//                     if (c5 != null && c5.length() > ATR_PERIOD + 2)
+//                         atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
+//                 }
+//                 double tick = getTickSize(pair);
+//                 double newSl = managedSl(t.isLong, t.entry, t.risk, t.sl, px, atr5, ENABLE_BREAKEVEN, ENABLE_TRAILING);
+//                 newSl = roundToTick(newSl, tick);
+//                 if (t.isLong ? newSl <= t.sl : newSl >= t.sl) continue;
+
+//                 JSONObject pos = findPosition(pair);
+//                 String posId = pos == null ? null : pos.optString("id", null);
+//                 if (posId == null) continue;
+//                 System.out.printf("  [MANAGE] %s moving SL %.6f -> %.6f (price=%.6f)%n", pair, t.sl, newSl, px);
+//                 setTpSl(posId, t.tp, newSl, pair);
+//                 TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS);
+//                 JSONObject chk = findPosition(pair);
+//                 double exSl = chk == null ? 0 : chk.optDouble("stop_loss_trigger", 0);
+//                 if (exSl > 0 && Math.abs(exSl - newSl) <= 2 * tick) {
+//                     t.sl = newSl;
+//                     System.out.println("  [MANAGE] " + pair + " SL update confirmed on exchange");
+//                 } else {
+//                     t.modifyFails++;
+//                     System.out.println("  [MANAGE] WARNING " + pair + " SL update NOT confirmed (exchange SL=" + exSl
+//                             + ", fails=" + t.modifyFails + "/" + SL_MODIFY_MAX_FAILS + ")");
+//                 }
+//             } catch (Exception e) {
+//                 System.err.println("manageOpenTrades " + pair + ": " + e.getMessage());
+//             }
+//         }
+//     }
+
+//     // =========================================================================
+//     // Reliability-only safety sweep: restores MISSING TP/SL only, never modifies one that is set.
+//     // =========================================================================
+//     private static void ensureTpSlForOpenPositions() {
+//         try {
+//             Set<String> stillOpen = getActivePositions();
+//             if (stillOpen == null) return;
+//             for (String pair : stillOpen) {
+//                 JSONObject pos = findPosition(pair);
+//                 if (pos == null) continue;
+//                 double avgPrice = pos.optDouble("avg_price", 0);
+//                 double tpTrig   = pos.optDouble("take_profit_trigger", 0);
+//                 double slTrig   = pos.optDouble("stop_loss_trigger", 0);
+//                 if (avgPrice <= 0) continue;
+//                 if (tpTrig > 0 && slTrig > 0) continue;
+
+//                 System.out.println("  [SWEEP] " + pair + " missing TP and/or SL — restoring fixed protection...");
+//                 boolean isLong = pos.optDouble("active_pos", 0) >= 0;
+//                 double tick = getTickSize(pair);
+
+//                 TradeInfo trade = tradeState.get(pair);
+//                 double sl, tp;
+//                 if (trade != null && trade.sl > 0 && trade.tp > 0) {
+//                     sl = trade.sl; tp = trade.tp;
+//                 } else {
+//                     System.out.println("  [SWEEP] " + pair + " — no recorded trade state (likely restart); computing one-time fallback");
+//                     JSONArray c1 = dropLastIfForming(fetchCandlesPaged(pair, "1", 1, 41));
+//                     JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 61));
+//                     SlTp fb = null;
+//                     if (c1 != null && c5 != null && c1.length() >= ENTRY_MIN_BARS_1M && c5.length() >= 40) {
+//                         double[] h1 = extractHighs(c1), l1 = extractLows(c1), k1 = extractCloses(c1);
+//                         double atr1 = calcATR(h1, l1, k1, ATR_PERIOD);
+//                         double atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
+//                         double swing = isLong ? recentLow(l1, SWING_LOOKBACK_1M) : recentHigh(h1, SWING_LOOKBACK_1M);
+//                         fb = computeSlTp(isLong, avgPrice, swing, atr1, atr5, tick);
+//                     }
+//                     if (fb == null || !fb.ok) {
+//                         sl = isLong ? avgPrice * (1 - MAX_SL_PERCENT / 100.0) : avgPrice * (1 + MAX_SL_PERCENT / 100.0);
+//                         tp = isLong ? avgPrice + TARGET_RR * (avgPrice - sl) : avgPrice - TARGET_RR * (sl - avgPrice);
+//                         System.out.println("  [SWEEP] structural SL unavailable for " + pair + " — using MAX_SL_PERCENT hard cap fallback");
+//                     } else {
+//                         sl = fb.sl; tp = fb.tp;
+//                     }
+//                 }
+//                 if (slTrig > 0) sl = slTrig;
+//                 if (tpTrig > 0) tp = tpTrig;
+
+//                 String posId = pos.optString("id", null);
+//                 if (posId != null) {
+//                     System.out.printf("  [SWEEP] %s SL=%.6f TP=%.6f%n", pair, sl, tp);
+//                     setTpSlWithRetry(posId, tp, sl, pair);
+//                     if (trade == null) {
+//                         TradeInfo nt = new TradeInfo();
+//                         nt.isLong = isLong; nt.entry = avgPrice; nt.sl = sl; nt.tp = tp;
+//                         nt.initialSl = sl; nt.risk = Math.abs(avgPrice - sl);
+//                         nt.maxPrice = avgPrice; nt.minPrice = avgPrice;
+//                         nt.openedMs = System.currentTimeMillis();
+//                         nt.ctx = "recovered-after-restart";
+//                         tradeState.put(pair, nt);
+//                     }
+//                 } else {
+//                     System.out.println("  [SWEEP] " + pair + " — position ID missing, cannot set TP/SL");
+//                 }
+//             }
+//         } catch (Exception e) {
+//             System.err.println("ensureTpSlForOpenPositions: " + e.getMessage());
+//         }
+//     }
+
+//     private static boolean setTpSlWithRetry(String posId, double tp, double sl, String pair) {
+//         for (int attempt = 1; attempt <= TPSL_MAX_RETRIES; attempt++) {
+//             setTpSl(posId, tp, sl, pair);
+//             try { TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
+//             try {
+//                 JSONObject pos = findPosition(pair);
+//                 if (pos != null && pos.optDouble("take_profit_trigger", 0) > 0
+//                         && pos.optDouble("stop_loss_trigger", 0) > 0) {
+//                     System.out.println("  TP/SL confirmed set on attempt " + attempt + " for " + pair);
+//                     return true;
+//                 }
+//             } catch (Exception ignored) {}
+//             System.out.println("  TP/SL not confirmed yet (attempt " + attempt + "/" + TPSL_MAX_RETRIES + ") for " + pair + " — retrying...");
+//         }
+//         System.out.println("  WARNING: TP/SL could not be confirmed after " + TPSL_MAX_RETRIES + " attempts for " + pair
+//                 + " — will be retried by the next cycle's safety sweep");
+//         return false;
+//     }
+
+//     // =========================================================================
+//     // Indicators
+//     // =========================================================================
+//     static boolean[] calcSupertrend(double[] hi, double[] lo, double[] cl, int period, double multiplier) {
+//         int n = cl.length;
+//         boolean[] bullish = new boolean[n];
+//         if (n < period + 1) { Arrays.fill(bullish, true); return bullish; }
+//         double[] atrArr    = calcATRSeries(hi, lo, cl, period);
+//         double[] upperBand = new double[n];
+//         double[] lowerBand = new double[n];
+//         for (int i = period; i < n; i++) {
+//             double hl2        = (hi[i] + lo[i]) / 2.0;
+//             double basicUpper = hl2 + multiplier * atrArr[i];
+//             double basicLower = hl2 - multiplier * atrArr[i];
+//             if (i == period) {
+//                 upperBand[i] = basicUpper; lowerBand[i] = basicLower;
+//             } else {
+//                 upperBand[i] = (basicUpper < upperBand[i-1] || cl[i-1] > upperBand[i-1]) ? basicUpper : upperBand[i-1];
+//                 lowerBand[i] = (basicLower > lowerBand[i-1] || cl[i-1] < lowerBand[i-1]) ? basicLower : lowerBand[i-1];
+//             }
+//             if (i == period) bullish[i] = cl[i] > (hi[i] + lo[i]) / 2.0;
+//             else bullish[i] = bullish[i-1] ? cl[i] >= lowerBand[i] : cl[i] > upperBand[i];
+//         }
+//         for (int i = 0; i < period; i++) bullish[i] = bullish[period];
+//         return bullish;
+//     }
+
+//     static double[] calcATRSeries(double[] hi, double[] lo, double[] cl, int period) {
+//         int n = hi.length;
+//         double[] atr = new double[n];
+//         if (n < 2) return atr;
+//         double[] tr = new double[n];
+//         tr[0] = hi[0] - lo[0];
+//         for (int i = 1; i < n; i++)
+//             tr[i] = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i-1]), Math.abs(lo[i] - cl[i-1])));
+//         double sum = 0;
+//         for (int i = 0; i < period && i < n; i++) sum += tr[i];
+//         atr[period - 1] = sum / period;
+//         for (int i = period; i < n; i++) atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period;
+//         for (int i = 0; i < period - 1; i++) atr[i] = atr[period - 1];
+//         return atr;
+//     }
+
+//     static double calcATR(double[] hi, double[] lo, double[] cl, int period) {
+//         if (hi.length < period + 1) return 0;
+//         double[] tr = new double[hi.length];
+//         tr[0] = hi[0] - lo[0];
+//         for (int i = 1; i < hi.length; i++)
+//             tr[i] = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i-1]), Math.abs(lo[i] - cl[i-1])));
+//         double atr = 0;
+//         for (int i = 0; i < period; i++) atr += tr[i];
+//         atr /= period;
+//         for (int i = period; i < hi.length; i++) atr = (atr*(period-1)+tr[i])/period;
+//         return atr;
+//     }
+
+//     // Wilder ADX. Returns {ADX, +DI, -DI}, or null if there is not enough data.
+//     static double[] calcADX(double[] hi, double[] lo, double[] cl, int period) {
+//         int n = hi.length;
+//         if (n < period * 2 + 2) return null;
+//         double trS = 0, pdmS = 0, mdmS = 0;
+//         for (int i = 1; i <= period; i++) {
+//             double up = hi[i] - hi[i - 1], dn = lo[i - 1] - lo[i];
+//             pdmS += (up > dn && up > 0) ? up : 0;
+//             mdmS += (dn > up && dn > 0) ? dn : 0;
+//             trS  += Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i - 1]), Math.abs(lo[i] - cl[i - 1])));
+//         }
+//         double adx = 0, dxSum = 0, lastPdi = 0, lastMdi = 0;
+//         int dxCount = 0;
+//         for (int i = period + 1; i < n; i++) {
+//             double up = hi[i] - hi[i - 1], dn = lo[i - 1] - lo[i];
+//             double pdm = (up > dn && up > 0) ? up : 0;
+//             double mdm = (dn > up && dn > 0) ? dn : 0;
+//             double tr  = Math.max(hi[i] - lo[i], Math.max(Math.abs(hi[i] - cl[i - 1]), Math.abs(lo[i] - cl[i - 1])));
+//             trS  = trS  - trS  / period + tr;
+//             pdmS = pdmS - pdmS / period + pdm;
+//             mdmS = mdmS - mdmS / period + mdm;
+//             double pdi = trS > 0 ? 100.0 * pdmS / trS : 0;
+//             double mdi = trS > 0 ? 100.0 * mdmS / trS : 0;
+//             double dx  = (pdi + mdi) > 0 ? 100.0 * Math.abs(pdi - mdi) / (pdi + mdi) : 0;
+//             lastPdi = pdi; lastMdi = mdi;
+//             dxCount++;
+//             if (dxCount <= period) {
+//                 dxSum += dx;
+//                 if (dxCount == period) adx = dxSum / period;
+//             } else {
+//                 adx = (adx * (period - 1) + dx) / period;
+//             }
+//         }
+//         if (dxCount < period) return null;
+//         return new double[]{adx, lastPdi, lastMdi};
+//     }
+
+//     // Wilder RSI on the last value. Returns 50 if there is not enough data.
+//     static double calcRSI(double[] cl, int period) {
+//         int n = cl.length;
+//         if (n < period + 1) return 50;
+//         double gain = 0, loss = 0;
+//         for (int i = 1; i <= period; i++) {
+//             double d = cl[i] - cl[i - 1];
+//             if (d >= 0) gain += d; else loss -= d;
+//         }
+//         gain /= period; loss /= period;
+//         for (int i = period + 1; i < n; i++) {
+//             double d = cl[i] - cl[i - 1];
+//             double g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+//             gain = (gain * (period - 1) + g) / period;
+//             loss = (loss * (period - 1) + l) / period;
+//         }
+//         if (loss == 0) return gain == 0 ? 50 : 100;
+//         double rs = gain / loss;
+//         return 100.0 - 100.0 / (1.0 + rs);
+//     }
+
+//     // Average of the `period` values BEFORE index `endExclusive` (the current candle is excluded).
+//     static double smaBefore(double[] v, int endExclusive, int period) {
+//         int start = endExclusive - period;
+//         if (start < 0) return 0;
+//         double s = 0;
+//         for (int i = start; i < endExclusive; i++) s += v[i];
+//         return s / period;
+//     }
+
+//     static double calcEMA(double[] d, int period) {
+//         if (d.length < period) return 0;
+//         double k = 2.0 / (period + 1), ema = 0;
+//         for (int i = 0; i < period; i++) ema += d[i];
+//         ema /= period;
+//         for (int i = period; i < d.length; i++) ema = d[i] * k + ema * (1 - k);
+//         return ema;
+//     }
+
+//     // EMA value at every bar (entries before index period-1 are set to the first valid EMA).
+//     static double[] calcEMASeries(double[] d, int period) {
+//         double[] out = new double[d.length];
+//         if (d.length < period) return out;
+//         double k = 2.0 / (period + 1), ema = 0;
+//         for (int i = 0; i < period; i++) ema += d[i];
+//         ema /= period;
+//         for (int i = 0; i < period; i++) out[i] = ema;
+//         for (int i = period; i < d.length; i++) {
+//             ema = d[i] * k + ema * (1 - k);
+//             out[i] = ema;
+//         }
+//         return out;
+//     }
+
+//     private static BigDecimal roundToTickBD(double price, double tick) {
+//         if (tick <= 0) return BigDecimal.valueOf(price);
+//         BigDecimal bdPrice = BigDecimal.valueOf(price);
+//         BigDecimal bdTick  = BigDecimal.valueOf(tick);
+//         BigDecimal multiples = bdPrice.divide(bdTick, 0, RoundingMode.HALF_UP);
+//         BigDecimal result = multiples.multiply(bdTick);
+//         return result.setScale(bdTick.scale(), RoundingMode.HALF_UP);
+//     }
+
+//     static double roundToTick(double price, double tick) {
+//         if (tick <= 0) return price;
+//         return roundToTickBD(price, tick).doubleValue();
+//     }
+
+//     static double[] extractCloses(JSONArray a) {
+//         double[] o = new double[a.length()];
+//         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("close");
+//         return o;
+//     }
+//     static double[] extractOpens(JSONArray a) {
+//         double[] o = new double[a.length()];
+//         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("open");
+//         return o;
+//     }
+//     static double[] extractHighs(JSONArray a) {
+//         double[] o = new double[a.length()];
+//         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("high");
+//         return o;
+//     }
+//     static double[] extractLows(JSONArray a) {
+//         double[] o = new double[a.length()];
+//         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).getDouble("low");
+//         return o;
+//     }
+//     static double[] extractVolumes(JSONArray a) {
+//         double[] o = new double[a.length()];
+//         for (int i = 0; i < a.length(); i++) o[i] = a.getJSONObject(i).optDouble("volume", 0);
+//         return o;
+//     }
+
+//     // =========================================================================
+//     // Exchange plumbing (unchanged except getActivePositions returns null on API failure)
+//     // =========================================================================
+//     private static void initInstrumentCache() {
+//         try {
+//             long now = System.currentTimeMillis();
+//             if (now - lastCacheUpdate < TICK_CACHE_TTL_MS) return;
+//             instrumentCache.clear();
+//             System.out.println("Refreshing instrument cache...");
+//             JSONArray pairs = new JSONArray(publicGet(
+//                     BASE_URL + "/exchange/v1/derivatives/futures/data/active_instruments"));
+//             for (int i = 0; i < pairs.length(); i++) {
+//                 String p = pairs.getString(i);
+//                 try {
+//                     String raw = publicGet(
+//                             BASE_URL + "/exchange/v1/derivatives/futures/data/instrument?pair=" + p);
+//                     instrumentCache.put(p, new JSONObject(raw).getJSONObject("instrument"));
+//                 } catch (Exception ignored) {}
+//             }
+//             lastCacheUpdate = now;
+//             System.out.println("Instruments cached: " + instrumentCache.size());
+//         } catch (Exception e) {
+//             System.err.println("initInstrumentCache: " + e.getMessage());
+//         }
+//     }
+
+//     private static double getTickSize(String pair) {
+//         if (System.currentTimeMillis() - lastCacheUpdate > TICK_CACHE_TTL_MS) initInstrumentCache();
+//         JSONObject d = instrumentCache.get(pair);
+//         return d != null ? d.optDouble("price_increment", 0.0001) : 0.0001;
+//     }
+
+//     private static double getEntryPrice(String pair, String orderId) throws Exception {
+//         for (int i = 0; i < MAX_ENTRY_PRICE_CHECKS; i++) {
+//             TimeUnit.MILLISECONDS.sleep(ENTRY_CHECK_DELAY_MS);
+//             JSONObject pos = findPosition(pair);
+//             if (pos != null && pos.optDouble("avg_price", 0) > 0)
+//                 return pos.getDouble("avg_price");
+//         }
+//         return 0;
+//     }
+
+//     private static JSONObject findPosition(String pair) throws Exception {
+//         JSONObject body = new JSONObject();
+//         body.put("timestamp", Instant.now().toEpochMilli());
+//         body.put("page", "1");
+//         body.put("size", "100");
+//         body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
+//         String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+//         JSONArray arr = resp.startsWith("[") ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
+//         for (int i = 0; i < arr.length(); i++) {
+//             JSONObject p = arr.getJSONObject(i);
+//             if (pair.equals(p.optString("pair"))) return p;
+//         }
+//         return null;
+//     }
+
+//     public static double getLastPrice(String pair) {
+//         try {
+//             HttpURLConnection conn = openGet(PUBLIC_API_URL + "/market_data/trade_history?pair=" + pair + "&limit=1");
+//             if (conn.getResponseCode() == 200) {
+//                 String r = readStream(conn.getInputStream());
+//                 return r.startsWith("[")
+//                         ? new JSONArray(r).getJSONObject(0).getDouble("p")
+//                         : new JSONObject(r).getDouble("p");
+//             }
+//         } catch (Exception e) {
+//             System.err.println("getLastPrice(" + pair + "): " + e.getMessage());
+//         }
+//         return 0;
+//     }
+
+//     public static JSONObject placeFuturesOrder(String side, String pair, double qty, int lev, String notif,
+//                                                String marginType, String marginCcy, double currentPrice) {
+//         try {
+//             double rawLimitPrice = "buy".equalsIgnoreCase(side)
+//                     ? currentPrice * (1 + LIMIT_ORDER_BUFFER_PCT)
+//                     : currentPrice * (1 - LIMIT_ORDER_BUFFER_PCT);
+//             double tick = getTickSize(pair);
+//             BigDecimal limitPriceBD = roundToTickBD(rawLimitPrice, tick);
+
+//             JSONObject order = new JSONObject();
+//             order.put("side",                       side.toLowerCase());
+//             order.put("pair",                       pair);
+//             order.put("order_type",                 "limit_order");
+//             order.put("price",                      limitPriceBD);
+//             order.put("total_quantity",             qty);
+//             order.put("leverage",                   lev);
+//             order.put("notification",               notif);
+//             order.put("time_in_force",              "good_till_cancel");
+//             order.put("hidden",                     false);
+//             order.put("post_only",                  false);
+//             order.put("position_margin_type",       marginType);
+//             order.put("margin_currency_short_name", marginCcy);
+//             JSONObject body = new JSONObject();
+//             body.put("timestamp", Instant.now().toEpochMilli());
+//             body.put("order", order);
+//             String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/create", body.toString());
+//             return resp.startsWith("[") ? new JSONArray(resp).getJSONObject(0) : new JSONObject(resp);
+//         } catch (Exception e) {
+//             System.err.println("placeFuturesOrder: " + e.getMessage());
+//             return null;
+//         }
+//     }
+
+//     public static void setTpSl(String posId, double tp, double sl, String pair) {
+//         try {
+//             double tick = getTickSize(pair);
+//             BigDecimal rtp = roundToTickBD(tp, tick);
+//             BigDecimal rsl = roundToTickBD(sl, tick);
+//             JSONObject tpObj = new JSONObject();
+//             tpObj.put("stop_price",  rtp);
+//             tpObj.put("limit_price", rtp);
+//             tpObj.put("order_type",  "take_profit_market");
+//             JSONObject slObj = new JSONObject();
+//             slObj.put("stop_price",  rsl);
+//             slObj.put("limit_price", rsl);
+//             slObj.put("order_type",  "stop_market");
+//             JSONObject payload = new JSONObject();
+//             payload.put("timestamp",   Instant.now().toEpochMilli());
+//             payload.put("id",          posId);
+//             payload.put("take_profit", tpObj);
+//             payload.put("stop_loss",   slObj);
+//             String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions/create_tpsl", payload.toString());
+//             JSONObject r = new JSONObject(resp);
+//             System.out.println(r.has("err_code_dcx") ? "  TP/SL error: " + r : "  TP/SL set successfully!");
+//         } catch (Exception e) {
+//             System.err.println("setTpSl: " + e.getMessage());
+//         }
+//     }
+
+//     public static String getPositionId(String pair) {
+//         for (int attempt = 1; attempt <= POSITION_ID_MAX_RETRIES; attempt++) {
+//             try {
+//                 JSONObject p = findPosition(pair);
+//                 if (p != null && p.has("id")) return p.getString("id");
+//             } catch (Exception e) {
+//                 System.err.println("getPositionId attempt " + attempt + ": " + e.getMessage());
+//             }
+//             try { TimeUnit.MILLISECONDS.sleep(POSITION_ID_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
+//         }
+//         return null;
+//     }
+
+//     // Returns null if the positions API call fails (so callers never mistake an API error for "no positions").
+//     private static Set<String> getActivePositions() {
+//         Set<String> active = new HashSet<>();
+//         try {
+//             JSONObject body = new JSONObject();
+//             body.put("timestamp", Instant.now().toEpochMilli());
+//             body.put("page", "1");
+//             body.put("size", "100");
+//             body.put("margin_currency_short_name", new String[]{"INR", "USDT"});
+//             String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/positions", body.toString());
+//             JSONArray arr = resp.startsWith("[") ? new JSONArray(resp) : new JSONArray().put(new JSONObject(resp));
+//             System.out.println("=== Open Positions (" + arr.length() + ") ===");
+//             for (int i = 0; i < arr.length(); i++) {
+//                 JSONObject p    = arr.getJSONObject(i);
+//                 String    pair  = p.optString("pair", "");
+//                 boolean isActive = p.optDouble("active_pos", 0) > 0
+//                         || p.optDouble("locked_margin", 0) > 0
+//                         || p.optDouble("avg_price", 0) > 0
+//                         || p.optDouble("take_profit_trigger", 0) > 0
+//                         || p.optDouble("stop_loss_trigger", 0) > 0;
+//                 if (isActive) {
+//                     System.out.printf("  %s | qty=%.2f | entry=%.6f | TP=%.4f | SL=%.4f%n",
+//                             pair, p.optDouble("active_pos", 0), p.optDouble("avg_price", 0),
+//                             p.optDouble("take_profit_trigger", 0), p.optDouble("stop_loss_trigger", 0));
+//                     active.add(pair);
+//                 }
+//             }
+//             return active;
+//         } catch (Exception e) {
+//             System.err.println("getActivePositions: " + e.getMessage());
+//             return null;
+//         }
+//     }
+
+//     private static HttpURLConnection openGet(String url) throws IOException {
+//         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+//         c.setRequestMethod("GET");
+//         c.setConnectTimeout(10_000);
+//         c.setReadTimeout(10_000);
+//         return c;
+//     }
+
+//     private static String publicGet(String url) throws IOException {
+//         HttpURLConnection c = openGet(url);
+//         if (c.getResponseCode() == 200) return readStream(c.getInputStream());
+//         throw new IOException("HTTP " + c.getResponseCode() + " — " + url);
+//     }
+
+//     private static String authPost(String url, String json) throws IOException {
+//         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+//         c.setRequestMethod("POST");
+//         c.setRequestProperty("Content-Type",     "application/json");
+//         c.setRequestProperty("X-AUTH-APIKEY",    API_KEY);
+//         c.setRequestProperty("X-AUTH-SIGNATURE", sign(json));
+//         c.setConnectTimeout(10_000);
+//         c.setReadTimeout(10_000);
+//         c.setDoOutput(true);
+//         try (OutputStream os = c.getOutputStream()) {
+//             os.write(json.getBytes(StandardCharsets.UTF_8));
+//         }
+//         InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+//         return readStream(is);
+//     }
+
+//     private static String readStream(InputStream is) throws IOException {
+//         return new BufferedReader(new InputStreamReader(is)).lines().collect(Collectors.joining("\n"));
+//     }
+
+//     private static String sign(String payload) {
+//         try {
+//             Mac mac = Mac.getInstance("HmacSHA256");
+//             mac.init(new SecretKeySpec(API_SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+//             byte[] b = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+//             StringBuilder sb = new StringBuilder();
+//             for (byte x : b) sb.append(String.format("%02x", x));
+//             return sb.toString();
+//         } catch (Exception e) {
+//             throw new RuntimeException("HMAC sign failed", e);
+//         }
+//     }
+
+//     public static String generateHmacSHA256(String secret, String payload) {
+//         return sign(payload);
+//     }
+// }
 
 
 
