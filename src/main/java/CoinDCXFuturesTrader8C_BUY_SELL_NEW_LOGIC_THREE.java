@@ -95,9 +95,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Filters / flags (turn on/off one by one while testing)
     // =========================================================================
     static final double  ADX_MIN_TREND   = 20.0;  // 15M
-    static final boolean USE_BTC_FILTER  = true;
+    static final boolean USE_BTC_FILTER  = false;
     static final String  BTC_PAIR        = "B-BTC_USDT";
-    static final boolean USE_LIQUID_LIST = true;  // trade only the liquid symbols below
+    static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
     static final boolean USE_VOLUME_FILTER = true;
     static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
     static final int     VOLUME_SMA_PERIOD = 20;
