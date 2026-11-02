@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 4;
+    private static final int MAX_OPEN_POSITIONS = 5;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -133,7 +133,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
     static final double MAX_SL_PERCENT      = 1.5;
     static final double MIN_SL_PERCENT      = 0.30;  // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 1.2;
+    static final double TARGET_RR           = 1.5;
 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
