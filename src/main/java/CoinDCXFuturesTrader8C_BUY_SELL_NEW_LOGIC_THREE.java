@@ -59,7 +59,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1200.0;
-    private static final int    LEVERAGE     = 8;
+    private static final int    LEVERAGE     = 5;
 
     // =========================================================================
     // Timeframes (minutes)
