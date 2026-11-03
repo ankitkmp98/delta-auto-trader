@@ -84,7 +84,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double ST_MULTIPLIER = 3.0;
     static final int ATR_PERIOD = 14;
     static final int    ADX_PERIOD = 14;
-    static final double ADX_MIN    = 18.0;   // 15M setup
+    static final double ADX_MIN    = 20.0;   // 15M setup
 
     // =========================================================================
     // Data fetching
@@ -109,11 +109,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // SL / TP (5M entry values from the spec table; tune after backtesting)
     // =========================================================================
-    static final int    SWING_LOOKBACK = 12;
+    static final int    SWING_LOOKBACK = 8;
     static final double SL_ATR_BUFFER  = 0.30;
-    static final double MAX_SL_PERCENT = 3.0;   // reject (never tighten)
-    static final double MIN_SL_PERCENT = 2.0;  // reject: SL so tight that fees/slippage eat the RR
-    static final double TARGET_RR      = 0.75;
+    static final double MAX_SL_PERCENT = 2.0;   // reject (never tighten)
+    static final double MIN_SL_PERCENT = 1.0;  // reject: SL so tight that fees/slippage eat the RR
+    static final double TARGET_RR      = 2.0;
 
     // =========================================================================
     // Timing / duplicate protection
