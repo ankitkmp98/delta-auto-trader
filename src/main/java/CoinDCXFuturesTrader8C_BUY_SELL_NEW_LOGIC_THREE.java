@@ -69,8 +69,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int TF_ENTRY = 5;
 
     // Optional entry refinement. Both OFF by default (more API load, more noise).
-    static final boolean USE_3M_CONFIRM = falsee;
-    static final boolean USE_1M_CONFIRM = falsee;
+    static final boolean USE_3M_CONFIRM = false;
+    static final boolean USE_1M_CONFIRM = false;
     static final int     REFINE_MAX_CANDLES = 3;
 
     // =========================================================================
