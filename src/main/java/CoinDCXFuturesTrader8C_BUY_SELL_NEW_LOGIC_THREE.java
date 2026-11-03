@@ -58,8 +58,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration (unchanged)
     // =========================================================================
-    private static final double FIXED_MARGIN = 1200.0;
-    private static final int    LEVERAGE     = 5;
+    private static final double FIXED_MARGIN = 1000.0;
+    private static final int    LEVERAGE     = 30;
 
     // =========================================================================
     // Timeframes (minutes)
@@ -69,8 +69,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int TF_ENTRY = 5;
 
     // Optional entry refinement. Both OFF by default (more API load, more noise).
-    static final boolean USE_3M_CONFIRM = true;
-    static final boolean USE_1M_CONFIRM = true;
+    static final boolean USE_3M_CONFIRM = falsee;
+    static final boolean USE_1M_CONFIRM = falsee;
     static final int     REFINE_MAX_CANDLES = 3;
 
     // =========================================================================
@@ -111,8 +111,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     static final int    SWING_LOOKBACK = 8;
     static final double SL_ATR_BUFFER  = 0.30;
-    static final double MAX_SL_PERCENT = 1.2;   // reject (never tighten)
-    static final double MIN_SL_PERCENT = 0.9;  // reject: SL so tight that fees/slippage eat the RR
+    static final double MAX_SL_PERCENT = 4.2;   // reject (never tighten)
+    static final double MIN_SL_PERCENT = 2.0;  // reject: SL so tight that fees/slippage eat the RR
     static final double TARGET_RR      = 0.6;
 
     // =========================================================================
