@@ -113,7 +113,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double SL_ATR_BUFFER  = 0.30;
     static final double MAX_SL_PERCENT = 5.0;   // reject (never tighten)
     static final double MIN_SL_PERCENT = 3.0;  // reject: SL so tight that fees/slippage eat the RR
-    static final double TARGET_RR      = 0.75;
+    static final double TARGET_RR      = 1.5;
 
     // =========================================================================
     // Timing / duplicate protection
