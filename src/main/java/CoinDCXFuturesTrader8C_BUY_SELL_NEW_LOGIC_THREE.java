@@ -61,7 +61,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 30;
+    private static final int    LEVERAGE     = 10;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
@@ -98,7 +98,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean USE_BTC_FILTER  = false;
     static final String  BTC_PAIR        = "B-BTC_USDT";
     static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
-    static final boolean USE_VOLUME_FILTER = true;
+    static final boolean USE_VOLUME_FILTER = false;
     static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
     static final int     VOLUME_SMA_PERIOD = 20;
     static final boolean USE_VWAP_FILTER = false;
