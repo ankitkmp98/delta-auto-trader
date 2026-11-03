@@ -60,8 +60,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 30;
+    private static final double FIXED_MARGIN = 800.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final int    LEVERAGE     = 10;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
@@ -133,18 +133,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
     static final double MAX_SL_PERCENT      = 1.2;
     static final double MIN_SL_PERCENT      = 0.6;  // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 0.6;
+    static final double TARGET_RR           = 1.2;
 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
     // create_tpsl for the position — verify that behaviour on a small size first.
     // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = false;
+    static final boolean ENABLE_BREAKEVEN     = true;
     static final double  BREAKEVEN_TRIGGER_R  = 0.8;
     static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = false;
+    static final boolean ENABLE_TRAILING      = true;
     static final double  TRAIL_ACTIVATE_R     = 1.0;
-    static final double  TRAIL_ATR5_MULT      = 1.0;
+    static final double  TRAIL_ATR5_MULT      = 1.5;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
 
     // =========================================================================
