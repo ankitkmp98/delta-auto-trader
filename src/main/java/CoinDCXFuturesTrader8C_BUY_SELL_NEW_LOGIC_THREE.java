@@ -60,7 +60,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final double FIXED_MARGIN = 1500.0;   // legacy sizing: notional INR value = FIXED_MARGIN
     private static final int    LEVERAGE     = 6;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
