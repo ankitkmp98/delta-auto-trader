@@ -139,10 +139,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
     // create_tpsl for the position — verify that behaviour on a small size first.
     // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = false;
+    static final boolean ENABLE_BREAKEVEN     = true;
     static final double  BREAKEVEN_TRIGGER_R  = 0.8;
     static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = false;
+    static final boolean ENABLE_TRAILING      = true;
     static final double  TRAIL_ACTIVATE_R     = 1.0;
     static final double  TRAIL_ATR5_MULT      = 1.0;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
