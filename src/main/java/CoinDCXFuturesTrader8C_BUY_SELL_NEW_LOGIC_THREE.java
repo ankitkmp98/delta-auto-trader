@@ -52,7 +52,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 50;
+    private static final int MAX_OPEN_POSITIONS = 5;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -60,8 +60,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 5;
+    private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final int    LEVERAGE     = 6;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
