@@ -1,6 +1,6 @@
 import org.json.JSONArray;
 import org.json.JSONObject;
-
+ 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
+ 
 // =============================================================================
 // SCALPING STRATEGY — 15M trend / 5M setup / 1M entry
 //
@@ -35,7 +35,7 @@ import java.util.stream.Stream;
 // 15M is built by TIME-ALIGNED aggregation of 5M (complete buckets only).
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
-
+ 
     // =========================================================================
     // API configuration (unchanged)
     // =========================================================================
@@ -43,40 +43,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
-
+ 
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
-
+ 
     private static final int  TPSL_MAX_RETRIES    = 3;
     private static final long TPSL_RETRY_DELAY_MS = 2000L;
-
+ 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
-
+ 
     private static final int MAX_OPEN_POSITIONS = 5;
-
+ 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
-
+ 
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
     private static final int    LEVERAGE     = 5;
-
+ 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
     static final boolean USE_RISK_SIZING     = false;
     static final double  RISK_PER_TRADE_INR  = 100.0;   // set your own value before enabling
     static final double  MAX_NOTIONAL_INR    = 6000.0;
     static final double  USDT_INR_RATE       = 102.0;
-
+ 
     // =========================================================================
     // Timeframes (minutes)
     // =========================================================================
     static final int TF_TREND = 15;
     static final int TF_SETUP = 5;
     static final int TF_ENTRY = 1;
-
+ 
     // =========================================================================
     // Indicators
     // =========================================================================
@@ -90,40 +90,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int ADX_PERIOD = 14;
     static final int RSI_SETUP_PERIOD = 14;   // 5M
     static final int RSI_ENTRY_PERIOD = 7;    // 1M (logged only, not a condition)
-
+ 
     // =========================================================================
     // Filters / flags (turn on/off one by one while testing)
     // =========================================================================
     static final double  ADX_MIN_TREND   = 20.0;  // 15M
-    static final boolean USE_BTC_FILTER  = false;
+    static final boolean USE_BTC_FILTER  = true;
     static final String  BTC_PAIR        = "B-BTC_USDT";
-    static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
+    static final boolean USE_LIQUID_LIST = true;  // trade only the liquid symbols below
     static final boolean USE_VOLUME_FILTER = false;
     static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
     static final int     VOLUME_SMA_PERIOD = 20;
     static final boolean USE_VWAP_FILTER = false;
     static final int     VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT = 30; // VWAP skipped right after 00:00 UTC
-
+ 
     // =========================================================================
     // 5M setup / 1M entry parameters
     // =========================================================================
     static final int    SETUP_PULLBACK_BARS  = 4;     // last N closed 5M candles checked for the EMA21 pullback
     static final double SETUP_PULLBACK_ZONE_ATR = 0.25; // "near EMA21" = within 0.25 ATR(5M) of it
     static final double MAX_EMA_EXTENSION_ATR = 1.0;  // 1M close vs EMA9, in ATR(1M)
-
+ 
     // =========================================================================
     // Data fetching
     // =========================================================================
     // Max candles per request is NOT verified for CoinDCX; bigger requests are split into pages.
     static final int  MAX_BARS_PER_CALL   = 500;
     static final long MIN_REQUEST_GAP_MS  = 60L;
-
+ 
     static final int TREND_BARS_15M     = 240;  // EMA200 + warm-up (= ~725 5M candles, 2 pages)
     static final int SETUP_FETCH_5M     = 160;
     static final int SETUP_MIN_BARS_5M  = 80;
     static final int ENTRY_FETCH_1M     = 60;
     static final int ENTRY_MIN_BARS_1M  = 40;
-
+ 
     // =========================================================================
     // SL / TP
     // =========================================================================
@@ -132,9 +132,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
     static final double MAX_SL_PERCENT      = 1.0;
-    static final double MIN_SL_PERCENT      = 0.6;   // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 0.6;
-
+    static final double MIN_SL_PERCENT      = 0.4;   // fee/slippage guard: reject if SL tighter than this
+    static final double TARGET_RR           = 1.0;
+ 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
     // create_tpsl for the position — verify that behaviour on a small size first.
@@ -146,7 +146,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  TRAIL_ACTIVATE_R     = 1.0;
     static final double  TRAIL_ATR5_MULT      = 1.0;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
-
+ 
     // =========================================================================
     // GAP TRAILING — SL and TP move together as price moves in your favour.
     //   MASTER SWITCH: ENABLE_TRAILING_SL_TP (true = ON, false = OFF -> plain fixed SL/TP).
@@ -155,7 +155,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   favourable direction (never back). Updates are sent to the exchange (create_tpsl) and verified.
     // =========================================================================
     static final boolean ENABLE_TRAILING_SL_TP       = true;
-    static final double  GAP_TRAIL_ACTIVATE_R        = 0.6;   // start once price is this many R in profit
+    static final double  GAP_TRAIL_ACTIVATE_R        = 0.5;   // start once price is this many R in profit
     static final double  GAP_TRAIL_SL_GAP_R          = 1.0;   // SL stays this many R behind price
     static final double  GAP_TRAIL_TP_GAP_R          = 1.2;   // TP stays this many R ahead of price
     // true : TP is ALWAYS GAP_TRAIL_TP_GAP_R ahead of the best price (ratchet) -> it only fills after a
@@ -166,7 +166,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  GAP_TRAIL_TP_EXTEND_TRIGGER = 0.85;
     static final double  GAP_TRAIL_MIN_STEP_R        = 0.10;  // skip exchange updates smaller than this
     static final double  GAP_TRAIL_MIN_PRICE_BUFFER_PCT = 0.05; // SL must stay at least this % behind price
-
+ 
     // =========================================================================
     // Timing / duplicate protection
     // =========================================================================
@@ -175,10 +175,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long SCAN_STEP_MS     = 60_000L;
     static final long SCAN_DELAY_MS    = 5_000L;
     static final long TREND_USABLE_GRACE_MS = 5L * 60 * 1000L;
-
+ 
     static final boolean LOG_TRADES_CSV = true;
     static final String  TRADE_LOG_FILE = "trade_log_v3.csv";
-
+ 
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
     static class TradeInfo {
