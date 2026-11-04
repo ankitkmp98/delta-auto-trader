@@ -1,6 +1,6 @@
 import org.json.JSONArray;
 import org.json.JSONObject;
- 
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
- 
+
 // =============================================================================
 // SCALPING STRATEGY — 15M trend / 5M setup / 1M entry
 //
@@ -27,15 +27,17 @@ import java.util.stream.Stream;
 //   1M ENTRY   : EMA9 vs EMA21, close vs EMA9, bullish/bearish candle that closes
 //                beyond the previous candle high/low, VWAP side, extension <= 1 ATR
 //
-//   SL = 1M swing low/high +/- 0.4 x ATR(5M)  (min 0.5 x ATR1M, max 1.5 x ATR5M)
-//   TP = fixed RR (1.2) from the ACTUAL fill price, set once.
-//   Optional gap-trailing: SL and TP both follow price at a fixed gap (ENABLE_TRAILING_SL_TP).
+//   SL = behind the farther of (1M swing, 5M pullback swing) - 0.6 x ATR(5M); at least 1.0 x ATR(5M) away
+//        (more room, not hugging price).  Never tightened; rejected if too far / too wide / too tight.
+//   TP = FIXED, smaller than SL: RR 0.8, capped at 90% of the distance to the nearest opposing 5M swing
+//        level; trade skipped if there is no room (TP would be < 0.5R) or TP is too small for fees.
+//   Optional SL(+TP) gap-trailing exists but is OFF by default (ENABLE_TRAILING_SL_TP).
 //
 // Only COMPLETED candles are used. CoinDCX native resolutions "1" and "5" only;
 // 15M is built by TIME-ALIGNED aggregation of 5M (complete buckets only).
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
- 
+
     // =========================================================================
     // API configuration (unchanged)
     // =========================================================================
@@ -43,40 +45,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final String API_SECRET = System.getenv("DELTA_API_SECRET");
     private static final String BASE_URL       = "https://api.coindcx.com";
     private static final String PUBLIC_API_URL = "https://public.coindcx.com";
- 
+
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
- 
+
     private static final int  TPSL_MAX_RETRIES    = 3;
     private static final long TPSL_RETRY_DELAY_MS = 2000L;
- 
+
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
- 
+
     private static final int MAX_OPEN_POSITIONS = 5;
- 
+
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
- 
+
     // =========================================================================
     // Capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
     private static final int    LEVERAGE     = 10;
- 
+
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
     static final boolean USE_RISK_SIZING     = false;
     static final double  RISK_PER_TRADE_INR  = 100.0;   // set your own value before enabling
     static final double  MAX_NOTIONAL_INR    = 6000.0;
     static final double  USDT_INR_RATE       = 102.0;
- 
+
     // =========================================================================
     // Timeframes (minutes)
     // =========================================================================
     static final int TF_TREND = 15;
     static final int TF_SETUP = 5;
     static final int TF_ENTRY = 1;
- 
+
     // =========================================================================
     // Indicators
     // =========================================================================
@@ -90,7 +92,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int ADX_PERIOD = 14;
     static final int RSI_SETUP_PERIOD = 14;   // 5M
     static final int RSI_ENTRY_PERIOD = 7;    // 1M (logged only, not a condition)
- 
+
     // =========================================================================
     // Filters / flags (turn on/off one by one while testing)
     // =========================================================================
@@ -103,70 +105,71 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int     VOLUME_SMA_PERIOD = 20;
     static final boolean USE_VWAP_FILTER = false;
     static final int     VWAP_MIN_MINUTES_SINCE_UTC_MIDNIGHT = 30; // VWAP skipped right after 00:00 UTC
- 
+
     // =========================================================================
     // 5M setup / 1M entry parameters
     // =========================================================================
     static final int    SETUP_PULLBACK_BARS  = 4;     // last N closed 5M candles checked for the EMA21 pullback
     static final double SETUP_PULLBACK_ZONE_ATR = 0.25; // "near EMA21" = within 0.25 ATR(5M) of it
     static final double MAX_EMA_EXTENSION_ATR = 1.0;  // 1M close vs EMA9, in ATR(1M)
- 
+
+    // 1M entry candle quality (skips weak / rejection / spike candles)
+    static final boolean USE_CANDLE_QUALITY      = true;
+    static final double  QUALITY_MIN_BODY_FRAC   = 0.50; // body >= 50% of the candle range
+    static final double  QUALITY_CLOSE_LOC_FRAC  = 0.70; // close within the top (LONG) / bottom (SHORT) 30% of the range
+    static final double  QUALITY_MAX_RANGE_ATR   = 1.8;  // range <= 1.8 x ATR(1M) (no spike chasing)
+
+    // Room-to-target: nearest opposing 5M swing level (pivot) used to cap the TP / skip trades with no room
+    static final int    ROOM_LOOKBACK_5M = 48;            // last 48 closed 5M candles (~4h)
+    static final int    PIVOT_STRENGTH   = 2;             // pivot = extreme vs 2 candles on each side
+
     // =========================================================================
     // Data fetching
     // =========================================================================
     // Max candles per request is NOT verified for CoinDCX; bigger requests are split into pages.
     static final int  MAX_BARS_PER_CALL   = 500;
     static final long MIN_REQUEST_GAP_MS  = 60L;
- 
+
     static final int TREND_BARS_15M     = 240;  // EMA200 + warm-up (= ~725 5M candles, 2 pages)
     static final int SETUP_FETCH_5M     = 160;
     static final int SETUP_MIN_BARS_5M  = 80;
     static final int ENTRY_FETCH_1M     = 60;
     static final int ENTRY_MIN_BARS_1M  = 40;
- 
+
     // =========================================================================
     // SL / TP
     // =========================================================================
     static final int    SWING_LOOKBACK_1M   = 12;
-    static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
-    static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
-    static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 1.0;
+    static final double SL_ATR5_BUFFER      = 0.60;  // SL sits this many ATR(5M) beyond the structure
+    static final double MIN_SL_ATR5         = 1.0;   // SL at least 1.0 x ATR(5M) away (widened to this if closer)
+    static final double MAX_SL_ATR5         = 2.5;   // reject if SL farther than 2.5 x ATR(5M) (never tightened)
+    static final double MAX_SL_PERCENT      = 1.5;
     static final double MIN_SL_PERCENT      = 0.4;   // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 1.0;
- 
+
+    // TP-first: TP is SMALLER than SL, so it is reached on a small favourable move.
+    // NOTE: with TP < SL the win rate must be well above 50% to make money (RR 0.8 -> ~56% + fees).
+    static final double TARGET_RR           = 0.8;   // TP distance = 0.8 x SL distance
+    static final boolean USE_TP_ROOM_CAP    = true;  // cap TP before the nearest opposing 5M swing level
+    static final double TP_ROOM_FRACTION    = 0.90;  // TP at most 90% of the distance to that level
+    static final double MIN_TP_RR           = 0.5;   // skip the trade if the capped TP would be < 0.5 x SL distance
+    static final double MIN_TP_PERCENT      = 0.25;  // skip if TP < 0.25% of price (fees would eat it)
+
     // =========================================================================
-    // Trade management (OFF by default). Moving the SL on the exchange re-sends
-    // create_tpsl for the position — verify that behaviour on a small size first.
+    // OPTIONAL trailing (OFF by default). Moves the SL (and optionally the TP) as price moves your way.
+    //   R = initial risk of the trade (|entry - initial SL|). Orders are updated on the exchange (create_tpsl)
+    //   and verified. NOTE: TRAIL_MOVE_TP = true keeps the TP a fixed gap ahead of price, so the TP is then
+    //   almost never filled (winners exit via the trailing SL) - it works against "maximise TP hits".
     // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = false;
-    static final double  BREAKEVEN_TRIGGER_R  = 0.8;
-    static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = false;
-    static final double  TRAIL_ACTIVATE_R     = 1.0;
-    static final double  TRAIL_ATR5_MULT      = 1.0;
-    static final int     SL_MODIFY_MAX_FAILS  = 3;
- 
-    // =========================================================================
-    // GAP TRAILING — SL and TP move together as price moves in your favour.
-    //   MASTER SWITCH: ENABLE_TRAILING_SL_TP (true = ON, false = OFF -> plain fixed SL/TP).
-    //   When ON it takes over: ENABLE_BREAKEVEN / ENABLE_TRAILING above are ignored.
-    //   R = initial risk of the trade (|entry - initial SL|). SL and TP only ever move in the
-    //   favourable direction (never back). Updates are sent to the exchange (create_tpsl) and verified.
-    // =========================================================================
-    static final boolean ENABLE_TRAILING_SL_TP       = true;
-    static final double  GAP_TRAIL_ACTIVATE_R        = 0.5;   // start once price is this many R in profit
-    static final double  GAP_TRAIL_SL_GAP_R          = 1.0;   // SL stays this many R behind price
-    static final double  GAP_TRAIL_TP_GAP_R          = 1.2;   // TP stays this many R ahead of price
-    // true : TP is ALWAYS GAP_TRAIL_TP_GAP_R ahead of the best price (ratchet) -> it only fills after a
-    //        pullback and a new push; most winners then exit via the trailing SL.
-    // false: TP stays put and is pushed further (by TP_GAP) only once price has covered
-    //        GAP_TRAIL_TP_EXTEND_TRIGGER of the entry->TP distance (trades can still hit the original TP).
-    static final boolean GAP_TRAIL_TP_CONTINUOUS     = true;
-    static final double  GAP_TRAIL_TP_EXTEND_TRIGGER = 0.85;
-    static final double  GAP_TRAIL_MIN_STEP_R        = 0.10;  // skip exchange updates smaller than this
-    static final double  GAP_TRAIL_MIN_PRICE_BUFFER_PCT = 0.05; // SL must stay at least this % behind price
- 
+    static final boolean ENABLE_TRAILING_SL_TP = false;  // master on/off
+    static final double  TRAIL_START_R   = 0.5;    // start once price is this many R in profit
+    static final double  TRAIL_SL_GAP_R  = 1.0;    // SL stays this many R behind price
+    static final boolean TRAIL_MOVE_TP   = false;  // false: only SL trails, TP stays fixed
+    static final double  TRAIL_TP_GAP_R  = 1.2;    // only used when TRAIL_MOVE_TP = true
+    // internal safety settings
+    static final double  TRAIL_MIN_STEP_R       = 0.10;  // no exchange update for smaller moves
+    static final double  TRAIL_PRICE_BUFFER_PCT = 0.05;  // SL must stay at least this % behind price
+    static final int     TRAIL_MAX_FAILS        = 3;     // stop trailing a trade after this many unconfirmed updates
+
     // =========================================================================
     // Timing / duplicate protection
     // =========================================================================
@@ -175,10 +178,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long SCAN_STEP_MS     = 60_000L;
     static final long SCAN_DELAY_MS    = 5_000L;
     static final long TREND_USABLE_GRACE_MS = 5L * 60 * 1000L;
- 
+
     static final boolean LOG_TRADES_CSV = true;
     static final String  TRADE_LOG_FILE = "trade_log_v3.csv";
- 
+
     private static final double LIMIT_ORDER_BUFFER_PCT = 0.0005;
 
     static class TradeInfo {
@@ -523,6 +526,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static class Setup5 {
         boolean valid, pass, trendUp, volChecked;
         double close, ema9, ema21, ema50, rsi, atr5, vol, volAvg;
+        double swing5 = Double.NaN;                 // 5M pullback swing low (LONG) / high (SHORT)
+        double[] pivots = new double[0];            // opposing 5M pivot levels (highs for LONG, lows for SHORT)
         long lastCandleOpen;
         String reason = "";
     }
@@ -545,6 +550,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         s.rsi = calcRSI(cl, RSI_SETUP_PERIOD);
         s.lastCandleOpen = candleTimeMs(c5.getJSONObject(n - 1));
         s.valid = true;
+        s.swing5 = trendUp ? recentLow(lo, SETUP_PULLBACK_BARS) : recentHigh(hi, SETUP_PULLBACK_BARS);
+        s.pivots = trendUp ? pivotLevels(hi, true, ROOM_LOOKBACK_5M, PIVOT_STRENGTH)
+                           : pivotLevels(lo, false, ROOM_LOOKBACK_5M, PIVOT_STRENGTH);
 
         boolean emaOk = trendUp ? s.ema9 > s.ema21 : s.ema9 < s.ema21;
         boolean ema50Ok = trendUp ? s.close > s.ema50 : s.close < s.ema50;
@@ -605,10 +613,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double distAtr = t.atr1 > 0 ? Math.abs(t.close - t.ema9) / t.atr1 : Double.POSITIVE_INFINITY;
         boolean extOk = distAtr <= MAX_EMA_EXTENSION_ATR;
 
+        double range = hi[n - 1] - lo[n - 1], body = Math.abs(cl[n - 1] - op[n - 1]);
+        boolean qualOk = true;
+        if (USE_CANDLE_QUALITY) {
+            double closeLoc = range > 0 ? (trendUp ? (cl[n - 1] - lo[n - 1]) / range : (hi[n - 1] - cl[n - 1]) / range) : 0;
+            qualOk = range > 0 && body / range >= QUALITY_MIN_BODY_FRAC && closeLoc >= QUALITY_CLOSE_LOC_FRAC
+                    && range <= QUALITY_MAX_RANGE_ATR * t.atr1;
+        }
         t.swingLevel = trendUp ? recentLow(lo, SWING_LOOKBACK_1M) : recentHigh(hi, SWING_LOOKBACK_1M);
-        t.triggeredExVwap = emaOk && closeEma9 && candleOk && breakOk && extOk;
-        t.reason = String.format("1M ema9%s21=%s closeVsEMA9=%s directional=%s breakPrevCandle=%s extension=%.2fATR(ok=%s) RSI7=%.1f(log only)",
-                trendUp ? ">" : "<", emaOk, closeEma9, candleOk, breakOk, distAtr, extOk, t.rsi7);
+        t.triggeredExVwap = emaOk && closeEma9 && candleOk && breakOk && extOk && qualOk;
+        t.reason = String.format("1M ema9%s21=%s closeVsEMA9=%s directional=%s breakPrevCandle=%s extension=%.2fATR(ok=%s) candleQuality=%s RSI7=%.1f(log only)",
+                trendUp ? ">" : "<", emaOk, closeEma9, candleOk, breakOk, distAtr, extOk, qualOk, t.rsi7);
         return t;
     }
 
@@ -651,31 +666,72 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return max;
     }
 
+    // Pivot levels in the last `lookback` candles: highs (or lows) that are the extreme versus `strength`
+    // candles on each side. Used to find the nearest opposing level for the TP cap.
+    static double[] pivotLevels(double[] arr, boolean highs, int lookback, int strength) {
+        int n = arr.length;
+        int from = Math.max(strength, n - lookback), to = n - 1 - strength;
+        List<Double> out = new ArrayList<>();
+        for (int i = from; i <= to; i++) {
+            boolean ok = true;
+            for (int k = 1; k <= strength && ok; k++) {
+                if (highs ? (arr[i] <= arr[i - k] || arr[i] <= arr[i + k]) : (arr[i] >= arr[i - k] || arr[i] >= arr[i + k])) ok = false;
+            }
+            if (ok) out.add(arr[i]);
+        }
+        double[] r = new double[out.size()];
+        for (int i = 0; i < r.length; i++) r[i] = out.get(i);
+        return r;
+    }
+
+    // LONG: lowest pivot ABOVE entry (resistance). SHORT: highest pivot BELOW entry (support). NaN if none.
+    static double nearestOpposite(double[] levels, boolean isLong, double entry) {
+        double best = Double.NaN;
+        if (levels == null) return best;
+        for (double v : levels) {
+            if (isLong && v > entry && (Double.isNaN(best) || v < best)) best = v;
+            if (!isLong && v < entry && (Double.isNaN(best) || v > best)) best = v;
+        }
+        return best;
+    }
+
     // =========================================================================
-    // SL / TP
-    //   SL = 1M swing -/+ SL_ATR5_BUFFER x ATR(5M); widened to MIN_SL_ATR1 x ATR(1M) if closer.
-    //   Rejected (never tightened) if farther than MAX_SL_ATR5 x ATR(5M), wider than MAX_SL_PERCENT
-    //   or tighter than MIN_SL_PERCENT (fees). TP = entry +/- RR x risk.
+    // SL / TP (see computeSlTp)
     // =========================================================================
     static class SlTp {
         boolean ok;
-        double sl, tp, slPercent, risk;
-        String reason = "";
+        double sl, tp, slPercent, risk, rrUsed;
+        double roomR = -1;            // distance to the opposing level in R, -1 if none in range
+        String anchor = "", reason = "";
     }
 
-    static SlTp computeSlTp(boolean isLong, double entry, double swing1m, double atr1, double atr5, double tick) {
+    // SL: behind the farther of the 1M swing and the 5M pullback swing, minus SL_ATR5_BUFFER x ATR(5M); widened
+    //     to MIN_SL_ATR5 x ATR(5M) if closer. Rejected (never tightened) if too far / too wide / too tight.
+    // TP: TARGET_RR x SL distance, capped at TP_ROOM_FRACTION of the distance to the opposing 5M level; the trade
+    //     is rejected if that leaves < MIN_TP_RR x SL distance or < MIN_TP_PERCENT of price.
+    static SlTp computeSlTp(boolean isLong, double entry, double swing1m, double swing5m, double atr5,
+                            double oppLevel, double tick) {
         SlTp r = new SlTp();
-        if (atr1 <= 0 || atr5 <= 0 || entry <= 0 || Double.isInfinite(swing1m) || Double.isNaN(swing1m)) {
+        if (atr5 <= 0 || entry <= 0 || Double.isInfinite(swing1m) || Double.isNaN(swing1m)) {
             r.reason = "invalid ATR / entry / swing";
             return r;
         }
-        double sl = isLong ? swing1m - SL_ATR5_BUFFER * atr5 : swing1m + SL_ATR5_BUFFER * atr5;
+        double anchorLvl = swing1m;
+        r.anchor = "1M";
+        if (!Double.isNaN(swing5m) && !Double.isInfinite(swing5m) && (isLong ? swing5m < swing1m : swing5m > swing1m)) {
+            anchorLvl = swing5m;
+            r.anchor = "5M";
+        }
+        double sl = isLong ? anchorLvl - SL_ATR5_BUFFER * atr5 : anchorLvl + SL_ATR5_BUFFER * atr5;
         if (isLong ? sl >= entry : sl <= entry) {
             r.reason = "SL on wrong side of entry";
             return r;
         }
-        double minDist = MIN_SL_ATR1 * atr1;
-        if (Math.abs(entry - sl) < minDist) sl = isLong ? entry - minDist : entry + minDist; // widen only
+        double minDist = MIN_SL_ATR5 * atr5;
+        if (Math.abs(entry - sl) < minDist) {                       // widen only, never tighten
+            sl = isLong ? entry - minDist : entry + minDist;
+            r.anchor += "+floor";
+        }
         double dist = Math.abs(entry - sl);
         if (dist > MAX_SL_ATR5 * atr5) {
             r.reason = String.format("SL too far (%.2f ATR5 > %.2f)", dist / atr5, MAX_SL_ATR5);
@@ -690,7 +746,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             r.reason = String.format("SL too tight for fees/slippage (%.2f%% < %.2f%%)", slPct, MIN_SL_PERCENT);
             return r;
         }
-        double tp = isLong ? entry + dist * TARGET_RR : entry - dist * TARGET_RR;
+
+        double tpDist = TARGET_RR * dist;
+        if (USE_TP_ROOM_CAP && !Double.isNaN(oppLevel)) {
+            double room = isLong ? oppLevel - entry : entry - oppLevel;
+            if (room > 0) {
+                r.roomR = room / dist;
+                tpDist = Math.min(tpDist, TP_ROOM_FRACTION * room);
+            }
+        }
+        if (tpDist < MIN_TP_RR * dist) {
+            r.reason = String.format("no room to target (TP would be %.2fR, min %.2fR)", tpDist / dist, MIN_TP_RR);
+            return r;
+        }
+        if (tpDist / entry * 100.0 < MIN_TP_PERCENT) {
+            r.reason = String.format("TP too small for fees (%.2f%% < %.2f%%)", tpDist / entry * 100.0, MIN_TP_PERCENT);
+            return r;
+        }
+        double tp = isLong ? entry + tpDist : entry - tpDist;
         sl = roundToTick(sl, tick);
         tp = roundToTick(tp, tick);
         if (isLong ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry)) {
@@ -698,6 +771,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return r;
         }
         r.ok = true; r.sl = sl; r.tp = tp; r.slPercent = slPct; r.risk = Math.abs(entry - sl);
+        r.rrUsed = Math.abs(tp - entry) / r.risk;
         return r;
     }
 
@@ -714,38 +788,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Breakeven / trailing: returns the new SL (never loosened, never beyond price).
-    // =========================================================================
-    static double managedSl(boolean isLong, double entry, double risk, double curSl, double price, double atr5,
-                            boolean beOn, boolean trailOn) {
-        if (risk <= 0 || price <= 0) return curSl;
-        double r = isLong ? (price - entry) / risk : (entry - price) / risk;
-        double newSl = curSl;
-        if (beOn && r >= BREAKEVEN_TRIGGER_R) {
-            double be = isLong ? entry * (1 + BREAKEVEN_OFFSET_PCT / 100.0) : entry * (1 - BREAKEVEN_OFFSET_PCT / 100.0);
-            newSl = isLong ? Math.max(newSl, be) : Math.min(newSl, be);
-        }
-        if (trailOn && atr5 > 0 && r >= TRAIL_ACTIVATE_R) {
-            double tr = isLong ? price - TRAIL_ATR5_MULT * atr5 : price + TRAIL_ATR5_MULT * atr5;
-            newSl = isLong ? Math.max(newSl, tr) : Math.min(newSl, tr);
-        }
-        if (isLong ? newSl <= curSl : newSl >= curSl) return curSl;     // only tighten in profit direction
-        if (isLong ? newSl >= price : newSl <= price) return curSl;     // must stay behind price
-        return newSl;
-    }
-
-    // =========================================================================
-    // Gap trailing: returns {newSl, newTp}. SL = price -/+ slGapR x risk, TP = price +/- tpGapR x risk
-    // (or stepped extension). Both ratchet only in the favourable direction. Unchanged until price is
-    // activateR in profit. SL is never allowed closer than bufferPct % to the price.
+    // Trailing: returns {newSl, newTp}. SL = price -/+ slGapR x risk (ratchet, never backwards). TP moves only
+    // if moveTp (TP = price +/- tpGapR x risk, ratchet). Nothing moves until price is startR in profit.
+    // SL is never allowed closer than bufferPct % to the price.
     // =========================================================================
     static double[] trailSlTp(boolean isLong, double entry, double risk, double curSl, double curTp, double price,
-                              double activateR, double slGapR, double tpGapR, boolean tpContinuous,
-                              double extendTrigger, double bufferPct) {
+                              double startR, double slGapR, boolean moveTp, double tpGapR, double bufferPct) {
         double[] same = new double[]{curSl, curTp};
         if (risk <= 0 || price <= 0) return same;
         double r = isLong ? (price - entry) / risk : (entry - price) / risk;
-        if (r < activateR) return same;
+        if (r < startR) return same;
 
         double slCand = isLong ? price - slGapR * risk : price + slGapR * risk;
         double newSl = isLong ? Math.max(curSl, slCand) : Math.min(curSl, slCand);
@@ -753,13 +805,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (isLong ? newSl > price - minBuf : newSl < price + minBuf) newSl = curSl;
 
         double newTp = curTp;
-        if (tpContinuous) {
+        if (moveTp) {
             double tpCand = isLong ? price + tpGapR * risk : price - tpGapR * risk;
             newTp = isLong ? Math.max(curTp, tpCand) : Math.min(curTp, tpCand);
-        } else {
-            double dist = isLong ? curTp - entry : entry - curTp;
-            double done = isLong ? price - entry : entry - price;
-            if (dist > 0 && done / dist >= extendTrigger) newTp = isLong ? curTp + tpGapR * risk : curTp - tpGapR * risk;
         }
         return new double[]{newSl, newTp};
     }
@@ -768,16 +816,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Main loop — one cycle per minute (aligned to the minute boundary + a few seconds)
     // =========================================================================
     public static void main(String[] args) {
-        System.out.println("=== Bot starting (15M trend / 5M setup / 1M entry — RR " + TARGET_RR
+        System.out.println("=== Bot starting (15M trend / 5M setup / 1M entry — TP-first: RR " + TARGET_RR
                 + ", BTC filter=" + USE_BTC_FILTER + ", liquid list=" + USE_LIQUID_LIST
-                + " (" + COINS_TO_TRADE.length + " symbols), breakeven=" + ENABLE_BREAKEVEN
-                + ", trailing=" + ENABLE_TRAILING + ", gap-trailing SL+TP=" + ENABLE_TRAILING_SL_TP + ") ===");
-        if (ENABLE_TRAILING_SL_TP) {
-            System.out.println("Gap trailing ON: activate=" + GAP_TRAIL_ACTIVATE_R + "R, SL gap=" + GAP_TRAIL_SL_GAP_R
-                    + "R, TP gap=" + GAP_TRAIL_TP_GAP_R + "R, TP mode=" + (GAP_TRAIL_TP_CONTINUOUS ? "continuous" : "stepped"));
-            if (ENABLE_BREAKEVEN || ENABLE_TRAILING)
-                System.out.println("NOTE: ENABLE_TRAILING_SL_TP overrides ENABLE_BREAKEVEN / ENABLE_TRAILING (ignored).");
-        }
+                + " (" + COINS_TO_TRADE.length + " symbols), trailing=" + ENABLE_TRAILING_SL_TP
+                + (ENABLE_TRAILING_SL_TP ? " (moveTP=" + TRAIL_MOVE_TP + ")" : "") + ") ===");
         initInstrumentCache();
         startTrendRefresher();
 
@@ -911,7 +953,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 String ctx = String.format("adx15=%.1f rsi5=%.1f rsi1=%.1f atr1=%.6f atr5=%.6f",
                         tr.adx, su.rsi, e.rsi7, e.atr1, su.atr5);
-                executeEntry(pair, trendUp, e.swingLevel, e.atr1, su.atr5, ctx, active);
+                executeEntry(pair, trendUp, e.swingLevel, su.swing5, e.atr1, su.atr5, su.pivots, ctx, active);
             } catch (Exception ex) {
                 System.err.println("Error on " + pair + ": " + ex.getMessage());
             }
@@ -925,14 +967,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Order execution — limit order, ACTUAL fill price, SL/TP computed ONCE from the fill,
     // exchange-side TP/SL with retries.
     // =========================================================================
-    private static boolean executeEntry(String pair, boolean trendUp, double swing1m, double atr1, double atr5,
-                                        String ctx, Set<String> active) {
+    private static boolean executeEntry(String pair, boolean trendUp, double swing1m, double swing5m, double atr1,
+                                        double atr5, double[] pivots, String ctx, Set<String> active) {
         try {
             double currentPrice = getLastPrice(pair);
             if (currentPrice <= 0) return false;
             double tickSize = getTickSize(pair);
 
-            SlTp pre = computeSlTp(trendUp, currentPrice, swing1m, atr1, atr5, tickSize);
+            SlTp pre = computeSlTp(trendUp, currentPrice, swing1m, swing5m, atr5, nearestOpposite(pivots, trendUp, currentPrice), tickSize);
             if (!pre.ok) {
                 System.out.println("SKIP - " + pair + " - " + pre.reason);
                 return false;
@@ -944,8 +986,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
 
             System.out.println("\n==== " + pair + " — " + (trendUp ? "LONG" : "SHORT") + " (15M/5M/1M scalp) ====");
-            System.out.printf("  Price=%.6f swing1M=%.6f ATR1=%.6f ATR5=%.6f preSL=%.6f preTP=%.6f SL%%=%.2f | Qty=%.4f Lev=%dx%n",
-                    currentPrice, swing1m, atr1, atr5, pre.sl, pre.tp, pre.slPercent, qty, LEVERAGE);
+            System.out.printf("  Price=%.6f swing1M=%.6f swing5M=%.6f ATR1=%.6f ATR5=%.6f preSL=%.6f(%s) preTP=%.6f rr=%.2f room=%sR SL%%=%.2f | Qty=%.4f Lev=%dx%n",
+                    currentPrice, swing1m, swing5m, atr1, atr5, pre.sl, pre.anchor, pre.tp, pre.rrUsed,
+                    pre.roomR < 0 ? "none" : String.format("%.2f", pre.roomR), pre.slPercent, qty, LEVERAGE);
 
             String side = trendUp ? "buy" : "sell";
             JSONObject orderResp = placeFuturesOrder(side, pair, qty, LEVERAGE,
@@ -965,7 +1008,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             System.out.printf("  Entry confirmed: %.6f%n", entry);
 
-            SlTp fin = computeSlTp(trendUp, entry, swing1m, atr1, atr5, tickSize);
+            SlTp fin = computeSlTp(trendUp, entry, swing1m, swing5m, atr5, nearestOpposite(pivots, trendUp, entry), tickSize);
             if (!fin.ok) {
                 System.out.println("SKIP-post-fill - " + pair + " - " + fin.reason
                         + " at actual fill price; closing not automated here — check position manually");
@@ -974,7 +1017,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             System.out.println("[ENTRY] " + pair + " Side=" + (trendUp ? "LONG" : "SHORT"));
             System.out.printf("  Entry=%.6f SL=%.6f TP=%.6f Risk=%.6f RR=%.2f SL%%=%.2f Qty=%.4f%n",
-                    entry, fin.sl, fin.tp, fin.risk, TARGET_RR, fin.slPercent, qty);
+                    entry, fin.sl, fin.tp, fin.risk, fin.rrUsed, fin.slPercent, qty);
 
             String posId = getPositionId(pair);
             if (posId != null) {
@@ -987,7 +1030,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             trade.initialSl = fin.sl; trade.initialTp = fin.tp; trade.risk = fin.risk;
             trade.maxPrice = entry; trade.minPrice = entry;
             trade.openedMs = System.currentTimeMillis();
-            trade.ctx = ctx;
+            trade.ctx = ctx + String.format(" rr_used=%.2f room_r=%s sl_anchor=%s", fin.rrUsed,
+                    fin.roomR < 0 ? "none" : String.format("%.2f", fin.roomR), fin.anchor);
             tradeState.put(pair, trade);
             active.add(pair);
             return true;
@@ -1047,7 +1091,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
     }
 
-    // Tracks MFE/MAE for open trades and (optionally) applies breakeven / trailing.
+    // Tracks MFE/MAE for open trades and (optionally) trails the SL / TP.
     private static void manageOpenTrades(Set<String> active) {
         for (String pair : active) {
             try {
@@ -1057,55 +1101,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (px <= 0) continue;
                 t.maxPrice = Math.max(t.maxPrice, px);
                 t.minPrice = Math.min(t.minPrice, px);
-                if (ENABLE_TRAILING_SL_TP) { applyGapTrail(pair, t, px); continue; }
-                if (!ENABLE_BREAKEVEN && !ENABLE_TRAILING) continue;
-                if (t.modifyFails >= SL_MODIFY_MAX_FAILS) continue;
-
-                double atr5 = 0;
-                if (ENABLE_TRAILING) {
-                    JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 41));
-                    if (c5 != null && c5.length() > ATR_PERIOD + 2)
-                        atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
-                }
-                double tick = getTickSize(pair);
-                double newSl = managedSl(t.isLong, t.entry, t.risk, t.sl, px, atr5, ENABLE_BREAKEVEN, ENABLE_TRAILING);
-                newSl = roundToTick(newSl, tick);
-                if (t.isLong ? newSl <= t.sl : newSl >= t.sl) continue;
-
-                JSONObject pos = findPosition(pair);
-                String posId = pos == null ? null : pos.optString("id", null);
-                if (posId == null) continue;
-                System.out.printf("  [MANAGE] %s moving SL %.6f -> %.6f (price=%.6f)%n", pair, t.sl, newSl, px);
-                setTpSl(posId, t.tp, newSl, pair);
-                TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS);
-                JSONObject chk = findPosition(pair);
-                double exSl = chk == null ? 0 : chk.optDouble("stop_loss_trigger", 0);
-                if (exSl > 0 && Math.abs(exSl - newSl) <= 2 * tick) {
-                    t.sl = newSl;
-                    System.out.println("  [MANAGE] " + pair + " SL update confirmed on exchange");
-                } else {
-                    t.modifyFails++;
-                    System.out.println("  [MANAGE] WARNING " + pair + " SL update NOT confirmed (exchange SL=" + exSl
-                            + ", fails=" + t.modifyFails + "/" + SL_MODIFY_MAX_FAILS + ")");
-                }
+                if (ENABLE_TRAILING_SL_TP) applyTrail(pair, t, px);
             } catch (Exception e) {
                 System.err.println("manageOpenTrades " + pair + ": " + e.getMessage());
             }
         }
     }
 
-    // Moves SL and TP together (see trailSlTp) and verifies the new values on the exchange.
-    private static void applyGapTrail(String pair, TradeInfo t, double px) throws Exception {
-        if (t.modifyFails >= SL_MODIFY_MAX_FAILS) return;   // gave up on this trade: exchange orders stay as they are
+    // Trails the SL (and the TP if TRAIL_MOVE_TP) and verifies the new values on the exchange.
+    private static void applyTrail(String pair, TradeInfo t, double px) throws Exception {
+        if (t.modifyFails >= TRAIL_MAX_FAILS) return;   // gave up on this trade: exchange orders stay as they are
         double tick = getTickSize(pair);
-        double[] n = trailSlTp(t.isLong, t.entry, t.risk, t.sl, t.tp, px, GAP_TRAIL_ACTIVATE_R, GAP_TRAIL_SL_GAP_R,
-                GAP_TRAIL_TP_GAP_R, GAP_TRAIL_TP_CONTINUOUS, GAP_TRAIL_TP_EXTEND_TRIGGER, GAP_TRAIL_MIN_PRICE_BUFFER_PCT);
+        double[] n = trailSlTp(t.isLong, t.entry, t.risk, t.sl, t.tp, px, TRAIL_START_R, TRAIL_SL_GAP_R,
+                TRAIL_MOVE_TP, TRAIL_TP_GAP_R, TRAIL_PRICE_BUFFER_PCT);
         double newSl = roundToTick(n[0], tick), newTp = roundToTick(n[1], tick);
         boolean slMoved = t.isLong ? newSl > t.sl : newSl < t.sl;
         boolean tpMoved = t.isLong ? newTp > t.tp : newTp < t.tp;
         if (!slMoved) newSl = t.sl;
         if (!tpMoved) newTp = t.tp;
-        double minStep = GAP_TRAIL_MIN_STEP_R * t.risk;
+        double minStep = TRAIL_MIN_STEP_R * t.risk;
         boolean worthIt = (slMoved && Math.abs(newSl - t.sl) >= minStep) || (tpMoved && Math.abs(newTp - t.tp) >= minStep);
         if (!worthIt) return;
 
@@ -1125,11 +1139,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (slOk && tpOk) {
             t.trailUpdates++;
             t.modifyFails = 0;
-            System.out.println("  [TRAIL] " + pair + " SL/TP update confirmed on exchange (updates=" + t.trailUpdates + ")");
+            System.out.println("  [TRAIL] " + pair + " update confirmed on exchange (updates=" + t.trailUpdates + ")");
         } else {
             t.modifyFails++;
             System.out.println("  [TRAIL] WARNING " + pair + " update NOT fully confirmed (exchange SL=" + exSl + " TP=" + exTp
-                    + ", fails=" + t.modifyFails + "/" + SL_MODIFY_MAX_FAILS + ")");
+                    + ", fails=" + t.modifyFails + "/" + TRAIL_MAX_FAILS + ")");
         }
     }
 
@@ -1163,11 +1177,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 61));
                     SlTp fb = null;
                     if (c1 != null && c5 != null && c1.length() >= ENTRY_MIN_BARS_1M && c5.length() >= 40) {
-                        double[] h1 = extractHighs(c1), l1 = extractLows(c1), k1 = extractCloses(c1);
-                        double atr1 = calcATR(h1, l1, k1, ATR_PERIOD);
-                        double atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
+                        double[] h1 = extractHighs(c1), l1 = extractLows(c1);
+                        double[] h5 = extractHighs(c5), l5 = extractLows(c5);
+                        double atr5 = calcATR(h5, l5, extractCloses(c5), ATR_PERIOD);
                         double swing = isLong ? recentLow(l1, SWING_LOOKBACK_1M) : recentHigh(h1, SWING_LOOKBACK_1M);
-                        fb = computeSlTp(isLong, avgPrice, swing, atr1, atr5, tick);
+                        double swing5 = isLong ? recentLow(l5, SETUP_PULLBACK_BARS) : recentHigh(h5, SETUP_PULLBACK_BARS);
+                        fb = computeSlTp(isLong, avgPrice, swing, swing5, atr5, Double.NaN, tick);
                     }
                     if (fb == null || !fb.ok) {
                         sl = isLong ? avgPrice * (1 - MAX_SL_PERCENT / 100.0) : avgPrice * (1 + MAX_SL_PERCENT / 100.0);
