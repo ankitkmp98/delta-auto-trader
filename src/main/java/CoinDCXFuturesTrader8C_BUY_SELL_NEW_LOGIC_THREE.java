@@ -95,9 +95,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Filters / flags (turn on/off one by one while testing)
     // =========================================================================
     static final double  ADX_MIN_TREND   = 20.0;  // 15M
-    static final boolean USE_BTC_FILTER  = false;
+    static final boolean USE_BTC_FILTER  = true;
     static final String  BTC_PAIR        = "B-BTC_USDT";
-    static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
+    static final boolean USE_LIQUID_LIST = true;  // trade only the liquid symbols below
     static final boolean USE_VOLUME_FILTER = false;
     static final double  VOLUME_MULT     = 0.9;   // volume >= 0.9 x SMA20 ("around average or higher")
     static final int     VOLUME_SMA_PERIOD = 20;
@@ -131,18 +131,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 1.5;
-    static final double MIN_SL_PERCENT      = 1.0;  // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 2.0;
+    static final double MAX_SL_PERCENT      = 1.0;
+    static final double MIN_SL_PERCENT      = 0.4;  // fee/slippage guard: reject if SL tighter than this
+    static final double TARGET_RR           = 1.2;
 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
     // create_tpsl for the position — verify that behaviour on a small size first.
     // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = true;
+    static final boolean ENABLE_BREAKEVEN     = false;
     static final double  BREAKEVEN_TRIGGER_R  = 0.8;
     static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = true;
+    static final boolean ENABLE_TRAILING      = false;
     static final double  TRAIL_ACTIVATE_R     = 1.0;
     static final double  TRAIL_ATR5_MULT      = 1.0;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
