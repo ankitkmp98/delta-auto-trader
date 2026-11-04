@@ -63,7 +63,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1200.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 5;
+    private static final int    LEVERAGE     = 6;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
@@ -160,7 +160,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   and verified. NOTE: TRAIL_MOVE_TP = true keeps the TP a fixed gap ahead of price, so the TP is then
     //   almost never filled (winners exit via the trailing SL) - it works against "maximise TP hits".
     // =========================================================================
-    static final boolean ENABLE_TRAILING_SL_TP = false;  // master on/off
+    static final boolean ENABLE_TRAILING_SL_TP = true;  // master on/off
     static final double  TRAIL_START_R   = 0.5;    // start once price is this many R in profit
     static final double  TRAIL_SL_GAP_R  = 1.0;    // SL stays this many R behind price
     static final boolean TRAIL_MOVE_TP   = false;  // false: only SL trails, TP stays fixed
