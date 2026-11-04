@@ -131,8 +131,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 3.0;
-    static final double MIN_SL_PERCENT      = 1.5;   // fee/slippage guard: reject if SL tighter than this
+    static final double MAX_SL_PERCENT      = 4.0;
+    static final double MIN_SL_PERCENT      = 3.0;   // fee/slippage guard: reject if SL tighter than this
     static final double TARGET_RR           = 1.0;
 
     // =========================================================================
