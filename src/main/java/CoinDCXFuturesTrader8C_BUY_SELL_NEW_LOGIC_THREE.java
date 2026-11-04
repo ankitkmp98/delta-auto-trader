@@ -131,9 +131,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 4.0;
-    static final double MIN_SL_PERCENT      = 2.5;   // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 1.5;
+    static final double MAX_SL_PERCENT      = 3.0;
+    static final double MIN_SL_PERCENT      = 1.5;   // fee/slippage guard: reject if SL tighter than this
+    static final double TARGET_RR           = 0.75;
 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
@@ -155,7 +155,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   favourable direction (never back). Updates are sent to the exchange (create_tpsl) and verified.
     // =========================================================================
     static final boolean ENABLE_TRAILING_SL_TP       = true;
-    static final double  GAP_TRAIL_ACTIVATE_R        = 0.5;   // start once price is this many R in profit
+    static final double  GAP_TRAIL_ACTIVATE_R        = 0.6;   // start once price is this many R in profit
     static final double  GAP_TRAIL_SL_GAP_R          = 1.0;   // SL stays this many R behind price
     static final double  GAP_TRAIL_TP_GAP_R          = 1.2;   // TP stays this many R ahead of price
     // true : TP is ALWAYS GAP_TRAIL_TP_GAP_R ahead of the best price (ratchet) -> it only fills after a
