@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 3;
+    private static final int MAX_OPEN_POSITIONS = 30;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -107,7 +107,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Filters / flags (turn on/off one by one while testing)
     // =========================================================================
     static final double  ADX_MIN_TREND   = 20.0;  // 15M
-    static final boolean USE_BTC_FILTER  = false;
+    static final boolean USE_BTC_FILTER  = true;
     static final String  BTC_PAIR        = "B-BTC_USDT";
     static final boolean USE_LIQUID_LIST = false;  // trade only the liquid symbols below
     static final boolean USE_VOLUME_FILTER = false;
