@@ -27,16 +27,9 @@ import java.util.stream.Stream;
 //   1M ENTRY   : EMA9 vs EMA21, close vs EMA9, bullish/bearish candle that closes
 //                beyond the previous candle high/low, VWAP side, extension <= 1 ATR
 //
-//   SL = 1M swing low/high +/- 0.4 x ATR(5M)  (min 0.5 x ATR1M, max MAX_SL_ATR5 x ATR5)
-//   TP = fixed RR (TARGET_RR) from the ACTUAL fill price, set once. TP is never trailed.
-//   Breakeven / ATR(5M) trailing move ONLY the SL. Both are OFF by default.
-//
-//   Trade management (v3.1):
-//     - runs inside a per-cycle time budget and rotates through positions (no starvation)
-//     - ATR(5M) is fetched only when trailing is actually eligible, and cached per 5M candle
-//     - SL is modified only if it improves by >= MIN_SL_STEP_R x risk (fewer API calls)
-//   Entry (v3.1):
-//     - an unfilled limit order is CANCELLED if the fill is not confirmed in time
+//   SL = 1M swing low/high +/- 0.4 x ATR(5M)  (min 0.5 x ATR1M, max 1.5 x ATR5M)
+//   TP = fixed RR (1.2) from the ACTUAL fill price, set once.
+//   Breakeven / trailing exist but are OFF by default.
 //
 // Only COMPLETED candles are used. CoinDCX native resolutions "1" and "5" only;
 // 15M is built by TIME-ALIGNED aggregation of 5M (complete buckets only).
@@ -54,11 +47,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int MAX_ENTRY_PRICE_CHECKS = 20;
     private static final int ENTRY_CHECK_DELAY_MS    = 1000;
 
-    // Unfilled-order cancellation
-    private static final int  CANCEL_MAX_RETRIES     = 3;
-    private static final long CANCEL_RETRY_DELAY_MS  = 1000L;
-    private static final long CANCEL_VERIFY_DELAY_MS = 1000L;
-
     private static final int  TPSL_MAX_RETRIES    = 3;
     private static final long TPSL_RETRY_DELAY_MS = 2000L;
 
@@ -73,7 +61,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 20;
+    private static final int    LEVERAGE     = 30;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
     // qty = RISK_PER_TRADE_INR / (SL distance * USDT/INR), capped by MAX_NOTIONAL_INR.
@@ -142,8 +130,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int    SWING_LOOKBACK_1M   = 12;
     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
-    static final double MAX_SL_ATR5         = 1.3;   // reject if SL farther than 1.3 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 0.75;
+    static final double MAX_SL_ATR5         = 1.3;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
+    static final double MAX_SL_PERCENT      = 0.55;
     static final double MIN_SL_PERCENT      = 0.35;  // fee/slippage guard: reject if SL tighter than this
     static final double TARGET_RR           = 3.0;
 
@@ -158,10 +146,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  TRAIL_ACTIVATE_R     = 1.5;
     static final double  TRAIL_ATR5_MULT      = 1.2;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
-
-    // v3.1: keep trade management from slowing the main cycle (and making entries "late")
-    static final long    MANAGE_BUDGET_MS     = 20_000L; // max time manageOpenTrades may use per cycle
-    static final double  MIN_SL_STEP_R        = 0.10;    // only modify SL if it improves by >= 0.1R
 
     // =========================================================================
     // Timing / duplicate protection
@@ -185,10 +169,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         long openedMs;
         String ctx = "";
         int modifyFails = 0;
-        // v3.1 management helpers
-        long lastManageMs = 0;      // for fair rotation when the time budget is hit
-        double atr5 = 0;            // cached ATR(5M), refreshed once per closed 5M candle
-        long atr5CandleOpen = 0;
     }
     private static final Map<String, TradeInfo> tradeState = new ConcurrentHashMap<>();
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
@@ -237,7 +217,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         "VANA","OGN","CELO","USDC","COW","0G","IOTA","SNX","WLD","1000SATS","ONDO","AEVO","BRETT","LAYER","TLM","KOMA"
     };
 
-
+    
     // private static final String[] COIN_SYMBOLS = {
     //    "PIEVERSE","XAU","APE","ERA","US","RAVE","EDEN","LIT","BREV","MAGMA","BLESS","ZAMA",
     //     "FRAX","ACU","1000FLOKI","ELSA","LINEA","SPACE","CLO","FIGHT","UMA","MEGA","MAV","TRIA",
@@ -923,8 +903,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Order execution — limit order, ACTUAL fill price, SL/TP computed ONCE from the fill,
-    // exchange-side TP/SL with retries. If the fill is not confirmed in time, the limit
-    // order is CANCELLED (v3.1) so it can never fill later at a stale price.
+    // exchange-side TP/SL with retries.
     // =========================================================================
     private static boolean executeEntry(String pair, boolean trendUp, double swing1m, double atr1, double atr5,
                                         String ctx, Set<String> active) {
@@ -955,32 +934,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 System.out.println("  Order failed: " + orderResp);
                 return false;
             }
-            String orderId = orderResp.getString("id");
-            System.out.println("  Order placed! id=" + orderId);
+            System.out.println("  Order placed! id=" + orderResp.getString("id"));
             lastTradeTime.put(pair, System.currentTimeMillis());
 
-            double entry = getEntryPrice(pair, orderId);
+            double entry = getEntryPrice(pair, orderResp.getString("id"));
             if (entry <= 0) {
-                // v3.1: do not leave a live limit order behind.
-                System.out.println("  Entry not confirmed within window — cancelling unfilled limit order " + orderId);
-                boolean cancelled = cancelOrder(orderId);
-                TimeUnit.MILLISECONDS.sleep(CANCEL_VERIFY_DELAY_MS);
-                // The order may have filled (fully/partially) just before the cancel took effect.
-                JSONObject posAfter = findPosition(pair);
-                double avg = posAfter == null ? 0 : posAfter.optDouble("avg_price", 0);
-                if (avg > 0) {
-                    System.out.println("  Order filled before cancel took effect — continuing with fill price " + avg);
-                    entry = avg;
-                } else {
-                    if (cancelled) {
-                        System.out.println("  Unfilled order cancelled — no position opened for " + pair);
-                        lastTradeTime.remove(pair);   // nothing was opened, so no cooldown
-                    } else {
-                        System.out.println("  WARNING: could not confirm cancel of order " + orderId + " for " + pair
-                                + " — it may still be LIVE on the exchange, check manually");
-                    }
-                    return false;
-                }
+                System.out.println("  Could not confirm entry within window — TP/SL handled by safety sweep");
+                active.add(pair);
+                return true;
             }
             System.out.printf("  Entry confirmed: %.6f%n", entry);
 
@@ -1014,33 +975,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             System.err.println("executeEntry " + pair + ": " + e.getMessage());
             return false;
         }
-    }
-
-    // Cancels an open futures order. Returns true if the exchange response shows no error.
-    // NOTE: endpoint/body follow CoinDCX's futures "cancel order" API (timestamp + id) — verify
-    // the response format once on a real unfilled order and adjust the success check if needed.
-    private static boolean cancelOrder(String orderId) {
-        for (int attempt = 1; attempt <= CANCEL_MAX_RETRIES; attempt++) {
-            try {
-                JSONObject body = new JSONObject();
-                body.put("timestamp", Instant.now().toEpochMilli());
-                body.put("id", orderId);
-                String resp = authPost(BASE_URL + "/exchange/v1/derivatives/futures/orders/cancel", body.toString());
-                System.out.println("  Cancel response (attempt " + attempt + "/" + CANCEL_MAX_RETRIES + "): " + resp);
-                String lower = resp == null ? "" : resp.toLowerCase();
-                boolean err = resp == null || resp.trim().isEmpty()
-                        || lower.contains("err_code_dcx") || lower.contains("\"status\":\"error\"")
-                        || lower.contains("\"code\":4") || lower.contains("\"code\":5");
-                if (!err) return true;
-            } catch (Exception e) {
-                System.err.println("cancelOrder attempt " + attempt + ": " + e.getMessage());
-            }
-            try { TimeUnit.MILLISECONDS.sleep(CANCEL_RETRY_DELAY_MS); } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-        return false;
     }
 
     // =========================================================================
@@ -1093,25 +1027,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // Tracks MFE/MAE for open trades and (optionally) applies breakeven / trailing.
-    // v3.1: time-budgeted, fair rotation, API calls only when the SL can actually move.
     private static void manageOpenTrades(Set<String> active) {
-        long startMs = System.currentTimeMillis();
-        List<String> order = new ArrayList<>(active);
-        // least-recently-managed first, so a budget cut-off never starves the same positions
-        order.sort(Comparator.comparingLong((String p) -> {
-            TradeInfo ti = tradeState.get(p);
-            return ti == null ? Long.MAX_VALUE : ti.lastManageMs;
-        }));
-
-        for (String pair : order) {
-            if (System.currentTimeMillis() - startMs > MANAGE_BUDGET_MS) {
-                System.out.println("  [MANAGE] time budget (" + MANAGE_BUDGET_MS + "ms) reached — remaining positions continue next cycle");
-                break;
-            }
+        for (String pair : active) {
             try {
                 TradeInfo t = tradeState.get(pair);
                 if (t == null || t.risk <= 0) continue;
-                t.lastManageMs = System.currentTimeMillis();
                 double px = getLastPrice(pair);
                 if (px <= 0) continue;
                 t.maxPrice = Math.max(t.maxPrice, px);
@@ -1119,35 +1039,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (!ENABLE_BREAKEVEN && !ENABLE_TRAILING) continue;
                 if (t.modifyFails >= SL_MODIFY_MAX_FAILS) continue;
 
-                // Cheap pre-check: if neither stage is reached yet, the SL cannot move -> no more API calls.
-                double rNow = t.isLong ? (px - t.entry) / t.risk : (t.entry - px) / t.risk;
-                boolean needBe = ENABLE_BREAKEVEN && rNow >= BREAKEVEN_TRIGGER_R;
-                boolean needTrail = ENABLE_TRAILING && rNow >= TRAIL_ACTIVATE_R;
-                if (!needBe && !needTrail) continue;
-
                 double atr5 = 0;
-                if (needTrail) {
-                    long nowMs = System.currentTimeMillis();
-                    long expected5 = (nowMs / 300_000L) * 300_000L - 300_000L;
-                    if (t.atr5 <= 0 || t.atr5CandleOpen != expected5) {          // refresh once per closed 5M candle
-                        JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 41));
-                        if (c5 != null && c5.length() > ATR_PERIOD + 2) {
-                            t.atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
-                            t.atr5CandleOpen = expected5;
-                        }
-                    }
-                    atr5 = t.atr5;
+                if (ENABLE_TRAILING) {
+                    JSONArray c5 = dropLastIfForming(fetchCandlesPaged(pair, "5", 5, 41));
+                    if (c5 != null && c5.length() > ATR_PERIOD + 2)
+                        atr5 = calcATR(extractHighs(c5), extractLows(c5), extractCloses(c5), ATR_PERIOD);
                 }
                 double tick = getTickSize(pair);
                 double newSl = managedSl(t.isLong, t.entry, t.risk, t.sl, px, atr5, ENABLE_BREAKEVEN, ENABLE_TRAILING);
                 newSl = roundToTick(newSl, tick);
                 if (t.isLong ? newSl <= t.sl : newSl >= t.sl) continue;
-                if (Math.abs(newSl - t.sl) < MIN_SL_STEP_R * t.risk) continue;   // ignore tiny improvements
 
                 JSONObject pos = findPosition(pair);
                 String posId = pos == null ? null : pos.optString("id", null);
                 if (posId == null) continue;
-                System.out.printf("  [MANAGE] %s moving SL %.6f -> %.6f (price=%.6f, %.2fR)%n", pair, t.sl, newSl, px, rNow);
+                System.out.printf("  [MANAGE] %s moving SL %.6f -> %.6f (price=%.6f)%n", pair, t.sl, newSl, px);
                 setTpSl(posId, t.tp, newSl, pair);
                 TimeUnit.MILLISECONDS.sleep(TPSL_RETRY_DELAY_MS);
                 JSONObject chk = findPosition(pair);
