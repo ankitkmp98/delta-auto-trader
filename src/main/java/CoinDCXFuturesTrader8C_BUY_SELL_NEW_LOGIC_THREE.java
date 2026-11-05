@@ -60,7 +60,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration
     // =========================================================================
-    private static final double FIXED_MARGIN = 800.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
     private static final int    LEVERAGE     = 20;
 
     // Optional risk-based sizing (OFF by default -> legacy fixed sizing is used).
@@ -131,7 +131,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double SL_ATR5_BUFFER      = 0.40;  // buffer = 0.4 x ATR(5M)
     static final double MIN_SL_ATR1         = 0.5;   // SL at least 0.5 x ATR(1M) away (widened to this if closer)
     static final double MAX_SL_ATR5         = 1.5;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
-    static final double MAX_SL_PERCENT      = 0.9;
+    static final double MAX_SL_PERCENT      = 1.5;
     static final double MIN_SL_PERCENT      = 0.6;  // fee/slippage guard: reject if SL tighter than this
     static final double TARGET_RR           = 0.3;
 
