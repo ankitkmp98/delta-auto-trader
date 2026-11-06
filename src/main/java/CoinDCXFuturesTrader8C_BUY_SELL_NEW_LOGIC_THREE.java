@@ -133,16 +133,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MAX_SL_ATR5         = 1.3;   // reject if SL farther than 1.5 x ATR(5M) (never tightened)
     static final double MAX_SL_PERCENT      = 0.96;
     static final double MIN_SL_PERCENT      = 0.30;  // fee/slippage guard: reject if SL tighter than this
-    static final double TARGET_RR           = 1.2;
+    static final double TARGET_RR           = 0.6;
 
     // =========================================================================
     // Trade management (OFF by default). Moving the SL on the exchange re-sends
     // create_tpsl for the position — verify that behaviour on a small size first.
     // =========================================================================
-    static final boolean ENABLE_BREAKEVEN     = true;
+    static final boolean ENABLE_BREAKEVEN     = false;
     static final double  BREAKEVEN_TRIGGER_R  = 1.0;
     static final double  BREAKEVEN_OFFSET_PCT = 0.10;  // SL placed this % beyond entry (covers fees)
-    static final boolean ENABLE_TRAILING      = true;
+    static final boolean ENABLE_TRAILING      = false;
     static final double  TRAIL_ACTIVATE_R     = 1.5;
     static final double  TRAIL_ATR5_MULT      = 1.2;
     static final int     SL_MODIFY_MAX_FAILS  = 3;
