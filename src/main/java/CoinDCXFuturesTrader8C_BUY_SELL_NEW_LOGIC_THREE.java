@@ -22,20 +22,23 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 // =============================================================================
-// SIMPLE LOWER-TIMEFRAME MOMENTUM STRATEGY
+// MULTI-TIMEFRAME COUNTER-TREND SUPERTREND STRATEGY (fixed SL / TP)
 //
-//   5M = directional filter using closed-candle EMA9 / EMA21.
-//   1M = entry confirmation using the latest closed candle and EMA9.
+//   Supertrend(10, 3.0) is calculated ONLY from CLOSED 1H and 4H candles.
+//   Higher-timeframe candles are built from CLOSED 5M candles (time-aligned, complete buckets only).
 //
-//   LONG: 5M EMA9 > EMA21 and 5M close > EMA9; 1M candle is GREEN
-//         and closes above 1M EMA9.
-//   SHORT: 5M EMA9 < EMA21 and 5M close < EMA9; 1M candle is RED
-//          and closes below 1M EMA9.
+//   LONG: 1H + 4H Supertrend RED; last CLOSED 1H candle GREEN;
+//         15M EMA9 > EMA21; last CLOSED 5M closes above previous confirmed swing high.
+//   SHORT: 1H + 4H Supertrend GREEN; last CLOSED 1H candle RED;
+//          15M EMA9 < EMA21; last CLOSED 5M closes below previous confirmed swing low.
 //
-//   The old 4H/1H Supertrend, 15M EMA and 5M swing-breakout gates are not
-//   used for entry decisions. Existing order execution and risk controls
-//   are retained. More signals are possible; profitability is not guaranteed.
-// =============================================================================
+//   4H = major trend filter; 1H = counter-trend setup; 15M = momentum confirmation;
+//   5M = entry trigger. No 2H/3H or developing-candle filters are used.
+//
+//   SL / TP = fixed % from the ACTUAL average filled entry price. Trailing is not part of this strategy.
+//   Execution mode and all risk/order settings are preserved from the supplied source.
+//
+// Run the offline logic tests with:  java -cp <classes>:<org.json jar> CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE --selftest
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
@@ -47,8 +50,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 0.6;
-    static final double  FIXED_TP_PERCENT = 0.0;
+    static final double  FIXED_SL_PERCENT = 3.0;
+    static final double  FIXED_TP_PERCENT = 1.0;
     static final boolean TRAILING_ENABLED = false;   // not implemented in this strategy version (warns if set to true)
 
     // =========================================================================
@@ -80,7 +83,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 15;
+    private static final int    LEVERAGE     = 5;
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
@@ -118,10 +121,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int HTF_REFRESH_RETRIES = 3;
     static final long HTF_RETRY_SLEEP_MS = 4_000L;
 
-    static final int ENTRY_FETCH_5M     = 100;  // enough closed 5M candles for EMA warm-up
-    static final int ENTRY_MIN_BARS_5M  = 40;
-    static final int ENTRY_FETCH_1M     = 80;   // 1M confirmation candles fetched only for 5M-qualified symbols
-    static final int ENTRY_MIN_BARS_1M  = 30;
+    static final int ENTRY_FETCH_5M     = 260;                      // 5M candles fetched per shortlisted symbol (>= 4H + 15M EMA warm-up)
+    static final int ENTRY_MIN_BARS_5M  = 120;
+    static final int EMA15_MIN_BARS     = 40;
 
     // =========================================================================
     // 5M breakout
@@ -132,7 +134,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Timing / duplicate protection
     // =========================================================================
-    static final long ENTRY_MAX_AGE_MS = 90_000L;           // latest closed 1M entry candle must be <= 90s old
+    static final long ENTRY_MAX_AGE_MS = 90_000L;           // the closed 5M signal candle must be <= 90s old
     static final long COOLDOWN_MS      = 15L * 60 * 1000L;
     static final long SCAN_STEP_MS     = 60_000L;
     static final long SCAN_DELAY_MS    = 5_000L;
@@ -623,7 +625,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 || l.contains("\"code\":5") || l.startsWith("<");
     }
 
-    // One signal per symbol+direction per closed candle. Returns false if already signalled.
+    // One signal per symbol+direction per closed 5M candle. Returns false if this candle was already signalled.
     static boolean registerSignal(Map<String, Long> registry, String key, long candleOpen) {
         Long prev = registry.get(key);
         if (prev != null && prev == candleOpen) return false;
@@ -640,7 +642,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER (live trading disabled)")
-                + " | 5M EMA9/EMA21 trend + 1M candle/EMA9 confirmation"
+                + " | counter-trend 4H+1H Supertrend + 15M EMA + 5M swing breakout"
                 + " | SL=" + FIXED_SL_PERCENT + "% TP=" + FIXED_TP_PERCENT + "% | liquid list=" + USE_LIQUID_LIST
                 + " (" + COINS_TO_TRADE.length + " symbols) ===");
         if (TRAILING_ENABLED) System.out.println("[WARN] TRAILING_ENABLED=true but trailing is not implemented in this strategy version - ignored");
@@ -649,7 +651,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         initInstrumentCache();
-        // HTF refresher is intentionally disabled: this strategy uses 5M + 1M only.
+        startHtfRefresher();
 
         while (true) {
             try {
@@ -698,101 +700,67 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static void runEntryScan(Set<String> active) {
         Map<String, Integer> rej = new TreeMap<>();
         int candidates = 0, signals = 0;
+        long cycleNow = System.currentTimeMillis();
+        long curBoundary = alignedStart(cycleNow, HOUR_MS, HTF_ALIGN_OFFSET_MS);
 
         for (String pair : COINS_TO_TRADE) {
             try {
                 if (active.size() + paperTrades.size() >= MAX_OPEN_POSITIONS) break;
-                if (active.contains(pair) || paperTrades.containsKey(pair)) continue;
-                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) {
-                    reject(rej, "cooldown");
-                    continue;
-                }
+                if (active.contains(pair) || paperTrades.containsKey(pair)) continue;   // no duplicate position per symbol
+                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
 
-                long now = System.currentTimeMillis();
-
-                // ---- 1. 5M directional filter: closed-candle EMA9/EMA21 ----
-                JSONArray raw5 = fetchCandlesPaged(pair, "5", 5, ENTRY_FETCH_5M + 1);
-                JSONArray c5 = dropLastIfForming(raw5);
-                if (c5 == null || c5.length() < ENTRY_MIN_BARS_5M) {
-                    reject(rej, "data5m");
-                    continue;
-                }
-                if (!lastClosedIsLatest(c5, 5, now)) {
-                    reject(rej, "stale5m");
-                    continue;
-                }
-
-                double[] close5 = extractCloses(c5);
-                double ema9_5 = calcEMA(close5, EMA_FAST);
-                double ema21_5 = calcEMA(close5, EMA_SLOW);
-                double lastClose5 = close5[close5.length - 1];
-                boolean longTrend = ema9_5 > ema21_5 && lastClose5 > ema9_5;
-                boolean shortTrend = ema9_5 < ema21_5 && lastClose5 < ema9_5;
-                if (!longTrend && !shortTrend) {
-                    reject(rej, "no5mDirection");
-                    continue;
-                }
+                HtfState h = htfCache.get(pair);
+                if (h == null || !h.valid) { reject(rej, "noHtfData"); continue; }
+                if (h.boundary != curBoundary) { reject(rej, "htfNotRefreshedThisHour"); continue; }
+                if (h.side == 0) { reject(rej, "noHtfSetup"); continue; }
                 candidates++;
-                boolean isLong = longTrend;
+                boolean isLong = h.side > 0;
                 String dir = isLong ? "LONG" : "SHORT";
                 String sigKey = pair + "|" + dir;
 
-                // ---- 2. 1M entry confirmation: candle colour + close vs EMA9 ----
-                JSONArray raw1 = fetchCandlesPaged(pair, "1", 1, ENTRY_FETCH_1M + 1);
-                JSONArray c1 = dropLastIfForming(raw1);
-                if (c1 == null || c1.length() < ENTRY_MIN_BARS_1M) {
-                    reject(rej, "data1m");
-                    continue;
-                }
-                now = System.currentTimeMillis();
-                if (!lastClosedIsLatest(c1, 1, now)) {
-                    reject(rej, "stale1m");
-                    continue;
-                }
+                long now = System.currentTimeMillis();
+                long expected5 = alignedStart(now, FIVE_MIN_MS, 0L) - FIVE_MIN_MS;
+                Long prevSig = lastSignalCandle.get(sigKey);
+                if (prevSig != null && prevSig == expected5) { reject(rej, "duplicateSignal"); continue; }
 
-                JSONObject last1 = c1.getJSONObject(c1.length() - 1);
-                long lastOpen1 = candleTimeMs(last1);
-                long ageMs = now - (lastOpen1 + MIN_MS);
-                if (ageMs < 0 || ageMs > ENTRY_MAX_AGE_MS) {
-                    reject(rej, "late1mSignalCandle");
+                JSONArray raw5 = fetchCandlesPaged(pair, "5", 5, ENTRY_FETCH_5M + 1);
+                JSONArray c5 = dropLastIfForming(raw5);
+                if (c5 == null || c5.length() < ENTRY_MIN_BARS_5M) { reject(rej, "data5m"); continue; }
+                if (!lastClosedIsLatest(c5, 5, now)) { reject(rej, "stale5m"); continue; }
+                long lastOpen5 = candleTimeMs(c5.getJSONObject(c5.length() - 1));
+                long ageMs = now - (lastOpen5 + FIVE_MIN_MS);
+                if (ageMs > ENTRY_MAX_AGE_MS) { reject(rej, "lateSignalCandle"); continue; }
+
+                // ---- 7. 5M swing breakout (closed candles) ----
+                Breakout b = findBreakout(extractHighs(c5), extractLows(c5), extractCloses(c5), isLong, SWING_PIVOT_BARS, SWING_LOOKBACK_5M);
+                String d5 = String.format("5M[CLOSED @%s] %s breakout=%s", fmtTime(lastOpen5), b.reason, b.ok);
+                if (!b.ok) { reject(rej, "no5mBreakout"); logCandidate(pair, dir, h, d5, "REJECT: no 5M breakout"); continue; }
+
+                // ---- 6. 15M EMA9/EMA21 (closed 15M candles) ----
+                JSONArray c15 = aggregateByTime(c5, FIFTEEN_MIN_MS, FIVE_MIN_MS, 0L);
+                if (c15 == null || c15.length() < EMA15_MIN_BARS || !lastClosedIsLatest(c15, 15, now)) {
+                    reject(rej, "data15m");
+                    logCandidate(pair, dir, h, d5, "REJECT: 15M closed data insufficient/stale");
                     continue;
                 }
+                double[] cl15 = extractCloses(c15);
+                double ema9 = calcEMA(cl15, EMA_FAST), ema21 = calcEMA(cl15, EMA_SLOW);
+                boolean emaOk = isLong ? ema9 > ema21 : ema9 < ema21;
+                d5 += String.format(" | 15M[CLOSED @%s] EMA9=%.6f EMA21=%.6f ok=%s",
+                        fmtTime(candleTimeMs(c15.getJSONObject(c15.length() - 1))), ema9, ema21, emaOk);
+                if (!emaOk) { reject(rej, "ema15mMismatch"); logCandidate(pair, dir, h, d5, "REJECT: 15M EMA not confirming"); continue; }
 
-                double[] close1 = extractCloses(c1);
-                double ema9_1 = calcEMA(close1, EMA_FAST);
-                double lastClose1 = close1[close1.length - 1];
-                int candleColour = colourOf(last1.getDouble("open"), last1.getDouble("close"));
-                boolean entryOk = isLong
-                        ? candleColour > 0 && lastClose1 > ema9_1
-                        : candleColour < 0 && lastClose1 < ema9_1;
-
-                String detail = String.format(
-                        "5M[CLOSED @%s] EMA9=%.6f EMA21=%.6f close=%.6f | 1M[CLOSED @%s] EMA9=%.6f close=%.6f candle=%s confirm=%s",
-                        fmtTime(candleTimeMs(c5.getJSONObject(c5.length() - 1))), ema9_5, ema21_5, lastClose5,
-                        fmtTime(lastOpen1), ema9_1, lastClose1, colName(candleColour), entryOk);
-                if (!entryOk) {
-                    reject(rej, "no1mConfirmation");
-                    System.out.println("  [CAND] " + pair + " [" + dir + "] " + detail + " | -> REJECT: 1M confirmation");
-                    continue;
-                }
-
-                // One signal per symbol/direction per closed 1M candle.
-                if (!registerSignal(lastSignalCandle, sigKey, lastOpen1)) {
-                    reject(rej, "duplicateSignal");
-                    continue;
-                }
+                // ---- all conditions satisfied: 4H + 1H + 15M + 5M ----
+                if (!registerSignal(lastSignalCandle, sigKey, lastOpen5)) { reject(rej, "duplicateSignal"); continue; }
                 signals++;
-                System.out.println("  [CAND] " + pair + " [" + dir + "] " + detail + " | -> SIGNAL");
-                String ctx = String.format("5mEma=%.6f/%.6f 1mEma9=%.6f", ema9_5, ema21_5, ema9_1);
+                logCandidate(pair, dir, h, d5, "SIGNAL");
+                String ctx = String.format("ema15=%.6f/%.6f swing=%.6f", ema9, ema21, b.level);
                 handleSignal(pair, isLong, ctx, active);
-
             } catch (Exception ex) {
-                reject(rej, "scanException");
                 System.err.println("Error on " + pair + ": " + ex.getMessage());
             }
         }
-        System.out.println("=== Scan complete | mode=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER")
-                + " strategy=5M-EMA-trend+1M-confirmation candidates=" + candidates
+        System.out.println("=== Scan complete | mode=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " htfCandidates=" + candidates
                 + " signals=" + signals + " | rejections=" + rej + " ===");
     }
 
