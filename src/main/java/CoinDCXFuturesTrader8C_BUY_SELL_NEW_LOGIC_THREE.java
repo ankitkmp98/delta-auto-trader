@@ -393,16 +393,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     static final int     DEV_FETCH_1M        = 40;     // 1M candles fetched per evaluation (covers the 15M bucket start + margin)
     static final boolean LOG_NO_TRADE_DETAIL = true;   // also print the per-timeframe comparison for NO TRADE symbols
-    static final String[] DEV_TF_NAMES = {"1M", "3M", "5M", "15M"};
-    static final long[]   DEV_TF_MS    = {MIN_MS, 3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS};
+    static final String[] DEV_TF_NAMES = {"3M", "5M", "15M"};
+    // static final long[]   DEV_TF_MS    = {MIN_MS, 3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS};
+    static final long[] DEV_TF_MS = {
+    3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS
+};
 
     static class DevResult {
         boolean ok;
         String code = "";                       // failure category: noData / stale / future / misaligned / noOpen / noPrice
         String reason = "";
-        final long[] start = new long[4];       // bucket start of the developing candle, index 0..3 = 1M, 3M, 5M, 15M
-        final double[] open = new double[4];    // actual open of the developing candle
-        final int[] col = new int[4];           // +1 price above the open, -1 below, 0 equal
+        final long[] start = new long[3];       // bucket start of the developing candle, index 0..3 = 1M, 3M, 5M, 15M
+        final double[] open = new double[3];    // actual open of the developing candle
+        final int[] col = new int[3];           // +1 price above the open, -1 below, 0 equal
         double price;                           // the ONE price used for all four comparisons
     }
 
@@ -456,13 +459,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return devFail(d, bad.substring(0, sep), bad.substring(sep + 2));
         }
         d.price = price;
-        for (int k = 0; k < 4; k++) {
+        for (int k = 0; k < 3; k++) {
             d.start[k] = alignedStart(nowMs, DEV_TF_MS[k], 0L);
             d.open[k] = openAt(raw1, d.start[k]);
             if (Double.isNaN(d.open[k]))
                 return devFail(d, "noOpen", "developing " + DEV_TF_NAMES[k] + " open unavailable (no valid 1M candle at " + fmtTime(d.start[k]) + ")");
         }
-        for (int k = 0; k < 4; k++) d.col[k] = colourOf(d.open[k], price);
+        for (int k = 0; k < 3; k++) d.col[k] = colourOf(d.open[k], price);
         d.ok = true;
         return d;
     }
@@ -518,8 +521,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if (c[k] != want) same = false;
         }
         if (!same)
-            return String.format("developing candle direction changed before entry (1M=%s 3M=%s 5M=%s 15M=%s, price=%.6f)",
-                    colName(c[0]), colName(c[1]), colName(c[2]), colName(c[3]), px);
+            return String.format("developing candle direction changed before entry (3M=%s 5M=%s 15M=%s, price=%.6f)",
+                    colName(c[0]), colName(c[1]), colName(c[2]), px);
         return null;
     }
 
@@ -774,14 +777,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
                 boolean isLong = decision.equals("BUY");
                 String sigKey = pair + "|" + (isLong ? "LONG" : "SHORT");
-                long expected1 = dev.start[0];
+                long expected3 = dev.start[0];
                 Long prevSig = lastSignalCandle.get(sigKey);
                 if (prevSig != null && prevSig == expected1) { reject(rej, "duplicateSignal"); continue; }
 
                 if (!registerSignal(lastSignalCandle, sigKey, expected1)) { reject(rej, "duplicateSignal"); continue; }
                 signals++;
                 logCandidate(pair, decision, detail, "SIGNAL");
-                String ctx = String.format("1M=%s 3M=%s 5M=%s 15M=%s", colName(dev.col[0]), colName(dev.col[1]), colName(dev.col[2]), colName(dev.col[3]));
+                String ctx = String.format("3M=%s 5M=%s 15M=%s", colName(dev.col[0]), colName(dev.col[1]), colName(dev.col[2]));
                 handleSignal(pair, isLong, dev, ctx, active);
             } catch (Exception ex) {
                 System.err.println("Error on " + pair + ": " + ex.getMessage());
