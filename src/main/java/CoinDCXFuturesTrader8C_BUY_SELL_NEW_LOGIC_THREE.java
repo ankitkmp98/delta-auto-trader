@@ -22,28 +22,31 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 // =============================================================================
-// MULTI-TIMEFRAME COUNTER-TREND SUPERTREND STRATEGY (fixed SL / TP)
+// 3M + 5M + 15M DEVELOPING CANDLE STRATEGY (fixed SL / TP)
 //
-//   Supertrend(10, 3.0) is calculated ONLY from CLOSED candles on 1H, 2H, 3H, 4H.
-//   Higher-timeframe candles are built from CLOSED 5M candles (time-aligned, complete buckets only).
+//   All three timeframes use the currently FORMING (developing) candle, compared with ONE current price:
 //
-//   LONG  (all must be true)                      SHORT (all must be true)
-//   1. 1H,2H,3H,4H Supertrend = RED (closed)      1. 1H,2H,3H,4H Supertrend = GREEN (closed)
-//   2. last CLOSED 1H candle  = GREEN             2. last CLOSED 1H candle  = RED
-//   3. last CLOSED 2H candle  = GREEN             3. last CLOSED 2H candle  = RED
-//   4. DEVELOPING 3H candle   = GREEN             4. DEVELOPING 3H candle   = RED
-//   5. DEVELOPING 4H candle   = GREEN             5. DEVELOPING 4H candle   = RED
-//   6. 15M EMA9 > EMA21 (closed 15M)              6. 15M EMA9 < EMA21 (closed 15M)
-//   7. last CLOSED 5M candle closes ABOVE the     7. last CLOSED 5M candle closes BELOW the
-//      previous confirmed swing high                 previous confirmed swing low
+//   BUY / LONG  (all three must be true):
+//     price > developing 3M open AND price > developing 5M open
+//     AND price > developing 15M open
 //
-//   Developing candle colour = current price vs the actual open of that candle (provisional filter only,
-//   never used for Supertrend). It is re-checked right before the order is sent.
+//   SELL / SHORT (all three must be true):
+//     price < developing 3M open AND price < developing 5M open
+//     AND price < developing 15M open
+//
+//   NO TRADE: price above some opens but below others, price EQUAL to any open, or any timeframe's candle
+//   data is missing / invalid / stale / misaligned / from the future.
+//
+//   The 1M candle feed is used only as raw source data to identify the exact 3M/5M/15M bucket opens; 1M is NOT an entry timeframe. Each 3M/5M/15M open is the open of the source 1M candle that starts that
+//   bucket; buckets are aligned to epoch/UTC minute boundaries). Immediately before an order the candles and the
+//   price are fetched again and all three conditions are re-validated.
+//
+//   No EMA, RSI, MACD, Supertrend, ATR, VWAP, ADX, swing high/low or any other indicator is used for the entry decision.
 //
 //   SL / TP = fixed % from the ACTUAL average filled entry price. Trailing is not part of this strategy.
-//   LIVE_TRADING_ENABLED is false by default -> PAPER mode (signals + simulated SL/TP results only).
+//   LIVE_TRADING_ENABLED = false -> PAPER mode (signals + simulated SL/TP results only).
 //
-// Run the offline logic tests with:  java -cp <classes>:<org.json jar> CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE --selftest
+//   Run the offline logic tests with:  java -cp <classes>:<org.json jar> CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE --selftest
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
@@ -55,8 +58,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 3.0;
-    static final double  FIXED_TP_PERCENT = 1.8; //3.5;
+    static final double  FIXED_SL_PERCENT = 1.0;
+    static final double  FIXED_TP_PERCENT = 0.35; //3.5;
     static final boolean TRAILING_ENABLED = false;   // not implemented in this strategy version (warns if set to true)
 
     // =========================================================================
@@ -79,7 +82,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 10;
+    private static final int MAX_OPEN_POSITIONS = 20;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -88,7 +91,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 12;
+    private static final int    LEVERAGE     = 15;
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
@@ -110,8 +113,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int    EMA_FAST      = 9;
     static final int    EMA_SLOW      = 21;
     static final int    ATR_PERIOD_FOR_ST = ST_PERIOD;
-    static final int    DEV_ATR_PERIOD     = 14;
-    static final double DEV_ATR_MULTIPLIER = 0.5;
 
     // =========================================================================
     // Data fetching
@@ -173,7 +174,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static long lastCacheUpdate = 0;
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
     private static final Map<String, Long> lastSignalCandle = new ConcurrentHashMap<>();
-    private static final Map<String, HtfState> htfCache = new ConcurrentHashMap<>();
 
     private static final String[] COIN_SYMBOLS = {
         "BANK","PIEVERSE","ALPINE","OG","XAU","CVC","KAT","SOON","MANTRA","LAB","EDGE","PIPPIN","BSB",
@@ -389,242 +389,172 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // HIGHER-TIMEFRAME STATE (closed candles only): Supertrend 1H/2H/3H/4H + closed 1H/2H colours
+    // DEVELOPING 3M / 5M / 15M candle direction (current price vs the candle's actual open)
     // =========================================================================
-    static class HtfState {
-        boolean valid;
-        long boundary;                                   // 1H bucket start this state was computed for
-        int side;                                        // +1 LONG candidate, -1 SHORT candidate, 0 none
-        final boolean[] stGreen = new boolean[4];        // index 0..3 = 1H..4H
-        final int[] closedColour = new int[4];           // kept for logging/self-test compatibility
-        final long[] closedOpen = new long[4];
-        boolean allStRed;
-        boolean allStGreen;
-        boolean devValid;
-        boolean devLongOk;
-        boolean devShortOk;
-        DevResult dev;
-        String reason = "";
-    }
+    static final int     DEV_FETCH_1M        = 40;     // 1M source candles used only to derive the 3M/5M/15M bucket opens
+    static final boolean LOG_NO_TRADE_DETAIL = true;   // also print the per-timeframe comparison for NO TRADE symbols
+    static final String[] DEV_TF_NAMES = {"3M", "5M", "15M"};
+    static final long[]   DEV_TF_MS    = {3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS};
 
-    static HtfState evaluateHtf(JSONArray closed5, long nowMs) {
-        HtfState h = new HtfState();
-        h.boundary = alignedStart(nowMs, HOUR_MS, HTF_ALIGN_OFFSET_MS);
-        StringBuilder sb = new StringBuilder();
-        for (int k = 0; k < 4; k++) {
-            long tfMs = (k + 1) * HOUR_MS;
-            JSONArray agg = aggregateByTime(closed5, tfMs, FIVE_MIN_MS, HTF_ALIGN_OFFSET_MS);
-            int cnt = agg == null ? 0 : agg.length();
-            if (cnt < HTF_MIN_BARS) {
-                h.reason = (k + 1) + "H not enough closed candles (" + cnt + "/" + HTF_MIN_BARS + ")";
-                return h;
-            }
-            JSONObject last = agg.getJSONObject(cnt - 1);
-            long lastOpen = candleTimeMs(last);
-            long expected = alignedStart(nowMs, tfMs, HTF_ALIGN_OFFSET_MS) - tfMs;
-            if (lastOpen != expected) {
-                h.reason = (k + 1) + "H latest closed candle missing/stale (have " + fmtTime(lastOpen) + ", expected " + fmtTime(expected) + ")";
-                return h;
-            }
-            double[] cl = extractCloses(agg), hi = extractHighs(agg), lo = extractLows(agg);
-            boolean[] st = calcSupertrend(hi, lo, cl, ST_PERIOD, ST_MULTIPLIER);
-            h.stGreen[k] = st[st.length - 1];
-            h.closedColour[k] = colourOf(last.getDouble("open"), last.getDouble("close"));
-            h.closedOpen[k] = lastOpen;
-            if (k > 0) sb.append(" | ");
-            sb.append(String.format("%dH[ST=%s]", k + 1, stName(h.stGreen[k])));
-        }
-        h.allStRed = !h.stGreen[0] && !h.stGreen[1] && !h.stGreen[2] && !h.stGreen[3];
-        h.allStGreen = h.stGreen[0] && h.stGreen[1] && h.stGreen[2] && h.stGreen[3];
-        h.valid = true;
-        h.reason = sb + " -> Supertrend " + (h.allStRed ? "all RED" : (h.allStGreen ? "all GREEN" : "mixed"));
-        return h;
-    }
-
-    private static HtfState refreshHtfFor(String pair) {
-        for (int attempt = 1; attempt <= HTF_REFRESH_RETRIES; attempt++) {
-            long nowMs = System.currentTimeMillis();
-            JSONArray raw5 = fetchCandlesPaged(pair, "5", 5, HTF_FETCH_5M_BARS + 1);
-            JSONArray closed5 = dropLastIfForming(raw5);
-            if (closed5 == null || closed5.length() == 0 || !lastClosedIsLatest(closed5, 5, nowMs)) {
-                sleepMs(HTF_RETRY_SLEEP_MS);      // data lag right after the boundary -> retry
-                continue;
-            }
-            HtfState h = evaluateHtf(closed5, nowMs);
-            double price = getLastPrice(pair);
-            DevResult dev = evalDeveloping(raw5, closed5, nowMs, price);
-            h.dev = dev;
-            h.devValid = dev.ok;
-            h.devLongOk = dev.ok && dev.longOk;
-            h.devShortOk = dev.ok && dev.shortOk;
-            if (h.allStRed && h.devLongOk) h.side = 1;
-            else if (h.allStGreen && h.devShortOk) h.side = -1;
-            else h.side = 0;
-            h.reason += " | " + dev.reason + " -> " + (h.side > 0 ? "LONG candidate" : (h.side < 0 ? "SHORT candidate" : "no setup"));
-            htfCache.put(pair, h);
-            return h;
-        }
-        HtfState bad = new HtfState();
-        bad.reason = "5M data unavailable or stale after retries";
-        htfCache.put(pair, bad);
-        return bad;
-    }
-
-    private static void refreshAllHtf(ExecutorService pool) throws InterruptedException {
-        long t0 = System.currentTimeMillis();
-        List<Callable<HtfState>> tasks = new ArrayList<>();
-        for (String pair : COINS_TO_TRADE) tasks.add(() -> refreshHtfFor(pair));
-        List<Future<HtfState>> results = pool.invokeAll(tasks);
-        int valid = 0, longs = 0, shorts = 0, bad = 0;
-        StringBuilder cands = new StringBuilder();
-        for (int i = 0; i < results.size(); i++) {
-            try {
-                HtfState h = results.get(i).get();
-                if (!h.valid) { bad++; continue; }
-                valid++;
-                if (h.side > 0) { longs++; cands.append(' ').append(COINS_TO_TRADE[i]).append("(L)"); }
-                if (h.side < 0) { shorts++; cands.append(' ').append(COINS_TO_TRADE[i]).append("(S)"); }
-            } catch (ExecutionException e) {
-                bad++;
-            }
-        }
-        System.out.println("[HTF] refresh done in " + (System.currentTimeMillis() - t0) / 1000 + "s: valid=" + valid
-                + " LONG-candidates=" + longs + " SHORT-candidates=" + shorts + " no-data=" + bad
-                + (cands.length() > 0 ? " |" + cands : ""));
-    }
-
-    // Background refresher: once at startup, then once per new 1H candle (closed-candle data only).
-    private static void startHtfRefresher() {
-        Thread t = new Thread(() -> {
-            ExecutorService pool = Executors.newFixedThreadPool(HTF_REFRESH_THREADS, r -> {
-                Thread w = new Thread(r, "htf-worker");
-                w.setDaemon(true);
-                return w;
-            });
-            boolean first = true;
-            while (!Thread.currentThread().isInterrupted()) {
-                try {
-                    if (!first) {
-                        long now = System.currentTimeMillis();
-                        long next = alignedStart(now, HOUR_MS, HTF_ALIGN_OFFSET_MS) + HOUR_MS + HTF_REFRESH_DELAY_MS;
-                        Thread.sleep(Math.max(1000L, next - now));
-                    }
-                    first = false;
-                    refreshAllHtf(pool);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Throwable th) {
-                    System.err.println("[HTF] refresher error: " + th.getMessage());
-                }
-            }
-            pool.shutdownNow();
-        }, "htf-refresher");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    // =========================================================================
-    // DEVELOPING 3H / 4H candle colour (current price vs the candle's actual open) — provisional filter only
-    // =========================================================================
     static class DevResult {
         boolean ok;
+        String code = "";                       // failure category: noData / stale / future / misaligned / noOpen / noPrice
         String reason = "";
-        final long[] start = new long[4];
-        final double[] open = new double[4];
-        final double[] atr = new double[4];
-        final double[] strength = new double[4];
-        final boolean[] bull = new boolean[4];
-        final boolean[] bear = new boolean[4];
-        boolean longOk, shortOk;
-        double price;
+        final long[] start = new long[3];       // bucket start of the developing 3M, 5M, 15M candles
+        final double[] open = new double[3];    // actual open of the developing candle
+        final int[] col = new int[3];           // +1 price above the open, -1 below, 0 equal
+        double price;                           // the ONE price used for all three comparisons
     }
 
-    static double openAt(JSONArray raw5, long startMs) {
-        if (raw5 == null) return Double.NaN;
-        for (int i = raw5.length() - 1; i >= 0; i--) {
-            JSONObject c = raw5.getJSONObject(i);
-            long t = candleTimeMs(c);
-            if (t == startMs) return c.getDouble("open");
-            if (t < startMs) break;
+    private static DevResult devFail(DevResult d, String code, String reason) {
+        d.ok = false;
+        d.code = code;
+        d.reason = code + ": " + reason;
+        return d;
+    }
+
+    // Open of the 1M candle that starts exactly at startMs (NaN if absent or not a valid price).
+    static double openAt(JSONArray raw1, long startMs) {
+        if (raw1 == null) return Double.NaN;
+        for (int i = raw1.length() - 1; i >= 0; i--) {
+            JSONObject c = raw1.getJSONObject(i);
+            if (candleTimeMs(c) == startMs) {
+                double o = c.optDouble("open", Double.NaN);
+                return (o > 0 && !Double.isInfinite(o)) ? o : Double.NaN;
+            }
         }
         return Double.NaN;
     }
 
-    // raw5 = 5M candles INCLUDING the forming one (for developing candle open)
-    // closed5 = 5M candles WITHOUT the forming one (for ATR calculation)
-    static DevResult evalDeveloping(JSONArray raw5, JSONArray closed5, long nowMs, double price) {
-        DevResult d = new DevResult();
-        if (price <= 0) { d.reason = "no current price"; return d; }
-        d.price = price;
-        for (int k = 0; k < 4; k++) {
-            long tfMs = (k + 1) * HOUR_MS;
-            long start = alignedStart(nowMs, tfMs, HTF_ALIGN_OFFSET_MS);
-            d.start[k] = start;
-            d.open[k] = openAt(raw5, start);
-            if (Double.isNaN(d.open[k])) {
-                d.reason = (k + 1) + "H developing candle open unavailable (no 5M candle at " + fmtTime(start) + ")";
-                return d;
-            }
-            JSONArray agg = aggregateByTime(closed5, tfMs, FIVE_MIN_MS, HTF_ALIGN_OFFSET_MS);
-            if (agg == null || agg.length() < DEV_ATR_PERIOD) {
-                d.reason = (k + 1) + "H not enough completed candles for ATR (" + (agg == null ? 0 : agg.length()) + "/" + DEV_ATR_PERIOD + ")";
-                return d;
-            }
-            int n = agg.length();
-            double[] hi = new double[DEV_ATR_PERIOD], lo = new double[DEV_ATR_PERIOD], cl = new double[DEV_ATR_PERIOD];
-            for (int i = 0; i < DEV_ATR_PERIOD; i++) {
-                JSONObject c = agg.getJSONObject(n - DEV_ATR_PERIOD + i);
-                hi[i] = c.getDouble("high");
-                lo[i] = c.getDouble("low");
-                cl[i] = c.getDouble("close");
-            }
-            double[] atrArr = calcATRSeries(hi, lo, cl, DEV_ATR_PERIOD);
-            double atr = atrArr[atrArr.length - 1];
-            if (atr <= 0) { d.reason = (k + 1) + "H ATR not positive"; return d; }
-            d.atr[k] = atr;
-            double body = price - d.open[k];
-            d.strength[k] = Math.abs(body) / atr;
-            d.bull[k] = body > 0 && d.strength[k] >= DEV_ATR_MULTIPLIER;
-            d.bear[k] = body < 0 && d.strength[k] >= DEV_ATR_MULTIPLIER;
+    // Candle-series validation. Returns null if usable, otherwise "<code>: <reason>".
+    //  - every source timestamp must sit on a 1M boundary (misaligned otherwise)
+    //  - the newest source candle must be exactly the CURRENT forming 1M candle (older = stale / only completed candles, newer = future)
+    static String validateDevCandles(JSONArray raw1, long nowMs) {
+        if (raw1 == null || raw1.length() == 0) return "noData: no 1M candle data returned";
+        long expected1 = alignedStart(nowMs, MIN_MS, 0L);
+        long maxT = Long.MIN_VALUE;
+        for (int i = 0; i < raw1.length(); i++) {
+            long t = candleTimeMs(raw1.getJSONObject(i));
+            if (t < 0) return "noData: candle without a valid timestamp";
+            if (t % MIN_MS != 0) return "misaligned: candle timestamp " + fmtTime(t) + " is not on a 1M boundary";
+            maxT = Math.max(maxT, t);
         }
-        d.longOk = d.bull[0] && d.bull[1] && d.bull[2] && d.bull[3];
-        d.shortOk = d.bear[0] && d.bear[1] && d.bear[2] && d.bear[3];
+        if (maxT > expected1) return "future: newest candle " + fmtTime(maxT) + " is after the current 1M candle " + fmtTime(expected1);
+        if (maxT < expected1) return "stale: newest candle " + fmtTime(maxT) + " but the forming 1M candle starts " + fmtTime(expected1)
+                + " (only completed candles returned or data lagging)";
+        return null;
+    }
+
+    // raw1 = 1M candles INCLUDING the forming one. The 3M / 5M / 15M developing open is the open of the 1M candle that
+    // starts that bucket (buckets aligned to the epoch minute boundaries). Never uses a previous candle's open.
+    static DevResult evalDeveloping(JSONArray raw1, long nowMs, double price) {
+        DevResult d = new DevResult();
+        if (!(price > 0) || Double.isInfinite(price)) return devFail(d, "noPrice", "no valid current price");
+        String bad = validateDevCandles(raw1, nowMs);
+        if (bad != null) {
+            int sep = bad.indexOf(':');
+            return devFail(d, bad.substring(0, sep), bad.substring(sep + 2));
+        }
+        d.price = price;
+        for (int k = 0; k < 3; k++) {
+            d.start[k] = alignedStart(nowMs, DEV_TF_MS[k], 0L);
+            d.open[k] = openAt(raw1, d.start[k]);
+            if (Double.isNaN(d.open[k]))
+                return devFail(d, "noOpen", "developing " + DEV_TF_NAMES[k] + " open unavailable (no valid source candle at " + fmtTime(d.start[k]) + ")");
+        }
+        for (int k = 0; k < 3; k++) d.col[k] = colourOf(d.open[k], price);
         d.ok = true;
-        d.reason = String.format("1H[str=%.2f] 2H[str=%.2f] 3H[str=%.2f] 4H[str=%.2f] price=%.6f",
-                d.strength[0], d.strength[1], d.strength[2], d.strength[3], d.price);
         return d;
     }
 
-    // New signature: checks all 4 TFs
+    // "BUY" only if price is above all 3M/5M/15M developing opens; "SELL" only if below all three; otherwise NO TRADE.
+    static String decideSignal(DevResult d) {
+        if (d == null || !d.ok) return "NO TRADE";
+        boolean allUp = true, allDown = true;
+        for (int c : d.col) {
+            if (c != 1) allUp = false;
+            if (c != -1) allDown = false;
+        }
+        return allUp ? "BUY" : (allDown ? "SELL" : "NO TRADE");
+    }
+
     static boolean devMatches(DevResult dev, boolean isLong) {
-        return dev != null && dev.ok && (isLong ? dev.longOk : dev.shortOk);
+        return dev != null && dev.ok && decideSignal(dev).equals(isLong ? "BUY" : "SELL");
     }
 
-    // Old signature kept for self-test compatibility (3H/4H only, legacy)
-    static boolean devMatches(int col3, int col4, boolean isLong) {
-        int want = isLong ? 1 : -1;
-        return col3 == want && col4 == want;
+    // Per-timeframe comparison text for the logs.
+    static String describeDev(DevResult d) {
+        StringBuilder sb = new StringBuilder(String.format("price=%.6f", d.price));
+        for (int k = 0; k < 3; k++)
+            sb.append(String.format(" | %s[DEVELOPING open@%s=%.6f] price>open=%s price<open=%s", DEV_TF_NAMES[k],
+                    fmtTime(d.start[k]), d.open[k], d.price > d.open[k], d.price < d.open[k]));
+        return sb.toString();
     }
 
-    // Re-check right before entry — all 4 TFs, fresh price
+    // Why a valid-data evaluation produced NO TRADE.
+    static String noTradeReason(DevResult d) {
+        StringBuilder up = new StringBuilder(), down = new StringBuilder();
+        for (int k = 0; k < 3; k++) {
+            if (d.col[k] == 0) return "price equals the " + DEV_TF_NAMES[k] + " developing open (" + d.open[k] + ")";
+            StringBuilder t = d.col[k] > 0 ? up : down;
+            if (t.length() > 0) t.append(',');
+            t.append(DEV_TF_NAMES[k]);
+        }
+        return "mixed: price above the open on [" + up + "], below on [" + down + "]";
+    }
+
+    // Cheap re-check against the signal-time evaluation: same developing candles still current + same direction.
     static String recheckDeveloping(boolean isLong, DevResult dev, double px, long nowMs) {
         if (dev == null || !dev.ok) return "developing candle data unavailable";
-        for (int k = 0; k < 4; k++) {
-            long tfMs = (k + 1) * HOUR_MS;
-            if (alignedStart(nowMs, tfMs, HTF_ALIGN_OFFSET_MS) != dev.start[k])
-                return (k + 1) + "H developing candle rolled over to a new candle - signal is stale";
+        for (int k = 0; k < 3; k++)
+            if (alignedStart(nowMs, DEV_TF_MS[k], 0L) != dev.start[k])
+                return DEV_TF_NAMES[k] + " developing candle rolled over to a new candle - signal is stale";
+        if (!(px > 0)) return "no current price for developing-candle re-check";
+        int want = isLong ? 1 : -1;
+        int[] c = new int[3];
+        boolean same = true;
+        for (int k = 0; k < 3; k++) {
+            c[k] = colourOf(dev.open[k], px);
+            if (c[k] != want) same = false;
         }
-        if (px <= 0) return "no current price for developing-candle re-check";
-        for (int k = 0; k < 4; k++) {
-            double body = px - dev.open[k];
-            double strength = Math.abs(body) / dev.atr[k];
-            boolean ok = isLong ? (body > 0 && strength >= DEV_ATR_MULTIPLIER)
-                                : (body < 0 && strength >= DEV_ATR_MULTIPLIER);
-            if (!ok) return String.format("%dH developing momentum failed before entry (body=%.6f ATR=%.6f strength=%.2f)",
-                    k + 1, body, dev.atr[k], strength);
-        }
+        if (!same)
+            return String.format("developing candle direction changed before entry (3M=%s 5M=%s 15M=%s, price=%.6f)",
+                    colName(c[0]), colName(c[1]), colName(c[2]), px);
         return null;
+    }
+
+    // Pre-order revalidation on FRESH data: all three developing opens + conditions must still give the same direction.
+    // Returns null if the order may be placed, otherwise the reason it must not be.
+    static String revalidateDeveloping(boolean isLong, DevResult fresh) {
+        if (fresh == null || !fresh.ok)
+            return "pre-order revalidation failed: " + (fresh == null ? "no data" : fresh.reason);
+        if (!devMatches(fresh, isLong))
+            return String.format("pre-order revalidation: %s no longer valid on all of 3M/5M/15M (now %s - %s)",
+                    isLong ? "BUY" : "SELL", decideSignal(fresh), noTradeReasonSafe(fresh, isLong));
+        return null;
+    }
+
+    private static String noTradeReasonSafe(DevResult fresh, boolean isLong) {
+        return decideSignal(fresh).equals("NO TRADE") ? noTradeReason(fresh) : "opposite direction on all three timeframes";
+    }
+
+    static class Revalidation {
+        String reason;      // null = still valid
+        double price;
+    }
+
+    // Fetches fresh 1M source candles AND the latest price, re-derives all three developing opens and re-checks the conditions.
+    private static Revalidation revalidateBeforeOrder(String pair, boolean isLong) {
+        Revalidation rv = new Revalidation();
+        JSONArray raw1 = fetchCandlesPaged(pair, "1", 1, DEV_FETCH_1M);
+        rv.price = getLastPrice(pair);
+        long now = System.currentTimeMillis();
+        DevResult fresh = evalDeveloping(raw1, now, rv.price);
+        rv.reason = revalidateDeveloping(isLong, fresh);
+        System.out.println("  [REVALIDATE] " + pair + " " + (isLong ? "BUY" : "SELL") + " | "
+                + (fresh.ok ? describeDev(fresh) : "price=" + rv.price + " | " + fresh.reason)
+                + " | -> " + (rv.reason == null ? "PASS (order allowed)" : "FAIL (no order): " + rv.reason));
+        return rv;
     }
 
     // =========================================================================
@@ -755,7 +685,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER (live trading disabled)")
-                + " | multi-TF counter-Supertrend 1H/2H/3H/4H + 15M EMA + 5M swing breakout"
+                + " | 3M + 5M + 15M DEVELOPING CANDLE STRATEGY"
                 + " | SL=" + FIXED_SL_PERCENT + "% TP=" + FIXED_TP_PERCENT + "% | liquid list=" + USE_LIQUID_LIST
                 + " (" + COINS_TO_TRADE.length + " symbols) ===");
         if (TRAILING_ENABLED) System.out.println("[WARN] TRAILING_ENABLED=true but trailing is not implemented in this strategy version - ignored");
@@ -764,7 +694,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         initInstrumentCache();
-        startHtfRefresher();
 
         while (true) {
             try {
@@ -813,8 +742,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static void runEntryScan(Set<String> active) {
         Map<String, Integer> rej = new TreeMap<>();
         int candidates = 0, signals = 0;
-        long cycleNow = System.currentTimeMillis();
-        long curBoundary = alignedStart(cycleNow, HOUR_MS, HTF_ALIGN_OFFSET_MS);
 
         for (String pair : COINS_TO_TRADE) {
             try {
@@ -822,84 +749,64 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (active.contains(pair) || paperTrades.containsKey(pair)) continue;   // no duplicate position per symbol
                 if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
 
-                HtfState h = htfCache.get(pair);
-                if (h == null || !h.valid) { reject(rej, "noHtfData"); continue; }
-                if (h.boundary != curBoundary) { reject(rej, "htfNotRefreshedThisHour"); continue; }
-                if (h.side == 0) { reject(rej, "noHtfSetup"); continue; }
-                candidates++;
-                boolean isLong = h.side > 0;
-                String dir = isLong ? "LONG" : "SHORT";
-                String sigKey = pair + "|" + dir;
+                JSONArray raw1 = fetchCandlesPaged(pair, "1", 1, DEV_FETCH_1M);
+                if (raw1 == null || raw1.length() == 0) { reject(rej, "data1m"); continue; }
 
-                long now = System.currentTimeMillis();
-                long expected5 = alignedStart(now, FIVE_MIN_MS, 0L) - FIVE_MIN_MS;
-                Long prevSig = lastSignalCandle.get(sigKey);
-                if (prevSig != null && prevSig == expected5) { reject(rej, "duplicateSignal"); continue; }
-
-                JSONArray raw5 = fetchCandlesPaged(pair, "5", 5, ENTRY_FETCH_5M + 1);
-                JSONArray c5 = dropLastIfForming(raw5);
-                if (c5 == null || c5.length() < ENTRY_MIN_BARS_5M) { reject(rej, "data5m"); continue; }
-                if (!lastClosedIsLatest(c5, 5, now)) { reject(rej, "stale5m"); continue; }
-                long lastOpen5 = candleTimeMs(c5.getJSONObject(c5.length() - 1));
-                long ageMs = now - (lastOpen5 + FIVE_MIN_MS);
-                if (ageMs > ENTRY_MAX_AGE_MS) { reject(rej, "lateSignalCandle"); continue; }
-
-                // ---- 7. 5M swing breakout (closed candles) ----
-                Breakout b = findBreakout(extractHighs(c5), extractLows(c5), extractCloses(c5), isLong, SWING_PIVOT_BARS, SWING_LOOKBACK_5M);
-                String d5 = String.format("5M[CLOSED @%s] %s breakout=%s", fmtTime(lastOpen5), b.reason, b.ok);
-                if (!b.ok) { reject(rej, "no5mBreakout"); logCandidate(pair, dir, h, d5, "REJECT: no 5M breakout"); continue; }
-
-                // ---- 6. 15M EMA9/EMA21 (closed 15M candles) ----
-                JSONArray c15 = aggregateByTime(c5, FIFTEEN_MIN_MS, FIVE_MIN_MS, 0L);
-                if (c15 == null || c15.length() < EMA15_MIN_BARS || !lastClosedIsLatest(c15, 15, now)) {
-                    reject(rej, "data15m");
-                    logCandidate(pair, dir, h, d5, "REJECT: 15M closed data insufficient/stale");
-                    continue;
-                }
-                double[] cl15 = extractCloses(c15);
-                double ema9 = calcEMA(cl15, EMA_FAST), ema21 = calcEMA(cl15, EMA_SLOW);
-                boolean emaOk = isLong ? ema9 > ema21 : ema9 < ema21;
-                d5 += String.format(" | 15M[CLOSED @%s] EMA9=%.6f EMA21=%.6f ok=%s",
-                        fmtTime(candleTimeMs(c15.getJSONObject(c15.length() - 1))), ema9, ema21, emaOk);
-                if (!emaOk) { reject(rej, "ema15mMismatch"); logCandidate(pair, dir, h, d5, "REJECT: 15M EMA not confirming"); continue; }
-
-                // ---- 4/5. developing 1H/2H/3H/4H strong momentum (re-check, dynamic ATR) ----
+                // ONE price for all three comparisons; `now` is taken after the candles and the price were fetched so that
+                // the timestamp validation reflects the real moment of the evaluation (a boundary crossed meanwhile => stale).
                 double price = getLastPrice(pair);
-                DevResult dev = evalDeveloping(raw5, c5, now, price);
-                if (!dev.ok || !devMatches(dev, isLong)) {
-                    reject(rej, "devMomentum");
-                    logCandidate(pair, dir, h, d5, "REJECT: " + (dev.ok ? "developing momentum not strong enough on all 4 TFs" : dev.reason));
+                long now = System.currentTimeMillis();
+                DevResult dev = evalDeveloping(raw1, now, price);
+                if (!dev.ok) {
+                    reject(rej, "dev_" + dev.code);
+                    if (LOG_NO_TRADE_DETAIL) logCandidate(pair, "NO TRADE", "price=" + price, "NO TRADE: " + dev.reason);
                     continue;
                 }
-                d5 += " | " + dev.reason;
 
-                // ---- all conditions satisfied ----
-                if (!registerSignal(lastSignalCandle, sigKey, lastOpen5)) { reject(rej, "duplicateSignal"); continue; }
+                candidates++;
+                String decision = decideSignal(dev);
+                String detail = describeDev(dev);
+                if (decision.equals("NO TRADE")) {
+                    reject(rej, "devDirectionMismatch");
+                    if (LOG_NO_TRADE_DETAIL) logCandidate(pair, decision, detail, "NO TRADE: " + noTradeReason(dev));
+                    continue;
+                }
+
+                boolean isLong = decision.equals("BUY");
+                String sigKey = pair + "|" + (isLong ? "LONG" : "SHORT");
+                long expected3 = dev.start[0];
+                Long prevSig = lastSignalCandle.get(sigKey);
+                if (prevSig != null && prevSig == expected3) { reject(rej, "duplicateSignal"); continue; }
+
+                if (!registerSignal(lastSignalCandle, sigKey, expected3)) { reject(rej, "duplicateSignal"); continue; }
                 signals++;
-                logCandidate(pair, dir, h, d5, "SIGNAL");
-                String ctx = String.format("ema15=%.6f/%.6f swing=%.6f", ema9, ema21, b.level);
+                logCandidate(pair, decision, detail, "SIGNAL");
+                String ctx = String.format("3M=%s 5M=%s 15M=%s", colName(dev.col[0]), colName(dev.col[1]), colName(dev.col[2]));
                 handleSignal(pair, isLong, dev, ctx, active);
             } catch (Exception ex) {
                 System.err.println("Error on " + pair + ": " + ex.getMessage());
             }
         }
-        System.out.println("=== Scan complete | mode=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " htfCandidates=" + candidates
+        System.out.println("=== Scan complete | mode=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " candidates=" + candidates
                 + " signals=" + signals + " | rejections=" + rej + " ===");
     }
 
-    private static void logCandidate(String pair, String dir, HtfState h, String detail, String outcome) {
-        System.out.println("  [CAND] " + pair + " [" + dir + "] " + h.reason + " | " + detail + " | -> " + outcome);
+    private static void logCandidate(String pair, String dir, String detail, String outcome) {
+        System.out.println("  [CAND] " + pair + " [" + dir + "] " + detail + " | -> " + outcome);
     }
 
     private static void handleSignal(String pair, boolean isLong, DevResult dev, String ctx, Set<String> active) {
-        double px = getLastPrice(pair);
-        String cancel = recheckDeveloping(isLong, dev, px, System.currentTimeMillis());
+        if (LIVE_TRADING_ENABLED) {
+            executeEntry(pair, isLong, dev, ctx, active);   // runs the immediate pre-order revalidation itself
+            return;
+        }
+        Revalidation rv = revalidateBeforeOrder(pair, isLong);
+        String cancel = rv.reason != null ? rv.reason : recheckDeveloping(isLong, dev, rv.price, System.currentTimeMillis());
         if (cancel != null) {
             System.out.println("SIGNAL CANCELLED - " + pair + " [" + (isLong ? "LONG" : "SHORT") + "] - " + cancel);
             return;
         }
-        if (LIVE_TRADING_ENABLED) executeEntry(pair, isLong, dev, ctx, active);
-        else paperEntry(pair, isLong, px, ctx);
+        paperEntry(pair, isLong, rv.price, ctx);
     }
 
     // =========================================================================
@@ -980,8 +887,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static boolean executeEntry(String pair, boolean isLong, DevResult dev, String ctx, Set<String> active) {
         try {
-            double currentPrice = getLastPrice(pair);
-            String cancel = recheckDeveloping(isLong, dev, currentPrice, System.currentTimeMillis());
+            // Immediate pre-order revalidation on fresh source candles + the latest price (3M/5M/15M).
+            Revalidation rv = revalidateBeforeOrder(pair, isLong);
+            double currentPrice = rv.price;
+            String cancel = rv.reason != null ? rv.reason : recheckDeveloping(isLong, dev, currentPrice, System.currentTimeMillis());
             if (cancel != null) {
                 System.out.println("SIGNAL CANCELLED - " + pair + " - " + cancel);
                 return false;
@@ -1000,7 +909,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             double qty = q.qty;
 
-            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (counter-Supertrend) ====");
+            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (3M+5M+15M developing candles) ====");
             System.out.printf("  Price=%.6f preSL=%.6f preTP=%.6f | Qty=%.6f Lev=%dx%n", currentPrice, pre.sl, pre.tp, qty, LEVERAGE);
 
             String side = isLong ? "buy" : "sell";
@@ -1598,57 +1507,30 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return j;
     }
 
-    // 5M candles ending at `boundary - 5min`. path(i) gives the close of candle i (0..n-1); candle opens at the previous close.
-    private static JSONArray series5(long boundary, int n, java.util.function.IntToDoubleFunction path) {
+    // 1M candles are retained only as a source series so the exact 3M/5M/15M bucket-start opens can be read.
+    // There is NO 1M timeframe in the entry decision.
+    private static JSONArray raw1For(long nowMs, double defOpen, double o3, double o5, double o15) {
         JSONArray a = new JSONArray();
-        double prev = path.applyAsDouble(0);
-        for (int i = 0; i < n; i++) {
-            long t = boundary - (long) (n - i) * FIVE_MIN_MS;
-            double c = path.applyAsDouble(i);
-            a.put(candle(t, prev, Math.max(prev, c) + 0.02, Math.min(prev, c) - 0.02, c));
-            prev = c;
+        long s1 = alignedStart(nowMs, MIN_MS, 0), s3 = alignedStart(nowMs, 3 * MIN_MS, 0);
+        long s5 = alignedStart(nowMs, 5 * MIN_MS, 0), s15 = alignedStart(nowMs, FIFTEEN_MIN_MS, 0);
+        for (long t = s15; t <= s1; t += MIN_MS) {
+            double o = defOpen;
+            if (t == s3) o = o3;
+            if (t == s5) o = o5;
+            if (t == s15) o = o15;
+            a.put(candle(t, o, Math.max(o, 100) + 1, Math.min(o, 100) - 1, 100));
         }
         return a;
     }
 
     static boolean selfTest() {
         testsRun = 0; testsFailed = 0;
-        long boundary = (1_760_000_000_000L / (12 * HOUR_MS)) * (12 * HOUR_MS);   // multiple of 1H,2H,3H,4H
-        long now = boundary + 20_000L;
-        int n = HTF_FETCH_5M_BARS;
-        int tail = 24;                                                             // last 2 hours move against the trend
-
-        System.out.println("[Test] LONG setup: all Supertrend RED, closed 1H/2H GREEN");
-        JSONArray down = series5(boundary, n, i -> i < n - tail ? 200.0 - 100.0 * i / (n - tail) : 100.0 + 0.6 * (i - (n - tail) + 1) / tail);
-        HtfState hl = evaluateHtf(down, now);
-        check("HTF valid", hl.valid);
-        check("1H..4H Supertrend all RED", !hl.stGreen[0] && !hl.stGreen[1] && !hl.stGreen[2] && !hl.stGreen[3]);
-        check("closed 1H and 2H candles GREEN", hl.closedColour[0] == 1 && hl.closedColour[1] == 1);
-        check("all-ST-RED flag set (LONG candidate base)", hl.allStRed);
-        check("side not set without developing momentum", hl.side == 0);
-
-        System.out.println("[Test] SHORT setup: all Supertrend GREEN, closed 1H/2H RED");
-        JSONArray up = series5(boundary, n, i -> i < n - tail ? 100.0 + 100.0 * i / (n - tail) : 200.0 - 0.6 * (i - (n - tail) + 1) / tail);
-        HtfState hs = evaluateHtf(up, now);
-        check("1H..4H Supertrend all GREEN", hs.valid && hs.stGreen[0] && hs.stGreen[1] && hs.stGreen[2] && hs.stGreen[3]);
-        check("closed 1H and 2H candles RED", hs.closedColour[0] == -1 && hs.closedColour[1] == -1);
-        check("all-ST-GREEN flag set (SHORT candidate base)", hs.allStGreen);
-        check("side not set without developing momentum", hs.side == 0);
-
-        System.out.println("[Test] No setup: trend simply continues (closed 1H/2H candles agree with Supertrend)");
-        HtfState hn = evaluateHtf(series5(boundary, n, i -> 100.0 + 100.0 * i / n), now);
-        check("no side", hn.valid && hn.side == 0);
-
-        System.out.println("[Test] Incomplete candle: newest 5M candle missing -> latest 1H bucket incomplete");
-        JSONArray cut = new JSONArray();
-        for (int i = 0; i < down.length() - 1; i++) cut.put(down.getJSONObject(i));
-        HtfState hi2 = evaluateHtf(cut, now);
-        check("rejected (not valid)", !hi2.valid && hi2.reason.contains("latest closed candle"));
 
         System.out.println("[Test] Candle aggregation (complete buckets only, time-aligned)");
+        long boundary = (1_760_000_000_000L / (12 * HOUR_MS)) * (12 * HOUR_MS);
         long b15 = (boundary / FIFTEEN_MIN_MS) * FIFTEEN_MIN_MS;
         JSONArray five = new JSONArray();
-        five.put(candle(b15 - FIVE_MIN_MS, 1, 2, 0.5, 1.5));                         // belongs to an incomplete earlier bucket
+        five.put(candle(b15 - FIVE_MIN_MS, 1, 2, 0.5, 1.5));
         for (int i = 0; i < 3; i++) five.put(candle(b15 + i * FIVE_MIN_MS, 10 + i, 20 + i, 5 + i, 11 + i));
         JSONArray agg = aggregateByTime(five, FIFTEEN_MIN_MS, FIVE_MIN_MS, 0L);
         check("only the complete 15M bucket kept", agg != null && agg.length() == 1);
@@ -1656,22 +1538,80 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 && agg.getJSONObject(0).getDouble("close") == 13 && agg.getJSONObject(0).getDouble("high") == 22
                 && agg.getJSONObject(0).getDouble("low") == 5);
 
-        System.out.println("[Test] Developing candle strong momentum (all 4 TFs, dynamic ATR)");
-        long nowDev = boundary + 2 * HOUR_MS + 40_000L;
-        long s3 = alignedStart(nowDev, 3 * HOUR_MS, 0), s4 = alignedStart(nowDev, 4 * HOUR_MS, 0);
-        JSONArray rawDev = new JSONArray();
-        for (long t = alignedStart(nowDev, FIVE_MIN_MS, 0) - 6 * HOUR_MS; t <= alignedStart(nowDev, FIVE_MIN_MS, 0); t += FIVE_MIN_MS)
-            rawDev.put(candle(t, 100, 101, 99, 100));
-        DevResult dUp = evalDeveloping(rawDev, rawDev, nowDev, 101.0);
-        check("price above all opens with sufficient strength -> LONG ok", dUp.ok && dUp.longOk);
-        check("SHORT does not match (price above open)", !dUp.shortOk);
-        check("re-check passes while momentum holds", recheckDeveloping(true, dUp, 101.0, nowDev + 30_000L) == null);
-        check("re-check cancels when price falls below opens", recheckDeveloping(true, dUp, 99.5, nowDev + 30_000L) != null);
-        check("re-check cancels when 3H bucket rolls over", recheckDeveloping(true, dUp, 101.0, s3 + 3 * HOUR_MS + 5_000L) != null);
-        JSONArray gap = new JSONArray();
-        for (int i = 0; i < rawDev.length(); i++) if (candleTimeMs(rawDev.getJSONObject(i)) != s4) gap.put(rawDev.getJSONObject(i));
-        check("missing 5M candle at the 4H open -> rejected", !evalDeveloping(gap, gap, nowDev, 101.0).ok);
+        System.out.println("[Test] 3M+5M+15M developing-candle entry decision");
+        long hourStart = (1_760_000_000_000L / HOUR_MS) * HOUR_MS;
+        long nowT = hourStart + 14 * MIN_MS + 30_000L; // active buckets: 3M=12, 5M=10, 15M=0
+        double P = 100.0;
+        DevResult bull = evalDeveloping(raw1For(nowT, 100, 99, 99, 99), nowT, P);
+        check("1. all three bullish -> BUY", bull.ok && decideSignal(bull).equals("BUY"));
+        DevResult bear = evalDeveloping(raw1For(nowT, 100, 101, 101, 101), nowT, P);
+        check("2. all three bearish -> SELL", bear.ok && decideSignal(bear).equals("SELL"));
+        DevResult mixed = evalDeveloping(raw1For(nowT, 100, 99, 101, 99), nowT, P);
+        check("3. mixed bullish/bearish -> NO TRADE", mixed.ok && decideSignal(mixed).equals("NO TRADE") && noTradeReason(mixed).startsWith("mixed"));
+        double[][] eq = { {100, 99, 99}, {99, 100, 99}, {99, 99, 100} };
+        for (int k = 0; k < 3; k++) {
+            DevResult e = evalDeveloping(raw1For(nowT, 100, eq[k][0], eq[k][1], eq[k][2]), nowT, P);
+            check((4 + k) + ". price equals the " + DEV_TF_NAMES[k] + " open -> NO TRADE",
+                    e.ok && e.col[k] == 0 && decideSignal(e).equals("NO TRADE") && noTradeReason(e).contains(DEV_TF_NAMES[k]));
+        }
 
+        JSONArray full = raw1For(nowT, 100, 99, 99, 99);
+        DevResult noData = evalDeveloping(null, nowT, P);
+        check("7a. no candle data -> NO TRADE", !noData.ok && noData.code.equals("noData") && decideSignal(noData).equals("NO TRADE"));
+        long s3T = alignedStart(nowT, 3 * MIN_MS, 0);
+        JSONArray no3 = new JSONArray();
+        for (int i = 0; i < full.length(); i++) if (candleTimeMs(full.getJSONObject(i)) != s3T) no3.put(full.getJSONObject(i));
+        DevResult m3 = evalDeveloping(no3, nowT, P);
+        check("7b. missing source candle at the 3M open -> NO TRADE", !m3.ok && m3.code.equals("noOpen") && m3.reason.contains("3M") && decideSignal(m3).equals("NO TRADE"));
+        check("7c. invalid price -> NO TRADE", !evalDeveloping(full, nowT, 0).ok && !evalDeveloping(full, nowT, Double.NaN).ok);
+
+        DevResult staleLag = evalDeveloping(full, nowT + 2 * MIN_MS, P);
+        check("8a. stale source data -> NO TRADE", !staleLag.ok && staleLag.code.equals("stale"));
+        JSONArray onlyClosed = new JSONArray();
+        for (int i = 0; i < full.length() - 1; i++) onlyClosed.put(full.getJSONObject(i));
+        DevResult closedOnly = evalDeveloping(onlyClosed, nowT, P);
+        check("8b. no current source candle -> NO TRADE", !closedOnly.ok && closedOnly.code.equals("stale"));
+
+        JSONArray shifted = new JSONArray();
+        for (int i = 0; i < full.length(); i++) {
+            JSONObject c = full.getJSONObject(i);
+            shifted.put(candle(candleTimeMs(c) + 7_000L, c.getDouble("open"), c.getDouble("high"), c.getDouble("low"), c.getDouble("close")));
+        }
+        DevResult mis = evalDeveloping(shifted, nowT, P);
+        check("9a. misaligned source timestamps -> NO TRADE", !mis.ok && mis.code.equals("misaligned") && decideSignal(mis).equals("NO TRADE"));
+        JSONArray fut = new JSONArray();
+        for (int i = 0; i < full.length(); i++) fut.put(full.getJSONObject(i));
+        fut.put(candle(alignedStart(nowT, MIN_MS, 0) + MIN_MS, 99, 101, 98, 100));
+        DevResult futR = evalDeveloping(fut, nowT, P);
+        check("9b. future source candle -> NO TRADE", !futR.ok && futR.code.equals("future"));
+
+        System.out.println("[Test] 3M/5M/15M timeframe boundary transition");
+        for (int m : new int[]{14, 15}) {
+            long nowM = hourStart + m * MIN_MS + 10_000L;
+            JSONArray rawM = new JSONArray();
+            for (int i = 0; i <= m; i++) rawM.put(candle(hourStart + i * MIN_MS, 100 + i, 120, 80, 100));
+            DevResult dm = evalDeveloping(rawM, nowM, 150.0);
+            double[] want = {100 + 3 * (m / 3), 100 + 5 * (m / 5), 100 + 15 * (m / 15)};
+            boolean okOpens = dm.ok;
+            for (int k = 0; k < 3; k++) okOpens = okOpens && Math.abs(dm.open[k] - want[k]) < 1e-9;
+            check("10. minute " + m + " opens are 3M=" + want[0] + " 5M=" + want[1] + " 15M=" + want[2], okOpens);
+        }
+        DevResult at15 = evalDeveloping(rawBoundary(hourStart, 15), hourStart + 15 * MIN_MS + 10_000L, 150.0);
+        check("10b. new 15M candle uses its own open (115)", at15.ok && Math.abs(at15.open[2] - 115.0) < 1e-9 && at15.open[2] != 114.0);
+
+        System.out.println("[Test] Pre-order revalidation");
+        DevResult sig = evalDeveloping(raw1For(nowT, 100, 99, 99, 99), nowT, P);
+        long nowO = nowT + 5_000L;
+        check("signal-time check: BUY", decideSignal(sig).equals("BUY"));
+        check("11a. fresh data still bullish on all three -> order allowed",
+                revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99, 99, 99), nowO, 100.4)) == null);
+        String why = revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99.5, 99, 99), nowO, 99.4));
+        check("11b. price fell below the 3M open during revalidation -> NO ORDER", why != null && why.contains("no longer valid"));
+        check("11c. fresh candles stale/incomplete -> NO ORDER", revalidateDeveloping(true, evalDeveloping(onlyClosed, nowO, 100.4)) != null);
+        check("11d. direction flipped to SELL on all three -> NO ORDER for a BUY", revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 101, 101, 101), nowO, 100.0)) != null);
+        check("11e. signal-time re-check passes while the candles hold", recheckDeveloping(true, sig, 100.4, nowT + 20_000L) == null);
+        check("11f. signal-time re-check cancels when price falls below an open", recheckDeveloping(true, sig, 98.5, nowT + 20_000L) != null);
+        check("11g. signal-time re-check cancels when the 3M candle rolled over", recheckDeveloping(true, sig, 100.4, nowT + 3 * MIN_MS) != null);
 
         System.out.println("[Test] 5M swing breakout (closed candles, fresh break only)");
         double[] hiL = {5, 6, 7, 9, 7, 6, 5, 5.5, 5.2, 5.1, 5.3, 9.5};
@@ -1691,8 +1631,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         System.out.println("[Test] Fixed SL / TP from the actual average entry");
         SlTp l = computeFixedSlTp(true, 100.0, 0.01), s = computeFixedSlTp(false, 100.0, 0.01);
-        check("LONG SL=99.00 TP=101.20", l.ok && Math.abs(l.sl - 99.0) < 1e-9 && Math.abs(l.tp - 101.2) < 1e-9);
-        check("SHORT SL=101.00 TP=98.80", s.ok && Math.abs(s.sl - 101.0) < 1e-9 && Math.abs(s.tp - 98.8) < 1e-9);
+        double eSl = FIXED_SL_PERCENT / 100.0, eTp = FIXED_TP_PERCENT / 100.0;
+        check("LONG SL/TP = entry -/+ configured percent", l.ok && Math.abs(l.sl - 100.0 * (1 - eSl)) < 0.006 && Math.abs(l.tp - 100.0 * (1 + eTp)) < 0.006);
+        check("SHORT SL/TP = entry +/- configured percent", s.ok && Math.abs(s.sl - 100.0 * (1 + eSl)) < 0.006 && Math.abs(s.tp - 100.0 * (1 - eTp)) < 0.006);
         SlTp avg = computeFixedSlTp(true, 102.5, 0.5);
         check("tick rounding keeps SL/TP on the correct side", avg.ok && avg.sl < 102.5 && avg.tp > 102.5);
 
@@ -1721,7 +1662,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.println("\nSelf-test: " + (testsRun - testsFailed) + "/" + testsRun + " passed");
         return testsFailed == 0;
     }
+
+    // 1M candles for minutes 0..m of the hour starting at hourStart; the candle of minute i opens at 100 + i.
+    private static JSONArray rawBoundary(long hourStart, int m) {
+        JSONArray a = new JSONArray();
+        for (int i = 0; i <= m; i++) a.put(candle(hourStart + i * MIN_MS, 100 + i, 120, 80, 100));
+        return a;
+    }
 }
+
+
 
 
 
