@@ -22,24 +22,24 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 // =============================================================================
-// 1M + 3M + 5M + 15M DEVELOPING CANDLE STRATEGY (fixed SL / TP)
+// 3M + 5M + 15M DEVELOPING CANDLE STRATEGY (fixed SL / TP)
 //
-//   All four timeframes use the currently FORMING (developing) candle, compared with ONE current price:
+//   All three timeframes use the currently FORMING (developing) candle, compared with ONE current price:
 //
-//   BUY / LONG  (all four must be true):
-//     price > developing 1M open  AND  price > developing 3M open
-//     AND price > developing 5M open  AND  price > developing 15M open
+//   BUY / LONG  (all three must be true):
+//     price > developing 3M open AND price > developing 5M open
+//     AND price > developing 15M open
 //
-//   SELL / SHORT (all four must be true):
-//     price < developing 1M open  AND  price < developing 3M open
-//     AND price < developing 5M open  AND  price < developing 15M open
+//   SELL / SHORT (all three must be true):
+//     price < developing 3M open AND price < developing 5M open
+//     AND price < developing 15M open
 //
 //   NO TRADE: price above some opens but below others, price EQUAL to any open, or any timeframe's candle
 //   data is missing / invalid / stale / misaligned / from the future.
 //
-//   Developing opens come from the 1M candles (the 3M/5M/15M open = open of the 1M candle that starts that
-//   bucket, buckets aligned to the epoch/UTC minute boundaries). Immediately before an order the candles and the
-//   price are fetched again and all four conditions are re-validated.
+//   The 1M candle feed is used only as raw source data to identify the exact 3M/5M/15M bucket opens; 1M is NOT an entry timeframe. Each 3M/5M/15M open is the open of the source 1M candle that starts that
+//   bucket; buckets are aligned to epoch/UTC minute boundaries). Immediately before an order the candles and the
+//   price are fetched again and all three conditions are re-validated.
 //
 //   No EMA, RSI, MACD, Supertrend, ATR, VWAP, ADX, swing high/low or any other indicator is used for the entry decision.
 //
@@ -58,8 +58,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 4.0;
-    static final double  FIXED_TP_PERCENT = 2.5; //3.5;
+    static final double  FIXED_SL_PERCENT = 5.0;
+    static final double  FIXED_TP_PERCENT = 0.45; //3.5;
     static final boolean TRAILING_ENABLED = false;   // not implemented in this strategy version (warns if set to true)
 
     // =========================================================================
@@ -82,7 +82,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 10;
+    private static final int MAX_OPEN_POSITIONS = 20;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
@@ -91,7 +91,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 16;
+    private static final int    LEVERAGE     = 15;
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
@@ -389,24 +389,21 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // DEVELOPING 1M / 3M / 5M / 15M candle direction (current price vs the candle's actual open)
+    // DEVELOPING 3M / 5M / 15M candle direction (current price vs the candle's actual open)
     // =========================================================================
-    static final int     DEV_FETCH_1M        = 40;     // 1M candles fetched per evaluation (covers the 15M bucket start + margin)
+    static final int     DEV_FETCH_1M        = 40;     // 1M source candles used only to derive the 3M/5M/15M bucket opens
     static final boolean LOG_NO_TRADE_DETAIL = true;   // also print the per-timeframe comparison for NO TRADE symbols
     static final String[] DEV_TF_NAMES = {"3M", "5M", "15M"};
-    // static final long[]   DEV_TF_MS    = {MIN_MS, 3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS};
-    static final long[] DEV_TF_MS = {
-    3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS
-};
+    static final long[]   DEV_TF_MS    = {3 * MIN_MS, 5 * MIN_MS, FIFTEEN_MIN_MS};
 
     static class DevResult {
         boolean ok;
         String code = "";                       // failure category: noData / stale / future / misaligned / noOpen / noPrice
         String reason = "";
-        final long[] start = new long[3];       // bucket start of the developing candle, index 0..3 = 1M, 3M, 5M, 15M
+        final long[] start = new long[3];       // bucket start of the developing 3M, 5M, 15M candles
         final double[] open = new double[3];    // actual open of the developing candle
         final int[] col = new int[3];           // +1 price above the open, -1 below, 0 equal
-        double price;                           // the ONE price used for all four comparisons
+        double price;                           // the ONE price used for all three comparisons
     }
 
     private static DevResult devFail(DevResult d, String code, String reason) {
@@ -430,8 +427,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // Candle-series validation. Returns null if usable, otherwise "<code>: <reason>".
-    //  - every timestamp must sit on a 1M boundary (misaligned otherwise)
-    //  - the newest candle must be exactly the CURRENT forming 1M candle (older = stale / only completed candles, newer = future)
+    //  - every source timestamp must sit on a 1M boundary (misaligned otherwise)
+    //  - the newest source candle must be exactly the CURRENT forming 1M candle (older = stale / only completed candles, newer = future)
     static String validateDevCandles(JSONArray raw1, long nowMs) {
         if (raw1 == null || raw1.length() == 0) return "noData: no 1M candle data returned";
         long expected1 = alignedStart(nowMs, MIN_MS, 0L);
@@ -463,14 +460,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             d.start[k] = alignedStart(nowMs, DEV_TF_MS[k], 0L);
             d.open[k] = openAt(raw1, d.start[k]);
             if (Double.isNaN(d.open[k]))
-                return devFail(d, "noOpen", "developing " + DEV_TF_NAMES[k] + " open unavailable (no valid 1M candle at " + fmtTime(d.start[k]) + ")");
+                return devFail(d, "noOpen", "developing " + DEV_TF_NAMES[k] + " open unavailable (no valid source candle at " + fmtTime(d.start[k]) + ")");
         }
         for (int k = 0; k < 3; k++) d.col[k] = colourOf(d.open[k], price);
         d.ok = true;
         return d;
     }
 
-    // "BUY" only if the price is above ALL four developing opens, "SELL" only if below ALL four, otherwise "NO TRADE".
+    // "BUY" only if price is above all 3M/5M/15M developing opens; "SELL" only if below all three; otherwise NO TRADE.
     static String decideSignal(DevResult d) {
         if (d == null || !d.ok) return "NO TRADE";
         boolean allUp = true, allDown = true;
@@ -488,7 +485,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Per-timeframe comparison text for the logs.
     static String describeDev(DevResult d) {
         StringBuilder sb = new StringBuilder(String.format("price=%.6f", d.price));
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 3; k++)
             sb.append(String.format(" | %s[DEVELOPING open@%s=%.6f] price>open=%s price<open=%s", DEV_TF_NAMES[k],
                     fmtTime(d.start[k]), d.open[k], d.price > d.open[k], d.price < d.open[k]));
         return sb.toString();
@@ -497,7 +494,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Why a valid-data evaluation produced NO TRADE.
     static String noTradeReason(DevResult d) {
         StringBuilder up = new StringBuilder(), down = new StringBuilder();
-        for (int k = 0; k < 4; k++) {
+        for (int k = 0; k < 3; k++) {
             if (d.col[k] == 0) return "price equals the " + DEV_TF_NAMES[k] + " developing open (" + d.open[k] + ")";
             StringBuilder t = d.col[k] > 0 ? up : down;
             if (t.length() > 0) t.append(',');
@@ -509,14 +506,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Cheap re-check against the signal-time evaluation: same developing candles still current + same direction.
     static String recheckDeveloping(boolean isLong, DevResult dev, double px, long nowMs) {
         if (dev == null || !dev.ok) return "developing candle data unavailable";
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 3; k++)
             if (alignedStart(nowMs, DEV_TF_MS[k], 0L) != dev.start[k])
                 return DEV_TF_NAMES[k] + " developing candle rolled over to a new candle - signal is stale";
         if (!(px > 0)) return "no current price for developing-candle re-check";
         int want = isLong ? 1 : -1;
-        int[] c = new int[4];
+        int[] c = new int[3];
         boolean same = true;
-        for (int k = 0; k < 4; k++) {
+        for (int k = 0; k < 3; k++) {
             c[k] = colourOf(dev.open[k], px);
             if (c[k] != want) same = false;
         }
@@ -526,19 +523,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return null;
     }
 
-    // Pre-order revalidation on FRESH data: all four developing opens + conditions must still give the same direction.
+    // Pre-order revalidation on FRESH data: all three developing opens + conditions must still give the same direction.
     // Returns null if the order may be placed, otherwise the reason it must not be.
     static String revalidateDeveloping(boolean isLong, DevResult fresh) {
         if (fresh == null || !fresh.ok)
             return "pre-order revalidation failed: " + (fresh == null ? "no data" : fresh.reason);
         if (!devMatches(fresh, isLong))
-            return String.format("pre-order revalidation: %s no longer valid on all of 1M/3M/5M/15M (now %s - %s)",
+            return String.format("pre-order revalidation: %s no longer valid on all of 3M/5M/15M (now %s - %s)",
                     isLong ? "BUY" : "SELL", decideSignal(fresh), noTradeReasonSafe(fresh, isLong));
         return null;
     }
 
     private static String noTradeReasonSafe(DevResult fresh, boolean isLong) {
-        return decideSignal(fresh).equals("NO TRADE") ? noTradeReason(fresh) : "opposite direction on all four timeframes";
+        return decideSignal(fresh).equals("NO TRADE") ? noTradeReason(fresh) : "opposite direction on all three timeframes";
     }
 
     static class Revalidation {
@@ -546,7 +543,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double price;
     }
 
-    // Fetches fresh 1M candles AND the latest price, re-derives all four developing opens and re-checks the conditions.
+    // Fetches fresh 1M source candles AND the latest price, re-derives all three developing opens and re-checks the conditions.
     private static Revalidation revalidateBeforeOrder(String pair, boolean isLong) {
         Revalidation rv = new Revalidation();
         JSONArray raw1 = fetchCandlesPaged(pair, "1", 1, DEV_FETCH_1M);
@@ -688,7 +685,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER (live trading disabled)")
-                + " | 1M + 3M + 5M + 15M DEVELOPING CANDLE STRATEGY"
+                + " | 3M + 5M + 15M DEVELOPING CANDLE STRATEGY"
                 + " | SL=" + FIXED_SL_PERCENT + "% TP=" + FIXED_TP_PERCENT + "% | liquid list=" + USE_LIQUID_LIST
                 + " (" + COINS_TO_TRADE.length + " symbols) ===");
         if (TRAILING_ENABLED) System.out.println("[WARN] TRAILING_ENABLED=true but trailing is not implemented in this strategy version - ignored");
@@ -755,7 +752,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 JSONArray raw1 = fetchCandlesPaged(pair, "1", 1, DEV_FETCH_1M);
                 if (raw1 == null || raw1.length() == 0) { reject(rej, "data1m"); continue; }
 
-                // ONE price for all four comparisons; `now` is taken after the candles and the price were fetched so that
+                // ONE price for all three comparisons; `now` is taken after the candles and the price were fetched so that
                 // the timestamp validation reflects the real moment of the evaluation (a boundary crossed meanwhile => stale).
                 double price = getLastPrice(pair);
                 long now = System.currentTimeMillis();
@@ -779,9 +776,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 String sigKey = pair + "|" + (isLong ? "LONG" : "SHORT");
                 long expected3 = dev.start[0];
                 Long prevSig = lastSignalCandle.get(sigKey);
-                if (prevSig != null && prevSig == expected1) { reject(rej, "duplicateSignal"); continue; }
+                if (prevSig != null && prevSig == expected3) { reject(rej, "duplicateSignal"); continue; }
 
-                if (!registerSignal(lastSignalCandle, sigKey, expected1)) { reject(rej, "duplicateSignal"); continue; }
+                if (!registerSignal(lastSignalCandle, sigKey, expected3)) { reject(rej, "duplicateSignal"); continue; }
                 signals++;
                 logCandidate(pair, decision, detail, "SIGNAL");
                 String ctx = String.format("3M=%s 5M=%s 15M=%s", colName(dev.col[0]), colName(dev.col[1]), colName(dev.col[2]));
@@ -890,7 +887,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     private static boolean executeEntry(String pair, boolean isLong, DevResult dev, String ctx, Set<String> active) {
         try {
-            // Immediate pre-order revalidation on FRESH 1M candles + the latest price (all four timeframes).
+            // Immediate pre-order revalidation on fresh source candles + the latest price (3M/5M/15M).
             Revalidation rv = revalidateBeforeOrder(pair, isLong);
             double currentPrice = rv.price;
             String cancel = rv.reason != null ? rv.reason : recheckDeveloping(isLong, dev, currentPrice, System.currentTimeMillis());
@@ -912,7 +909,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             double qty = q.qty;
 
-            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (1M+3M+5M+15M developing candles) ====");
+            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (3M+5M+15M developing candles) ====");
             System.out.printf("  Price=%.6f preSL=%.6f preTP=%.6f | Qty=%.6f Lev=%dx%n", currentPrice, pre.sl, pre.tp, qty, LEVERAGE);
 
             String side = isLong ? "buy" : "sell";
@@ -1510,16 +1507,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return j;
     }
 
-    // 1M candles from the start of the 15M bucket up to and including the forming 1M candle. Every candle opens at
-    // `defOpen`, except the four candles that START the developing 1M / 3M / 5M / 15M buckets (given opens).
-    // Use a `nowMs` where those four start candles are different candles.
-    private static JSONArray raw1For(long nowMs, double defOpen, double o1, double o3, double o5, double o15) {
+    // 1M candles are retained only as a source series so the exact 3M/5M/15M bucket-start opens can be read.
+    // There is NO 1M timeframe in the entry decision.
+    private static JSONArray raw1For(long nowMs, double defOpen, double o3, double o5, double o15) {
         JSONArray a = new JSONArray();
         long s1 = alignedStart(nowMs, MIN_MS, 0), s3 = alignedStart(nowMs, 3 * MIN_MS, 0);
         long s5 = alignedStart(nowMs, 5 * MIN_MS, 0), s15 = alignedStart(nowMs, FIFTEEN_MIN_MS, 0);
         for (long t = s15; t <= s1; t += MIN_MS) {
             double o = defOpen;
-            if (t == s1) o = o1;
             if (t == s3) o = o3;
             if (t == s5) o = o5;
             if (t == s15) o = o15;
@@ -1543,39 +1538,39 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 && agg.getJSONObject(0).getDouble("close") == 13 && agg.getJSONObject(0).getDouble("high") == 22
                 && agg.getJSONObject(0).getDouble("low") == 5);
 
-        System.out.println("[Test] 1M+3M+5M+15M developing-candle entry decision");
+        System.out.println("[Test] 3M+5M+15M developing-candle entry decision");
         long hourStart = (1_760_000_000_000L / HOUR_MS) * HOUR_MS;
-        long nowT = hourStart + 14 * MIN_MS + 30_000L;            // developing candles start at minute 14 (1M), 12 (3M), 10 (5M), 0 (15M)
+        long nowT = hourStart + 14 * MIN_MS + 30_000L; // active buckets: 3M=12, 5M=10, 15M=0
         double P = 100.0;
-        DevResult bull = evalDeveloping(raw1For(nowT, 100, 99, 99, 99, 99), nowT, P);
-        check("1. all four bullish -> BUY", bull.ok && decideSignal(bull).equals("BUY"));
-        DevResult bear = evalDeveloping(raw1For(nowT, 100, 101, 101, 101, 101), nowT, P);
-        check("2. all four bearish -> SELL", bear.ok && decideSignal(bear).equals("SELL"));
-        DevResult mixed = evalDeveloping(raw1For(nowT, 100, 99, 99, 101, 99), nowT, P);
+        DevResult bull = evalDeveloping(raw1For(nowT, 100, 99, 99, 99), nowT, P);
+        check("1. all three bullish -> BUY", bull.ok && decideSignal(bull).equals("BUY"));
+        DevResult bear = evalDeveloping(raw1For(nowT, 100, 101, 101, 101), nowT, P);
+        check("2. all three bearish -> SELL", bear.ok && decideSignal(bear).equals("SELL"));
+        DevResult mixed = evalDeveloping(raw1For(nowT, 100, 99, 101, 99), nowT, P);
         check("3. mixed bullish/bearish -> NO TRADE", mixed.ok && decideSignal(mixed).equals("NO TRADE") && noTradeReason(mixed).startsWith("mixed"));
-        double[][] eq = { {100, 99, 99, 99}, {99, 100, 99, 99}, {99, 99, 100, 99}, {99, 99, 99, 100} };
-        for (int k = 0; k < 4; k++) {
-            DevResult e = evalDeveloping(raw1For(nowT, 100, eq[k][0], eq[k][1], eq[k][2], eq[k][3]), nowT, P);
+        double[][] eq = { {100, 99, 99}, {99, 100, 99}, {99, 99, 100} };
+        for (int k = 0; k < 3; k++) {
+            DevResult e = evalDeveloping(raw1For(nowT, 100, eq[k][0], eq[k][1], eq[k][2]), nowT, P);
             check((4 + k) + ". price equals the " + DEV_TF_NAMES[k] + " open -> NO TRADE",
                     e.ok && e.col[k] == 0 && decideSignal(e).equals("NO TRADE") && noTradeReason(e).contains(DEV_TF_NAMES[k]));
         }
 
-        JSONArray full = raw1For(nowT, 100, 99, 99, 99, 99);
+        JSONArray full = raw1For(nowT, 100, 99, 99, 99);
         DevResult noData = evalDeveloping(null, nowT, P);
-        check("8a. no candle data -> NO TRADE", !noData.ok && noData.code.equals("noData") && decideSignal(noData).equals("NO TRADE"));
+        check("7a. no candle data -> NO TRADE", !noData.ok && noData.code.equals("noData") && decideSignal(noData).equals("NO TRADE"));
         long s3T = alignedStart(nowT, 3 * MIN_MS, 0);
         JSONArray no3 = new JSONArray();
         for (int i = 0; i < full.length(); i++) if (candleTimeMs(full.getJSONObject(i)) != s3T) no3.put(full.getJSONObject(i));
         DevResult m3 = evalDeveloping(no3, nowT, P);
-        check("8b. missing candle at the 3M open -> NO TRADE", !m3.ok && m3.code.equals("noOpen") && m3.reason.contains("3M") && decideSignal(m3).equals("NO TRADE"));
-        check("8c. invalid price -> NO TRADE", !evalDeveloping(full, nowT, 0).ok && !evalDeveloping(full, nowT, Double.NaN).ok);
+        check("7b. missing source candle at the 3M open -> NO TRADE", !m3.ok && m3.code.equals("noOpen") && m3.reason.contains("3M") && decideSignal(m3).equals("NO TRADE"));
+        check("7c. invalid price -> NO TRADE", !evalDeveloping(full, nowT, 0).ok && !evalDeveloping(full, nowT, Double.NaN).ok);
 
         DevResult staleLag = evalDeveloping(full, nowT + 2 * MIN_MS, P);
-        check("9a. stale data (newest candle 2 minutes old) -> NO TRADE", !staleLag.ok && staleLag.code.equals("stale"));
+        check("8a. stale source data -> NO TRADE", !staleLag.ok && staleLag.code.equals("stale"));
         JSONArray onlyClosed = new JSONArray();
         for (int i = 0; i < full.length() - 1; i++) onlyClosed.put(full.getJSONObject(i));
         DevResult closedOnly = evalDeveloping(onlyClosed, nowT, P);
-        check("9b. only completed candles returned (no forming candle) -> NO TRADE", !closedOnly.ok && closedOnly.code.equals("stale"));
+        check("8b. no current source candle -> NO TRADE", !closedOnly.ok && closedOnly.code.equals("stale"));
 
         JSONArray shifted = new JSONArray();
         for (int i = 0; i < full.length(); i++) {
@@ -1583,40 +1578,40 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             shifted.put(candle(candleTimeMs(c) + 7_000L, c.getDouble("open"), c.getDouble("high"), c.getDouble("low"), c.getDouble("close")));
         }
         DevResult mis = evalDeveloping(shifted, nowT, P);
-        check("10a. misaligned candle timestamps -> NO TRADE", !mis.ok && mis.code.equals("misaligned") && decideSignal(mis).equals("NO TRADE"));
+        check("9a. misaligned source timestamps -> NO TRADE", !mis.ok && mis.code.equals("misaligned") && decideSignal(mis).equals("NO TRADE"));
         JSONArray fut = new JSONArray();
         for (int i = 0; i < full.length(); i++) fut.put(full.getJSONObject(i));
         fut.put(candle(alignedStart(nowT, MIN_MS, 0) + MIN_MS, 99, 101, 98, 100));
         DevResult futR = evalDeveloping(fut, nowT, P);
-        check("10b. future candle -> NO TRADE", !futR.ok && futR.code.equals("future"));
+        check("9b. future source candle -> NO TRADE", !futR.ok && futR.code.equals("future"));
 
-        System.out.println("[Test] Timeframe boundary transition -> correct developing candle");
+        System.out.println("[Test] 3M/5M/15M timeframe boundary transition");
         for (int m : new int[]{14, 15}) {
             long nowM = hourStart + m * MIN_MS + 10_000L;
             JSONArray rawM = new JSONArray();
-            for (int i = 0; i <= m; i++) rawM.put(candle(hourStart + i * MIN_MS, 100 + i, 120, 80, 100));   // open of minute i = 100 + i
+            for (int i = 0; i <= m; i++) rawM.put(candle(hourStart + i * MIN_MS, 100 + i, 120, 80, 100));
             DevResult dm = evalDeveloping(rawM, nowM, 150.0);
-            double[] want = {100 + m, 100 + 3 * (m / 3), 100 + 5 * (m / 5), 100 + 15 * (m / 15)};
+            double[] want = {100 + 3 * (m / 3), 100 + 5 * (m / 5), 100 + 15 * (m / 15)};
             boolean okOpens = dm.ok;
-            for (int k = 0; k < 4; k++) okOpens = okOpens && Math.abs(dm.open[k] - want[k]) < 1e-9;
-            check("11. at minute " + m + " the developing opens are 1M=" + want[0] + " 3M=" + want[1] + " 5M=" + want[2] + " 15M=" + want[3], okOpens);
+            for (int k = 0; k < 3; k++) okOpens = okOpens && Math.abs(dm.open[k] - want[k]) < 1e-9;
+            check("10. minute " + m + " opens are 3M=" + want[0] + " 5M=" + want[1] + " 15M=" + want[2], okOpens);
         }
         DevResult at15 = evalDeveloping(rawBoundary(hourStart, 15), hourStart + 15 * MIN_MS + 10_000L, 150.0);
-        check("11. new 15M candle at minute 15 uses its own open (115), not the previous candle's", at15.ok && Math.abs(at15.open[3] - 115.0) < 1e-9 && at15.open[3] != 114.0);
+        check("10b. new 15M candle uses its own open (115)", at15.ok && Math.abs(at15.open[2] - 115.0) < 1e-9 && at15.open[2] != 114.0);
 
         System.out.println("[Test] Pre-order revalidation");
-        DevResult sig = evalDeveloping(raw1For(nowT, 100, 99, 99, 99, 99), nowT, P);
+        DevResult sig = evalDeveloping(raw1For(nowT, 100, 99, 99, 99), nowT, P);
         long nowO = nowT + 5_000L;
         check("signal-time check: BUY", decideSignal(sig).equals("BUY"));
-        check("12a. fresh data still bullish on all four -> order allowed",
-                revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99, 99, 99, 99), nowO, 100.4)) == null);
-        String why = revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99, 99.5, 99, 99), nowO, 99.4));
-        check("12b. price fell below the 3M open during revalidation -> NO ORDER", why != null && why.contains("no longer valid"));
-        check("12c. fresh candles stale/incomplete -> NO ORDER", revalidateDeveloping(true, evalDeveloping(onlyClosed, nowO, 100.4)) != null);
-        check("12d. direction flipped to SELL on all four -> NO ORDER for a BUY", revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 101, 101, 101, 101), nowO, 100.0)) != null);
-        check("12e. signal-time re-check passes while the candles hold", recheckDeveloping(true, sig, 100.4, nowT + 20_000L) == null);
-        check("12f. signal-time re-check cancels when price falls below an open", recheckDeveloping(true, sig, 98.5, nowT + 20_000L) != null);
-        check("12g. signal-time re-check cancels when the 1M candle rolled over", recheckDeveloping(true, sig, 100.4, nowT + MIN_MS) != null);
+        check("11a. fresh data still bullish on all three -> order allowed",
+                revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99, 99, 99), nowO, 100.4)) == null);
+        String why = revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 99.5, 99, 99), nowO, 99.4));
+        check("11b. price fell below the 3M open during revalidation -> NO ORDER", why != null && why.contains("no longer valid"));
+        check("11c. fresh candles stale/incomplete -> NO ORDER", revalidateDeveloping(true, evalDeveloping(onlyClosed, nowO, 100.4)) != null);
+        check("11d. direction flipped to SELL on all three -> NO ORDER for a BUY", revalidateDeveloping(true, evalDeveloping(raw1For(nowO, 100, 101, 101, 101), nowO, 100.0)) != null);
+        check("11e. signal-time re-check passes while the candles hold", recheckDeveloping(true, sig, 100.4, nowT + 20_000L) == null);
+        check("11f. signal-time re-check cancels when price falls below an open", recheckDeveloping(true, sig, 98.5, nowT + 20_000L) != null);
+        check("11g. signal-time re-check cancels when the 3M candle rolled over", recheckDeveloping(true, sig, 100.4, nowT + 3 * MIN_MS) != null);
 
         System.out.println("[Test] 5M swing breakout (closed candles, fresh break only)");
         double[] hiL = {5, 6, 7, 9, 7, 6, 5, 5.5, 5.2, 5.1, 5.3, 9.5};
@@ -1675,6 +1670,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return a;
     }
 }
+
 
 
 
