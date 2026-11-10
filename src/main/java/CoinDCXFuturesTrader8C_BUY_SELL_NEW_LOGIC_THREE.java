@@ -54,8 +54,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 5.0;
-    static final double  FIXED_TP_PERCENT = 0.45; //3.5;
+    static final double  FIXED_SL_PERCENT = 1.0;
+    static final double  FIXED_TP_PERCENT = 0.6; //3.5;
     static final boolean TRAILING_ENABLED = false;   // not implemented in this strategy version (warns if set to true)
 
     // =========================================================================
