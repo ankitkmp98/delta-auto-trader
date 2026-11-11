@@ -59,15 +59,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 2.0;
-    static final double  FIXED_TP_PERCENT = 2.5;
+    static final double  FIXED_SL_PERCENT = 0.6;
+    static final double  FIXED_TP_PERCENT = 1.0;
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 1.0;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.2;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_ACTIVATION_PERCENT = 0.45;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_STEP_PERCENT       = 0.1;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 15_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
     static final long    TRAIL_VERIFY_DELAY_MS    = 1_500L;  // wait before reading the position back after an update
@@ -105,7 +105,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 12;
+    private static final int    LEVERAGE     = 10;
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
