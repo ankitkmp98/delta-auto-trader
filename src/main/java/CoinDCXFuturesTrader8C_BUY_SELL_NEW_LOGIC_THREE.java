@@ -22,37 +22,20 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 // =============================================================================
-// DEVELOPING MULTI-TIMEFRAME MARUBOZU STRATEGY (fixed SL / TP)
+// SIMPLE DEVELOPING MARUBOZU STRATEGY  (15M / 30M / 45M / 1H, fixed SL / TP)
 //
-//   Signal (DEVELOPING candles + live price only; open = open of the first 5M candle of the UTC-aligned bucket):
-//     A developing candle is a Marubozu when ALL of:
-//       - colour: price > open (bullish) / price < open (bearish); price == open (DOJI) is rejected
-//       - body / range            >= 85%
-//       - upper wick / range      <= 7.5%   AND   lower wick / range <= 7.5%
-//       - body >= 1.5 x average body of the previous 20 COMPLETED candles of that timeframe
-//       - at least 25% of the timeframe has elapsed
+//   A DEVELOPING candle (open = first 5M candle of its UTC bucket, close = live price) is a "thick" Marubozu when:
+//     - GREEN (price > open) or RED (price < open); price == open (DOJI) is rejected
+//     - body >= 85% of the candle range
+//     - upper wick <= 7.5% AND lower wick <= 7.5% of the range
+//     - at least 25% of the timeframe has elapsed (avoids "Marubozu" made of 1-2 ticks)
 //
-//   Timeframes: 15M, 30M, 45M, 1H (developing candles).
-//   LONG  : 15M bull Marubozu AND 30M bull Marubozu AND (45M bull Marubozu OR 1H bull Marubozu)
-//           AND no bearish Marubozu on any of 15M/30M/45M/1H
-//   SHORT : mirror image.
+//   LONG  : 15M bull AND 30M bull AND (45M bull OR 1H bull), and no bearish Marubozu on any timeframe
+//   SHORT : mirror image
+//   Nothing else: no breakout, no EMA, no indicator, no history.
+//   Just before the order, fresh candles + fresh price are fetched and the same rule is checked again.
 //
-//   Entry confirmation (developing candles):
-//     - 5M : live price breaks the previous confirmed swing high (LONG) / swing low (SHORT)
-//            (pivot = 3 candles each side, searched in the previous 60 completed 5M candles, level not broken before)
-//     - 15M: EMA9 > EMA21 (LONG) / EMA9 < EMA21 (SHORT), the developing 15M candle closes at the live price
-//     - 45M and 1H developing candles must both be GREEN (LONG) / RED (SHORT)
-//   Completed candles are used ONLY as history (20-candle average body, swing pivots, EMA history).
-//   Immediately before an order everything is re-fetched and re-evaluated with the fresh price.
-//
-//   Two-stage scan (API economy):
-//     stage 1: one 5M fetch per symbol -> shape / colour / elapsed pre-filter using the forming 5M close
-//     stage 2: only for pre-filter passers -> live price, cached 15M history (refreshed once per 15M candle,
-//              also reused for the 15M EMA), size filter, 5M breakout
-//
-//   SL / TP = fixed % from the ACTUAL average filled entry price. Trailing is not part of this strategy.
-//   LIVE_TRADING_ENABLED = false -> PAPER mode (signals + simulated SL/TP results only).
-//
+//   SL / TP = fixed % from the ACTUAL average filled entry price.
 //   Offline tests:  java -cp <classes>:<org.json jar> CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE --selftest
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
@@ -66,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price)  -- unchanged
     // =========================================================================
     static final double  FIXED_SL_PERCENT = 1.2;
-    static final double  FIXED_TP_PERCENT = 0.75; //3.5;
+    static final double  FIXED_TP_PERCENT = 0.75;
     static final boolean TRAILING_ENABLED = false;   // not implemented in this strategy version (warns if set to true)
 
     // =========================================================================
@@ -128,9 +111,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int  MAX_BARS_PER_CALL = 500;
     static final long MIN_REQUEST_GAP_MS = 60L;
 
-    static final int SCAN_FETCH_5M   = 72;   // covers the developing 1H bucket (<=12 bars) + 60-bar swing lookback
-    static final int HIST_FETCH_15M  = 100;  // 20 completed 1H (80 x 15M) + current 1H bucket + margin; also EMA history
-    static final int EMA15_MIN_BARS  = 40;
+    static final int SCAN_FETCH_5M   = 16;   // the developing 1H bucket needs at most 12 x 5M candles (+ margin)
 
     // =========================================================================
     // Marubozu parameters
@@ -141,8 +122,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long[]   MB_TF_MS    = {FIFTEEN_MIN_MS, THIRTY_MIN_MS, FORTYFIVE_MIN_MS, HOUR_MS};
     static final double MB_MIN_BODY_PCT      = 0.85;
     static final double MB_MAX_WICK_PCT      = 0.075;
-    static final double MB_SIZE_MULT         = 1.5;
-    static final int    MB_AVG_BODY_BARS     = 20;
     static final double MB_MIN_ELAPSED_FRAC  = 0.25;
     static final double EPS = 1e-12;
 
@@ -423,10 +402,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         String reason = "";
         double open, high, low, price;
         double body, range, bodyPct, upWickPct, loWickPct, elapsedFrac;
-        double avgBody = Double.NaN, sizeRatio = Double.NaN;
         int colour;                 // +1 GREEN, -1 RED, 0 DOJI
-        boolean tooEarly, shapeOk, sizeOk;
-        int marubozu;               // +1 bull, -1 bear, 0 none (only set after the size filter)
+        boolean tooEarly, shapeOk;
+        int marubozu;               // +1 bull, -1 bear, 0 none
     }
 
     // 5M series validation. Null if usable, otherwise "<code>: <reason>".
@@ -441,7 +419,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             maxT = Math.max(maxT, t);
         }
         if (maxT > cur5) return "future: newest 5M candle " + fmtTime(maxT) + " after current " + fmtTime(cur5);
-        if (maxT < cur5) return "stale: newest 5M candle " + fmtTime(maxT) + " but forming 5M starts " + fmtTime(cur5);
+        // CoinDCX sometimes does not return the forming 5M candle yet: the previous candle is fine,
+        // because the live price supplies the developing close / high / low.
+        if (maxT < cur5 - FIVE_MIN_MS) return "stale: newest 5M candle " + fmtTime(maxT) + " but forming 5M starts " + fmtTime(cur5);
         return null;
     }
 
@@ -454,7 +434,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         e.start = alignedStart(nowMs, e.tfMs, HTF_ALIGN_OFFSET_MS);
         e.price = price;
         long cur5 = alignedStart(nowMs, FIVE_MIN_MS, 0L);
-        int expected = (int) ((cur5 - e.start) / FIVE_MIN_MS) + 1;
+        long newest = Long.MIN_VALUE;
+        for (int i = 0; raw5 != null && i < raw5.length(); i++) newest = Math.max(newest, candleTimeMs(raw5.getJSONObject(i)));
+        long last5 = Math.min(cur5, newest);
+        int expected = (int) ((last5 - e.start) / FIVE_MIN_MS) + 1;
         int count = 0;
         double open = Double.NaN, hi = price, lo = price;
         for (int i = 0; raw5 != null && i < raw5.length(); i++) {
@@ -467,7 +450,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             lo = Math.min(lo, c.optDouble("low", lo));
         }
         if (!(open > 0) || Double.isInfinite(open)) {
-            e.reason = "noOpen: no 5M candle at bucket start " + fmtTime(e.start);
+            e.reason = "noOpen: first 5M candle of the bucket (" + fmtTime(e.start) + ") not available yet";
             return e;
         }
         if (count != expected) {
@@ -489,35 +472,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 && e.bodyPct >= MB_MIN_BODY_PCT - EPS
                 && e.upWickPct <= MB_MAX_WICK_PCT + EPS
                 && e.loWickPct <= MB_MAX_WICK_PCT + EPS;
+        e.marubozu = e.shapeOk ? e.colour : 0;
         e.ok = true;
         return e;
     }
 
-    static void applySize(TfEval e, double avgBody) {
-        e.avgBody = avgBody;
-        if (avgBody > 0) {
-            e.sizeRatio = e.body / avgBody;
-            e.sizeOk = e.body >= MB_SIZE_MULT * avgBody - EPS;
-        } else {
-            e.sizeOk = false;
-        }
-        e.marubozu = (e.ok && e.shapeOk && e.sizeOk) ? e.colour : 0;
-    }
-
-    // Stage-1 pre-filter (no history needed): shape + colour + elapsed for 15M AND 30M AND (45M OR 1H),
-    // 45M and 1H colour in the same direction. Returns +1 / -1 / 0.
-    static int prefilterDirection(TfEval[] e) {
-        for (TfEval x : e) if (x == null || !x.ok) return 0;
-        for (int d : new int[]{1, -1}) {
-            boolean s1 = e[0].shapeOk && e[0].colour == d;
-            boolean s2 = e[1].shapeOk && e[1].colour == d;
-            boolean s34 = (e[2].shapeOk && e[2].colour == d) || (e[3].shapeOk && e[3].colour == d);
-            if (s1 && s2 && s34 && e[2].colour == d && e[3].colour == d) return d;
-        }
-        return 0;
-    }
-
-    // Full Marubozu decision (after the size filter). Returns {signal, reason}.
+    // Marubozu decision. Returns {signal, reason}.
     static String[] decideMarubozu(TfEval[] e) {
         for (TfEval x : e) {
             if (x == null || !x.ok) return new String[]{"NO TRADE", "data: " + (x == null ? "missing" : x.tf + " " + x.reason)};
@@ -527,8 +487,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             if (e[0].marubozu == d && e[1].marubozu == d && (e[2].marubozu == d || e[3].marubozu == d)) {
                 for (TfEval x : e)
                     if (x.marubozu == -d) return new String[]{"NO TRADE", "conflict: " + x.tf + " is " + mbName(x.marubozu) + " against " + dir};
-                if (e[2].colour != d || e[3].colour != d)
-                    return new String[]{"NO TRADE", "45M/1H developing colour not " + colName(d) + " (45M=" + colName(e[2].colour) + " 1H=" + colName(e[3].colour) + ")"};
                 return new String[]{dir, "15M+30M+" + (e[2].marubozu == d ? "45M" : "") + (e[3].marubozu == d ? "+1H" : "") + " " + mbName(d)};
             }
         }
@@ -539,120 +497,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     static String describeTf(TfEval e) {
         if (!e.ok) return e.tf + " INVALID (" + e.reason + ")";
-        return String.format("%s dir=%s open=%.6f price=%.6f body=%.1f%% upWick=%.1f%% loWick=%.1f%% curBody=%.6f avgBody20=%s size=%s elapsed=%.0f%%%s shape=%s -> %s",
-                e.tf, colName(e.colour), e.open, e.price, e.bodyPct * 100, e.upWickPct * 100, e.loWickPct * 100, e.body,
-                Double.isNaN(e.avgBody) ? "n/a" : String.format("%.6f", e.avgBody),
-                Double.isNaN(e.sizeRatio) ? "n/a" : String.format("%.2fx", e.sizeRatio),
-                e.elapsedFrac * 100, e.tooEarly ? "(too early)" : "", e.shapeOk ? "OK" : "fail", mbName(e.marubozu));
+        return String.format("%s dir=%s open=%.6f price=%.6f body=%.1f%% upWick=%.1f%% loWick=%.1f%% elapsed=%.0f%%%s -> %s",
+                e.tf, colName(e.colour), e.open, e.price, e.bodyPct * 100, e.upWickPct * 100, e.loWickPct * 100,
+                e.elapsedFrac * 100, e.tooEarly ? "(too early)" : "", mbName(e.marubozu));
     }
 
     // =========================================================================
-    // HISTORY (completed candles only): average body of the previous 20 candles per timeframe.
-    // Built from completed 15M candles (30M/45M/1H aggregated from them). Cached per symbol and rebuilt
-    // once per new 15M candle, only for symbols that pass stage 1. The same 15M history feeds the EMA.
-    // =========================================================================
-    static class HtfHistory {
-        long key;                                   // start of the developing 15M candle it was built for
-        final double[] avgBody = new double[4];
-        JSONArray closed15 = new JSONArray();       // completed 15M candles, oldest first
-    }
-    private static final Map<String, HtfHistory> histCache = new ConcurrentHashMap<>();
-
-    // raw15 = sorted 15M candles (may include the forming one, which is ignored). Null on success.
-    static String buildHistory(JSONArray raw15, long nowMs, HtfHistory out) {
-        if (raw15 == null || raw15.length() == 0) return "histNoData";
-        long off = HTF_ALIGN_OFFSET_MS;
-        long cur15 = alignedStart(nowMs, FIFTEEN_MIN_MS, off);
-        JSONArray closed = new JSONArray();
-        for (int i = 0; i < raw15.length(); i++) {
-            JSONObject c = raw15.getJSONObject(i);
-            long t = candleTimeMs(c);
-            if (t < 0 || Math.floorMod(t - off, FIFTEEN_MIN_MS) != 0) return "histMisaligned";
-            if (t < cur15) closed.put(c);
-        }
-        if (closed.length() == 0 || candleTimeMs(closed.getJSONObject(closed.length() - 1)) != cur15 - FIFTEEN_MIN_MS)
-            return "histStale: last completed 15M candle missing";
-        for (int k = 0; k < 4; k++) {
-            JSONArray agg = k == 0 ? closed : aggregateByTime(closed, MB_TF_MS[k], FIFTEEN_MIN_MS, off);
-            if (agg == null) return "histAggregate " + MB_TF_NAMES[k];
-            long devStart = alignedStart(nowMs, MB_TF_MS[k], off);
-            List<JSONObject> prev = new ArrayList<>();
-            for (int i = 0; i < agg.length(); i++)
-                if (candleTimeMs(agg.getJSONObject(i)) < devStart) prev.add(agg.getJSONObject(i));
-            if (prev.size() < MB_AVG_BODY_BARS) return "histShort " + MB_TF_NAMES[k] + " (" + prev.size() + " completed)";
-            double sum = 0;
-            for (int j = 0; j < MB_AVG_BODY_BARS; j++) {
-                JSONObject c = prev.get(prev.size() - MB_AVG_BODY_BARS + j);
-                long expect = devStart - (long) (MB_AVG_BODY_BARS - j) * MB_TF_MS[k];
-                if (candleTimeMs(c) != expect) return "histGap " + MB_TF_NAMES[k] + " at " + fmtTime(expect);
-                sum += Math.abs(c.getDouble("close") - c.getDouble("open"));
-            }
-            out.avgBody[k] = sum / MB_AVG_BODY_BARS;
-        }
-        out.closed15 = closed;
-        out.key = cur15;
-        return null;
-    }
-
-    private static HtfHistory getHistory(String pair, long nowMs) {
-        long cur15 = alignedStart(nowMs, FIFTEEN_MIN_MS, HTF_ALIGN_OFFSET_MS);
-        HtfHistory h = histCache.get(pair);
-        if (h != null && h.key == cur15) return h;
-        HtfHistory fresh = new HtfHistory();
-        String err = buildHistory(sortByTime(fetchCandlesPaged(pair, "15", 15, HIST_FETCH_15M)), nowMs, fresh);
-        if (err != null) {
-            // Fallback: build 15M candles from 5M (complete buckets only)
-            JSONArray r5 = sortByTime(fetchCandlesPaged(pair, "5", 5, HIST_FETCH_15M * 3));
-            JSONArray m15 = r5 == null ? null : aggregateByTime(r5, FIFTEEN_MIN_MS, FIVE_MIN_MS, HTF_ALIGN_OFFSET_MS);
-            String err2 = buildHistory(m15, nowMs, fresh);
-            if (err2 != null) {
-                System.out.println("  [HIST] " + pair + " unavailable: 15M=" + err + " | 5M-fallback=" + err2);
-                return null;
-            }
-        }
-        histCache.put(pair, fresh);
-        return fresh;
-    }
-
-    // =========================================================================
-    // 15M developing EMA trend
-    // =========================================================================
-    static class EmaRes {
-        boolean ok;
-        double fast, slow;
-        String reason = "";
-    }
-
-    // raw15 sorted; the developing 15M candle closes at the live price (appended if the API did not return it yet).
-    static EmaRes ema15Developing(JSONArray raw15, long nowMs, double price) {
-        EmaRes r = new EmaRes();
-        if (raw15 == null || raw15.length() == 0) { r.reason = "no 15M data"; return r; }
-        long cur15 = alignedStart(nowMs, FIFTEEN_MIN_MS, 0L);
-        List<Double> closes = new ArrayList<>();
-        long newest = -1;
-        for (int i = 0; i < raw15.length(); i++) {
-            JSONObject c = raw15.getJSONObject(i);
-            long t = candleTimeMs(c);
-            if (t < 0 || t % FIFTEEN_MIN_MS != 0) { r.reason = "15M misaligned"; return r; }
-            if (t > cur15) { r.reason = "15M future candle"; return r; }
-            closes.add(c.getDouble("close"));
-            newest = t;
-        }
-        if (newest == cur15) closes.set(closes.size() - 1, price);
-        else if (newest == cur15 - FIFTEEN_MIN_MS) closes.add(price);
-        else { r.reason = "15M stale (newest " + fmtTime(newest) + ")"; return r; }
-        if (closes.size() < EMA15_MIN_BARS) { r.reason = "15M only " + closes.size() + " bars"; return r; }
-        double[] d = new double[closes.size()];
-        for (int i = 0; i < d.length; i++) d[i] = closes.get(i);
-        r.fast = calcEMA(d, EMA_FAST);
-        r.slow = calcEMA(d, EMA_SLOW);
-        r.ok = true;
-        return r;
-    }
-
-    // =========================================================================
-    // 5M BREAKOUT of the previous confirmed swing high / low.
-    // Pivots come from COMPLETED 5M candles; the breaking candle is the DEVELOPING one (close = live price).
+    // 5M swing breakout helper (kept from the previous version, NOT used by this strategy)
     // =========================================================================
     static class Breakout {
         boolean ok;
@@ -697,20 +548,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return b;
     }
 
-    // raw5 sorted + validated (last = forming 5M candle). The forming candle closes at the live price.
-    static Breakout developingBreakout(JSONArray raw5, double price, boolean isLong) {
-        int n = raw5.length();
-        double[] hi = new double[n], lo = new double[n], cl = new double[n];
-        for (int i = 0; i < n; i++) {
-            JSONObject c = raw5.getJSONObject(i);
-            hi[i] = c.getDouble("high"); lo[i] = c.getDouble("low"); cl[i] = c.getDouble("close");
-        }
-        hi[n - 1] = Math.max(hi[n - 1], price);
-        lo[n - 1] = Math.min(lo[n - 1], price);
-        cl[n - 1] = price;
-        return findBreakout(hi, lo, cl, isLong, SWING_PIVOT_BARS, SWING_LOOKBACK_5M);
-    }
-
     // =========================================================================
     // Full symbol evaluation (used by the scan AND by the pre-order revalidation)
     // =========================================================================
@@ -719,10 +556,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         String code = "";
         String reason = "";
         final TfEval[] tf = new TfEval[4];
-        Breakout bo;
-        EmaRes ema;
         double price;
-        boolean passedStage1;
     }
 
     private static MbEval fail(MbEval r, String code, String reason) {
@@ -730,36 +564,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return r;
     }
 
-    // raw5 sorted 5M candles incl. the forming one; price = fresh live price.
-    static MbEval evaluateSymbol(String pair, JSONArray raw5, double price, long nowMs) {
+    // raw5 = sorted 5M candles; price = the price to evaluate with (live price for orders).
+    static MbEval evaluateSymbol(JSONArray raw5, double price, long nowMs) {
         MbEval r = new MbEval();
         r.price = price;
         if (!(price > 0) || Double.isInfinite(price)) return fail(r, "noPrice", "no valid live price");
         String bad = validate5m(raw5, nowMs);
         if (bad != null) return fail(r, "5m_" + bad.substring(0, bad.indexOf(':')), bad);
         for (int k = 0; k < 4; k++) r.tf[k] = evalShape(raw5, nowMs, price, k);
-        int d = prefilterDirection(r.tf);
-        if (d == 0) return fail(r, "shape", "stage-1 shape/colour/elapsed not satisfied");
-        r.passedStage1 = true;
-
-        HtfHistory h = getHistory(pair, nowMs);
-        if (h == null) return fail(r, "history", "completed-candle history unavailable");
-        for (int k = 0; k < 4; k++) applySize(r.tf[k], h.avgBody[k]);
         String[] dec = decideMarubozu(r.tf);
-        if (dec[0].equals("NO TRADE")) return fail(r, "marubozu", dec[1]);
-        boolean isLong = dec[0].equals("BUY");
-
-        r.bo = developingBreakout(raw5, price, isLong);
-        if (!r.bo.ok) return fail(r, "breakout5m", "5M: " + r.bo.reason);
-
-        r.ema = ema15Developing(h.closed15, nowMs, price);   // completed 15M history + developing 15M close = live price
-        if (!r.ema.ok) return fail(r, "ema15data", "15M: " + r.ema.reason);
-        if (isLong ? !(r.ema.fast > r.ema.slow) : !(r.ema.fast < r.ema.slow))
-            return fail(r, "ema15", String.format("15M EMA9=%.6f EMA21=%.6f not %s", r.ema.fast, r.ema.slow, isLong ? "bullish" : "bearish"));
-
         r.signal = dec[0];
-        r.code = "signal";
-        r.reason = dec[1] + " | 5M " + r.bo.reason + String.format(" | 15M EMA9=%.6f EMA21=%.6f", r.ema.fast, r.ema.slow);
+        r.code = dec[0].equals("NO TRADE") ? (dec[1].startsWith("data") ? "data" : dec[1].startsWith("conflict") ? "conflict" : "noMarubozu") : "signal";
+        r.reason = dec[1];
         return r;
     }
 
@@ -774,8 +590,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         for (TfEval t : ev.tf) {
             if (t == null) continue;
             if (sb.length() > 0) sb.append(' ');
-            sb.append(String.format("%s=%s(b%.0f%%,%.1fx)", t.tf, t.marubozu != 0 ? mbName(t.marubozu) : colName(t.colour),
-                    t.bodyPct * 100, Double.isNaN(t.sizeRatio) ? 0 : t.sizeRatio));
+            sb.append(String.format("%s=%s(b%.0f%%)", t.tf, t.marubozu != 0 ? mbName(t.marubozu) : colName(t.colour), t.bodyPct * 100));
         }
         return sb.toString();
     }
@@ -790,13 +605,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         Revalidation rv = new Revalidation();
         JSONArray raw5 = sortByTime(fetchCandlesPaged(pair, "5", 5, SCAN_FETCH_5M));
         rv.price = getLastPrice(pair);
-        MbEval ev = evaluateSymbol(pair, raw5, rv.price, System.currentTimeMillis());
+        MbEval ev = evaluateSymbol(raw5, rv.price, System.currentTimeMillis());
         String want = isLong ? "BUY" : "SELL";
         rv.reason = ev.signal.equals(want) ? null
                 : "pre-order revalidation: now " + ev.signal + " - " + ev.reason;
         System.out.println("  [REVALIDATE] " + pair + " " + want + " price=" + rv.price + " | -> "
                 + (rv.reason == null ? "PASS (order allowed)" : "FAIL (no order): " + rv.reason));
-        if (rv.reason != null && ev.passedStage1) logEval(pair, ev);
+        if (rv.reason != null) logEval(pair, ev);
         return rv;
     }
 
@@ -880,7 +695,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
         System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER (live trading disabled)")
-                + " | DEVELOPING MTF MARUBOZU (15M AND 30M AND (45M OR 1H))"
+                + " | SIMPLE DEVELOPING MARUBOZU (15M AND 30M AND (45M OR 1H))"
                 + " | SL=" + FIXED_SL_PERCENT + "% TP=" + FIXED_TP_PERCENT + "% | liquid list=" + USE_LIQUID_LIST
                 + " (" + COINS_TO_TRADE.length + " symbols) ===");
         if (TRAILING_ENABLED) System.out.println("[WARN] TRAILING_ENABLED=true but trailing is not implemented in this strategy version - ignored");
@@ -944,23 +759,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (active.contains(pair) || paperTrades.containsKey(pair)) continue;   // no duplicate / conflicting position per symbol
                 if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
 
-                // ---- STAGE 1: one 5M request, pre-filter with the forming 5M close as the price proxy ----
+                // ---- STAGE 1: one 5M request, quick check with the newest 5M close as the price ----
                 JSONArray raw5 = sortByTime(fetchCandlesPaged(pair, "5", 5, SCAN_FETCH_5M));
                 long now0 = System.currentTimeMillis();
-                String bad = validate5m(raw5, now0);
-                if (bad != null) { reject(rej, "5m_" + bad.substring(0, bad.indexOf(':'))); continue; }
-                double proxy = raw5.getJSONObject(raw5.length() - 1).getDouble("close");
-                TfEval[] pre = new TfEval[4];
-                for (int k = 0; k < 4; k++) pre[k] = evalShape(raw5, now0, proxy, k);
-                if (prefilterDirection(pre) == 0) { reject(rej, "stage1_shape"); continue; }
+                double proxy = (raw5 == null || raw5.length() == 0) ? 0 : raw5.getJSONObject(raw5.length() - 1).optDouble("close", 0);
+                MbEval quick = evaluateSymbol(raw5, proxy, now0);
+                if (quick.signal.equals("NO TRADE")) { reject(rej, quick.code); continue; }
 
-                // ---- STAGE 2: live price + history + size + 5M breakout + 15M EMA ----
+                // ---- STAGE 2: same rule with the real live price ----
                 stage2++;
-                double price = getLastPrice(pair);
-                long now = System.currentTimeMillis();
-                MbEval ev = evaluateSymbol(pair, raw5, price, now);
+                MbEval ev = evaluateSymbol(raw5, getLastPrice(pair), System.currentTimeMillis());
                 if (ev.signal.equals("NO TRADE")) {
-                    reject(rej, ev.code);
+                    reject(rej, "live_" + ev.code);
                     if (LOG_NO_TRADE_DETAIL) logEval(pair, ev);
                     continue;
                 }
@@ -1090,7 +900,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             }
             double qty = q.qty;
 
-            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (developing MTF Marubozu) ====");
+            System.out.println("\n==== " + pair + " — " + (isLong ? "LONG" : "SHORT") + " (developing Marubozu) ====");
             System.out.printf("  Price=%.6f preSL=%.6f preTP=%.6f | Qty=%.6f Lev=%dx%n", currentPrice, pre.sl, pre.tp, qty, LEVERAGE);
 
             String side = isLong ? "buy" : "sell";
@@ -1726,8 +1536,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         for (int k = 0; k < 4; k++) { allBull &= eu[k].shapeOk && eu[k].colour == 1; allBear &= ed[k].shapeOk && ed[k].colour == -1; }
         check("trending up -> all four bullish shape (body 100%)", allBull && Math.abs(eu[0].bodyPct - 1) < 1e-9);
         check("trending down -> all four bearish shape", allBear);
-        check("pre-filter LONG", prefilterDirection(eu) == 1);
-        check("pre-filter SHORT", prefilterDirection(ed) == -1);
+        check("decision LONG", decideMarubozu(eu)[0].equals("BUY"));
+        check("decision SHORT", decideMarubozu(ed)[0].equals("SELL"));
+        JSONArray lag = dropLastIfForming(up);
+        check("forming 5M not returned yet -> still evaluated (no stale reject)", validate5m(lag, now) == null && evalShape(lag, now, 124.0, 0).ok);
         TfEval wick = evalShape(up, now, 123.6, 0);
         check("15M upper wick 13% > 7.5% -> shape fails", wick.ok && !wick.shapeOk && wick.upWickPct > MB_MAX_WICK_PCT);
         TfEval doji = evalShape(up, now, 121.0, 0);
@@ -1739,13 +1551,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("missing first 5M candle of 15M bucket -> invalid", !evalShape(gap, now, 124.0, 0).ok);
         check("stale 5M data rejected", validate5m(up, now + 10 * MIN_MS) != null && validate5m(up, now + 10 * MIN_MS).startsWith("stale"));
 
-        System.out.println("[Test] Size filter (body >= 1.5 x avg of 20 completed)");
-        TfEval s1 = evalShape(up, now, 124.0, 3); applySize(s1, 7.0);
-        check("1H body 12 vs avg 7 (1.71x) -> Marubozu", s1.sizeOk && s1.marubozu == 1);
-        TfEval s2 = evalShape(up, now, 124.0, 3); applySize(s2, 9.0);
-        check("1H body 12 vs avg 9 (1.33x) -> not Marubozu", !s2.sizeOk && s2.marubozu == 0);
-
-        System.out.println("[Test] Decision: 15M AND 30M AND (45M OR 1H), no conflict, 45M/1H colour");
+        System.out.println("[Test] Decision: 15M AND 30M AND (45M OR 1H), no conflict");
         check("all four bull -> BUY", decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,1,1), mk(2,1,1), mk(3,1,1)})[0].equals("BUY"));
         check("45M none, 1H bull (OR) -> BUY", decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,1,1), mk(2,0,1), mk(3,1,1)})[0].equals("BUY"));
         check("45M bull, 1H none -> BUY", decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,1,1), mk(2,1,1), mk(3,0,1)})[0].equals("BUY"));
@@ -1753,34 +1559,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("30M none -> NO TRADE", decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,0,1), mk(2,1,1), mk(3,1,1)})[0].equals("NO TRADE"));
         String[] conf = decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,1,1), mk(2,1,1), mk(3,-1,-1)});
         check("1H bearish Marubozu against bull -> NO TRADE (conflict)", conf[0].equals("NO TRADE") && conf[1].startsWith("conflict"));
-        check("1H RED (not Marubozu) -> NO TRADE (colour)", decideMarubozu(new TfEval[]{mk(0,1,1), mk(1,1,1), mk(2,1,1), mk(3,0,-1)})[0].equals("NO TRADE"));
         check("all four bear -> SELL", decideMarubozu(new TfEval[]{mk(0,-1,-1), mk(1,-1,-1), mk(2,-1,-1), mk(3,-1,-1)})[0].equals("SELL"));
-
-        System.out.println("[Test] History: average body of previous 20 completed candles (from 15M)");
-        JSONArray h15 = new JSONArray();
-        int hi15 = 0;
-        for (long t = b12 - 24 * HOUR_MS; t <= b12 + 105 * MIN_MS; t += FIFTEEN_MIN_MS, hi15++)
-            h15.put(candle(t, 100 + hi15, 101 + hi15, 100 + hi15, 101 + hi15));   // each 15M rises by 1; last one = forming
-        HtfHistory hh = new HtfHistory();
-        String herr = buildHistory(h15, now, hh);
-        check("history builds", herr == null);
-        check("avg body 15M=1, 30M=2, 45M=3, 1H=4 (aggregated)", herr == null && Math.abs(hh.avgBody[0] - 1) < 1e-9
-                && Math.abs(hh.avgBody[1] - 2) < 1e-9 && Math.abs(hh.avgBody[2] - 3) < 1e-9 && Math.abs(hh.avgBody[3] - 4) < 1e-9);
-        check("history keeps completed 15M only (forming dropped)", herr == null
-                && candleTimeMs(hh.closed15.getJSONObject(hh.closed15.length() - 1)) == b12 + 90 * MIN_MS);
-        JSONArray h15s = new JSONArray();
-        for (int i = 0; i < h15.length(); i++) if (candleTimeMs(h15.getJSONObject(i)) != b12 + 90 * MIN_MS) h15s.put(h15.getJSONObject(i));
-        check("last completed 15M missing -> history rejected", buildHistory(h15s, now, new HtfHistory()) != null);
-
-        System.out.println("[Test] 15M developing EMA");
-        long cur15 = alignedStart(now, FIFTEEN_MIN_MS, 0);
-        JSONArray r15 = new JSONArray();
-        for (int i = 0; i < 50; i++) r15.put(candle(cur15 - (49 - i) * FIFTEEN_MIN_MS, 100 + i, 101 + i, 99 + i, 100 + i));
-        EmaRes er = ema15Developing(r15, now, 160);
-        check("rising 15M -> EMA9 > EMA21", er.ok && er.fast > er.slow);
-        JSONArray r15c = dropLastIfForming(r15);
-        check("forming 15M missing -> live price appended", ema15Developing(r15c, now, 160).ok);
-        check("15M two candles behind -> stale", !ema15Developing(dropLastIfForming(r15c), now, 160).ok);
 
         System.out.println("[Test] 5M swing breakout (fresh break only)");
         double[] hiL = {5, 6, 7, 9, 7, 6, 5, 5.5, 5.2, 5.1, 5.3, 9.5};
@@ -1832,6 +1611,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return testsFailed == 0;
     }
 }
+
 
 
 
