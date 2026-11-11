@@ -59,7 +59,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Execution mode  (false = PAPER. Switch to true only after paper results are good)
     // =========================================================================
-    static final boolean LIVE_TRADING_ENABLED = false;
+    static final boolean LIVE_TRADING_ENABLED = true;
 
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price)  -- unchanged
@@ -97,7 +97,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 10;
+    private static final int    LEVERAGE     = 11;
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
