@@ -65,8 +65,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 1.5;
-    static final double  FIXED_TP_PERCENT = 3.0;
+    static final double  FIXED_SL_PERCENT = 0.9;
+    static final double  FIXED_TP_PERCENT = 1.2;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
@@ -79,7 +79,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 0.08;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_ACTIVATION_PERCENT = 0.05;     // trailing starts after price moves this % in profit
     static final double  TRAIL_STEP_PERCENT       = 0.10;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 3_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
