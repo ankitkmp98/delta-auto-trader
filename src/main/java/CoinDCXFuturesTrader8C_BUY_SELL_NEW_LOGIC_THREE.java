@@ -81,9 +81,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
     static final double  TRAIL_ACTIVATION_PERCENT = 0.10;     // trailing starts after price moves this % in profit
     static final double  TRAIL_STEP_PERCENT       = 0.2;     // SL/TP are moved only when price advanced this % beyond the last trail point
-    static final long    TRAIL_CHECK_INTERVAL_MS  = 15_000L; // how often open positions are checked for trailing
+    static final long    TRAIL_CHECK_INTERVAL_MS  = 3_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
-    static final long    TRAIL_VERIFY_DELAY_MS    = 1_500L;  // wait before reading the position back after an update
+    static final long    TRAIL_VERIFY_DELAY_MS    = 500;  // wait before reading the position back after an update
     static final long    TRAIL_RETRY_BACKOFF_MS   = 30_000L; // after a failed update, wait before trying again
     static final long    TRAIL_STATUS_LOG_MS      = 60_000L; // status log per position at most once per this interval
     static final double  TRAIL_ENTRY_MISMATCH_PCT = 0.3;     // saved state whose entry differs more than this from the exchange = old/other position
