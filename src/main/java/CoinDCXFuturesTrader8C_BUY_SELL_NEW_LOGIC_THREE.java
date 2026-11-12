@@ -159,8 +159,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // ORDER MATTERS: decideMarubozu() = index0 AND index1 AND (index2 OR index3)
     static final String[] MB_TF_NAMES = {"15M", "45M", "1H", "4H"};
     static final long[]   MB_TF_MS    = {FIFTEEN_MIN_MS, FORTYFIVE_MIN_MS, HOUR_MS, FOUR_HOUR_MS};
-    static final double MB_MIN_BODY_PCT      = 0.85;
-    static final double MB_MAX_WICK_PCT      = 0.075;
+    static final double MB_MIN_BODY_PCT      = 0.75;
+    static final double MB_MAX_WICK_PCT      = 0.125;
     static final double MB_MIN_ELAPSED_FRAC  = 0.25;
     static final double EPS = 1e-12;
 
