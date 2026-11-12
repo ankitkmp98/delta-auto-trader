@@ -173,7 +173,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Timing / duplicate protection
     // =========================================================================
-    static final long COOLDOWN_MS      = 15L * 60 * 1000L;
+    static final long COOLDOWN_MS      = 5L * 60 * 1000L;
     static final long SCAN_STEP_MS     = 60_000L;
     static final long SCAN_DELAY_MS    = 5_000L;
     static final long PAPER_MAX_HOLD_MS = 24L * 60 * 60 * 1000L;
