@@ -161,7 +161,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long[]   MB_TF_MS    = {FIFTEEN_MIN_MS, FORTYFIVE_MIN_MS, HOUR_MS, FOUR_HOUR_MS};
     static final double MB_MIN_BODY_PCT      = 0.75;
     static final double MB_MAX_WICK_PCT      = 0.125;
-    static final double MB_MIN_ELAPSED_FRAC  = 0.25;
+    static final double MB_MIN_ELAPSED_FRAC  = 0.15;
     static final double EPS = 1e-12;
 
     // =========================================================================
