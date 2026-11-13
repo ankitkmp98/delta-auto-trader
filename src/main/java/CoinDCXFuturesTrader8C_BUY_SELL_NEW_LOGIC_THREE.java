@@ -72,8 +72,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF (old behaviour)
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 1.5;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 0.3;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 1.0;    // favourable move (% of entry) that activates break-even
+    static final double  PROFIT_LOCK_PERCENT       = 0.15;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
