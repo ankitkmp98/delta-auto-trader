@@ -65,25 +65,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 3.6;
-    static final double  FIXED_TP_PERCENT = 3.6;
+    static final double  FIXED_SL_PERCENT = 1.5;
+    static final double  FIXED_TP_PERCENT = 3.0;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF (old behaviour)
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 1.5;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 0.30;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.8;    // favourable move (% of entry) that activates break-even
+    static final double  PROFIT_LOCK_PERCENT       = 0.20;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 0.05;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.10;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_ACTIVATION_PERCENT = 0.10;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_STEP_PERCENT       = 0.12;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 3_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
-    static final long    TRAIL_VERIFY_DELAY_MS    = 500;  // wait before reading the position back after an update
+    static final long    TRAIL_VERIFY_DELAY_MS    = 800;  // wait before reading the position back after an update
     static final long    TRAIL_RETRY_BACKOFF_MS   = 30_000L; // after a failed update, wait before trying again
     static final long    TRAIL_STATUS_LOG_MS      = 60_000L; // status log per position at most once per this interval
     static final double  TRAIL_ENTRY_MISMATCH_PCT = 0.3;     // saved state whose entry differs more than this from the exchange = old/other position
