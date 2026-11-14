@@ -72,7 +72,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF (old behaviour)
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.6;    // favourable move (% of entry) that activates break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.8;    // favourable move (% of entry) that activates break-even
     static final double  PROFIT_LOCK_PERCENT       = 0.15;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
@@ -193,7 +193,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   true  : passive limit order at the best bid (BUY) / best ask (SELL), post-only -> maker fee, but it may not fill
     //   false : old behaviour (limit order 0.05% through the price -> fills at once, taker fee)
     // =========================================================================
-    static final boolean ENTRY_MAKER_MODE      = false;
+    static final boolean ENTRY_MAKER_MODE      = true;
     static final boolean ENTRY_POST_ONLY       = true;       // send post_only=true so the order can never take liquidity (set false if the exchange rejects the field)
     static final int     MAKER_MAX_ATTEMPTS    = 3;          // price / re-validate / re-place this many times before giving up
     static final int     MAKER_FILL_WAIT_SEC   = 8;          // how long each attempt waits for a fill
