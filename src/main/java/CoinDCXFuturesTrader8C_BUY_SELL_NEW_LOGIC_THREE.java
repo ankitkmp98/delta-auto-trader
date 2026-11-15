@@ -65,8 +65,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 0.15;
-    static final double  FIXED_TP_PERCENT = 1.5;
+    static final double  FIXED_SL_PERCENT = 4.0;
+    static final double  FIXED_TP_PERCENT = 2.0;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
