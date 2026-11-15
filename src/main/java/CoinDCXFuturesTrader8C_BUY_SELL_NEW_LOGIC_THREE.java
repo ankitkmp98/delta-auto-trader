@@ -72,15 +72,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF (old behaviour)
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.6;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 0.15;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.9;    // favourable move (% of entry) that activates break-even
+    static final double  PROFIT_LOCK_PERCENT       = 0.2;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 1.0;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.2;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_ACTIVATION_PERCENT = 1.2;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_STEP_PERCENT       = 0.01;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
     static final long    TRAIL_VERIFY_DELAY_MS    = 800;  // wait before reading the position back after an update
