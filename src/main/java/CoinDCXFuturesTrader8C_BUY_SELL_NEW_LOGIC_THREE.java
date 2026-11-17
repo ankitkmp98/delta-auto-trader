@@ -41,7 +41,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;
-    private static final int    LEVERAGE     = 6;
+    private static final int    LEVERAGE     = 10;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 30;
 
@@ -120,7 +120,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  TRAIL_STEP_R         = 0.15;     // SL only updated when it improves by >= this x R (fewer API calls)
     static final double  TP_EXTEND_TRIGGER_R  = 0.30;     // when best price is within this x R of TP (and trailing active)...
     static final double  TP_EXTEND_R          = 0.80;     // ...TP moves up by this x R
-    static final int     MAX_TP_EXTENSIONS    = 3;        // never extended indefinitely
+    static final int     MAX_TP_EXTENSIONS    = 30;        // never extended indefinitely
     static final long    TRAIL_CHECK_INTERVAL_MS = 5_000L;
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;
     static final long    TRAIL_VERIFY_DELAY_MS = 800;
