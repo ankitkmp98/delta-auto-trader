@@ -43,7 +43,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double FIXED_MARGIN = 1000.0;
     private static final int    LEVERAGE     = 5;
     static final double  USDT_INR_RATE       = 102.0;
-    private static final int MAX_OPEN_POSITIONS = 10;
+    private static final int MAX_OPEN_POSITIONS = 5;
 
     // =========================================================================
     // Entry scoring
@@ -74,9 +74,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MAX_CANDLE_ATR = 2.5;             // signal candle bigger than this x ATR = "extended", skip
     static final double SPIKE_ATR = 4.0;                  // any of the 2 candles before it bigger than this = abnormal spike
     static final double PRICE_JUMP_ATR = 1.0;             // live price farther than this from the signal close = skip
-    static final double OVEREXT_EMA21_ATR = 3.0;          // signal close farther than this from 5M EMA21 = overextended
-    static final double BREAKOUT_MAX_CHASE_ATR = 1.2;     // live price farther than this beyond the broken level = chasing
-    static final double RSI5_EXTREME = 82.0;              // long skipped above, short skipped below 100-this
+    static final double OVEREXT_EMA21_ATR = 2.0;          // signal close farther than this from 5M EMA21 = overextended
+    static final double BREAKOUT_MAX_CHASE_ATR = 0.5;     // live price farther than this beyond the broken level = chasing
+    static final double RSI5_EXTREME = 75.0;              // long skipped above, short skipped below 100-this
     static final double COUNTER_MIN_VOL_RATIO = 1.5;      // counter-trend needs a volume spike on the trigger
 
     // Spread filter (public orderbook; if the call fails the trade is allowed when SPREAD_FAIL_OPEN)
@@ -88,7 +88,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     static final double SL_ATR_BUFFER   = 0.5;            // x ATR(15M) beyond the swing
     static final double MIN_SL_PCT      = 0.8;            // price %, at 10x = 8% margin
-    static final double MAX_SL_PCT      = 3.0;            // price %, at 10x = 30% margin (liquidation is near -9..-10%)
+    static final double MAX_SL_PCT      = 2.0;            // price %, at 10x = 30% margin (liquidation is near -9..-10%)
     static final double MIN_SL_ATR15    = 0.8;            // SL never tighter than this x ATR(15M)
     static final double TP_R            = 1.5;            // initial TP = TP_R x SL distance
     static final double MIN_ROOM_R      = 1.0;            // skip if next 1H/4H S/R is closer than this x SL distance
@@ -171,8 +171,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long PAPER_MAX_HOLD_MS = 24L * 60 * 60 * 1000L;
     static final boolean LOG_TRADES_CSV = true;
     static final boolean LOG_NO_TRADE_DETAIL = false;
-    static final String TRADE_LOG_FILE = "trade_log_v5.csv";
-    static final String PAPER_LOG_FILE = "paper_trade_log_v5.csv";
+    static final String TRADE_LOG_FILE = "trade_log_v6.csv";
+    static final String PAPER_LOG_FILE = "paper_trade_log_v6.csv";
     static final double EPS = 1e-12;
 
     // =========================================================================
