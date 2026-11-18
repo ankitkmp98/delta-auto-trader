@@ -63,8 +63,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // (reduced from 10 / 25)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 4.0;
-    static final double  FIXED_TP_PERCENT = 15.0;
+    static final double  FIXED_SL_PERCENT = 40.0;
+    static final double  FIXED_TP_PERCENT = 150.0;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
@@ -128,8 +128,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital configuration (unchanged except leverage)
     // =========================================================================
-    private static final double FIXED_MARGIN = 10000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 15;        // was 6
+    private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
+    private static final int    LEVERAGE     = 3;        // was 6
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
