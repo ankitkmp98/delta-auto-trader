@@ -35,7 +35,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Execution mode (false = PAPER: fixed SL/TP only, no break-even/trailing)
     // =========================================================================
-    static final boolean LIVE_TRADING_ENABLED = false;
+    static final boolean LIVE_TRADING_ENABLED = true;
 
     // =========================================================================
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
