@@ -94,7 +94,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   When combined profit % >= PORTFOLIO_PROFIT_TARGET_PERCENT -> close ALL positions, pause entries briefly, resume.
     //   Note: at 5x leverage, 3% of margin = 0.6% price move.
     // =========================================================================
-    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // MASTER SWITCH: false = feature OFF
+    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = false;    // MASTER SWITCH: false = feature OFF
     static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 6.0;     // edit this to change the target (% of total locked margin)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the combined profit is checked
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L; // after a close-all, no new entries for this long
