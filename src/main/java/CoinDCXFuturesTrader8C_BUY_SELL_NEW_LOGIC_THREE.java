@@ -25,9 +25,12 @@ import java.util.stream.Stream;
 //           HTF 30 pts  : EMA50/EMA200 + Supertrend + ADX/DI on 1H, 2H, 4H
 //           15M 30 pts  : EMA9/21, RSI, Supertrend, structure (HL/LH, BOS), VWAP, volume
 //           5M  40 pts  : breakout-or-retest trigger, candle strength, RSI, volume, room to next S/R
-//           Trade only if score >= ENTRY_SCORE_MIN (counter-trend: COUNTER_TREND_SCORE_MIN + reversal proof).
+//           HARD GATES  : 15M EMA9/21 + 15M Supertrend must agree with the trade direction,
+//                         BTC trend must not be strongly against the trade, breakout needs a volume spike,
+//                         counter-trend trades are OFF by default (ALLOW_COUNTER_TREND).
 //  SL/TP  : SL = 15M swing +/- ATR buffer, clamped to [MIN_SL_PCT, MAX_SL_PCT]; TP = TP_R x SL, cut before next 1H/4H S/R.
-//  MANAGE : break-even + profit-lock LADDER, then ATR-free R-based trailing SL; TP extended in limited steps.
+//  MANAGE : FIRST break-even is booked at BE_FIRST_TRIGGER_R x SL distance (default 1.0 => SL : first BE profit = 1 : 1).
+//           Then profit-lock ladder, then R-based trailing SL; TP extended in limited steps.
 //           All distances are in "R" (R = initial SL distance), so they scale with every coin's volatility.
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
@@ -41,17 +44,23 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;
-    private static final int    LEVERAGE     = 10;
+    private static final int    LEVERAGE     = 12;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 30;
 
     // =========================================================================
     // Entry scoring
     // =========================================================================
-    static final double ENTRY_SCORE_MIN         = 60.0;   // normal (trend-aligned) entries
-    static final double COUNTER_TREND_SCORE_MIN = 72.0;   // reversal entries against the HTF trend
-    static final double HTF_ALIGN_MIN           = 0.50;   // HTF score ratio below this = counter-trend
-    static final double PRE_SCORE_MIN           = 0.50;   // (HTF+15M) ratio needed before the 5M data is fetched
+    static final double ENTRY_SCORE_MIN         = 68.0;   // normal (trend-aligned) entries            (was 60)
+    static final double COUNTER_TREND_SCORE_MIN = 80.0;   // reversal entries against the HTF trend   (was 72)
+    static final double HTF_ALIGN_MIN           = 0.60;   // HTF score ratio below this = counter-trend (was 0.50)
+    static final double PRE_SCORE_MIN           = 0.55;   // (HTF+15M) ratio needed before the 5M data is fetched (was 0.50)
+    static final boolean ALLOW_COUNTER_TREND    = false;  // counter-trend (reversal) trades are the usual loss source -> OFF
+
+    // BTC market filter: alt trades are skipped when BTC's HTF trend is strongly against the direction
+    static final boolean BTC_FILTER_ENABLED = true;
+    static final String  BTC_PAIR           = "B-BTC_USDT";
+    static final double  BTC_MIN_ALIGN      = 0.35;       // BTC HTF score ratio for the trade direction must be >= this
 
     // Indicator parameters
     static final int    EMA_FAST = 9, EMA_SLOW = 21, EMA_TREND_FAST = 50, EMA_TREND_SLOW = 200;
@@ -76,8 +85,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double PRICE_JUMP_ATR = 1.0;             // live price farther than this from the signal close = skip
     static final double OVEREXT_EMA21_ATR = 3.0;          // signal close farther than this from 5M EMA21 = overextended
     static final double BREAKOUT_MAX_CHASE_ATR = 1.2;     // live price farther than this beyond the broken level = chasing
-    static final double RSI5_EXTREME = 82.0;              // long skipped above, short skipped below 100-this
+    static final double RSI5_EXTREME = 78.0;              // long skipped above, short skipped below 100-this (was 82)
     static final double COUNTER_MIN_VOL_RATIO = 1.5;      // counter-trend needs a volume spike on the trigger
+    static final double BREAKOUT_MIN_VOL_RATIO = 1.2;     // fresh breakouts need a volume spike (fake-breakout filter)
 
     // Spread filter (public orderbook; if the call fails the trade is allowed when SPREAD_FAIL_OPEN)
     static final double  MAX_SPREAD_PCT = 0.15;
@@ -86,13 +96,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Initial SL / TP
     // =========================================================================
-    static final double SL_ATR_BUFFER   = 0.5;            // x ATR(15M) beyond the swing
-    static final double MIN_SL_PCT      = 0.8;            // price %, at 10x = 8% margin
-    static final double MAX_SL_PCT      = 1.5;            // price %, at 10x = 30% margin (liquidation is near -9..-10%)
-    static final double MIN_SL_ATR15    = 0.8;            // SL never tighter than this x ATR(15M)
-    static final double TP_R            = 1.5;            // initial TP = TP_R x SL distance
-    static final double MIN_ROOM_R      = 1.0;            // skip if next 1H/4H S/R is closer than this x SL distance
-    static final double MIN_TP_R        = 0.8;            // skip if TP (after cutting before S/R) is smaller than this x SL
+    static final double SL_ATR_BUFFER   = 0.6;            // x ATR(15M) beyond the swing                (was 0.5)
+    static final double MIN_SL_PCT      = 1.0;            // price %, at 10x = 10% margin               (was 0.8)
+    static final double MAX_SL_PCT      = 2.0;            // price %, at 10x = 20% margin               (was 1.5)
+    static final double MIN_SL_ATR15    = 1.0;            // SL never tighter than this x ATR(15M)      (was 0.8)
+    static final double TP_R            = 2.0;            // initial TP = TP_R x SL distance            (was 1.5)
+    static final double MIN_ROOM_R      = 1.5;            // skip if next 1H/4H S/R is closer than this x SL distance (was 1.0)
+    static final double MIN_TP_R        = 1.2;            // skip if TP (after cutting before S/R) is smaller than this x SL (was 0.8)
     static final double ROOM_BUFFER_ATR = 0.2;            // TP placed this x ATR(15M) before the S/R level
 
     // =========================================================================
@@ -104,23 +114,26 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // =========================================================================
     // Break-even + profit-lock LADDER (SL only). Values in R (R = initial SL distance)
+    //   FIRST break-even is booked when profit = BE_FIRST_TRIGGER_R x SL distance.
+    //   BE_FIRST_TRIGGER_R = 1.0  =>  risk : first BE trigger = 1 : 1  (SL distance == first BE profit distance)
     //   stage i is reached when the favourable extreme >= LADDER_TRIGGER_R[i]; SL then goes to
     //   entry +/- max(cost, LADDER_LOCK_R[i] x R). Never backwards.
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;
-    static final double[] LADDER_TRIGGER_R = {0.7, 1.0, 1.5, 2.0, 3.0};
-    static final double[] LADDER_LOCK_R    = {0.0, 0.3, 0.8, 1.3, 2.2};   // 0.0 = pure cost-covering break-even
+    static final double  BE_FIRST_TRIGGER_R = 1.0;
+    static final double[] LADDER_TRIGGER_R = {BE_FIRST_TRIGGER_R, 1.5, 2.0, 3.0};
+    static final double[] LADDER_LOCK_R    = {0.0,                0.5, 1.0, 2.0};   // 0.0 = pure cost-covering break-even
 
     // =========================================================================
     // Trailing SL (+ limited TP extension)
     // =========================================================================
     static final boolean TRAILING_ENABLED     = true;
-    static final double  TRAIL_ACTIVATION_R   = 1.0;      // trailing starts here
-    static final double  TRAIL_DISTANCE_R     = 0.2;      // SL = best price -/+ this x R
-    static final double  TRAIL_STEP_R         = 0.15;     // SL only updated when it improves by >= this x R (fewer API calls)
+    static final double  TRAIL_ACTIVATION_R   = 1.5;      // trailing starts here (after the 1R break-even)   (was 1.0)
+    static final double  TRAIL_DISTANCE_R     = 0.6;      // SL = best price -/+ this x R  (wider = fewer early exits) (was 0.2)
+    static final double  TRAIL_STEP_R         = 0.25;     // SL only updated when it improves by >= this x R  (was 0.15)
     static final double  TP_EXTEND_TRIGGER_R  = 0.30;     // when best price is within this x R of TP (and trailing active)...
-    static final double  TP_EXTEND_R          = 0.80;     // ...TP moves up by this x R
-    static final int     MAX_TP_EXTENSIONS    = 30;        // never extended indefinitely
+    static final double  TP_EXTEND_R          = 1.0;      // ...TP moves up by this x R                       (was 0.8)
+    static final int     MAX_TP_EXTENSIONS    = 10;       // never extended indefinitely                      (was 30)
     static final long    TRAIL_CHECK_INTERVAL_MS = 5_000L;
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;
     static final long    TRAIL_VERIFY_DELAY_MS = 800;
@@ -583,6 +596,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     static boolean reversal15(M15Ctx m, int d) { return d > 0 ? (m.stFlipUp && m.bosUp) : (m.stFlipDown && m.bosDown); }
 
+    // 15M must agree with the trade direction (EMA9/21 and Supertrend) for trend-aligned entries
+    static boolean m15Aligned(M15Ctx m, int d) { return m.emaDir == d && m.stDir == d; }
+
     // =========================================================================
     // 5M trigger (closed candle): breakout of a confirmed swing, or a held retest of a broken swing
     // =========================================================================
@@ -660,6 +676,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         else       rc = (r.rsi5 < 50 && !rising) ? 1.0 : (r.rsi5 < 50 ? 0.6 : (r.rsi5 < 55 && !rising ? 0.4 : 0));
         r.volOk = volReliable(s);
         r.volRatio = volRatio(s, i, VOL_AVG_PERIOD);
+        // fake-breakout filter: a fresh breakout without a volume spike is skipped (retests are not affected)
+        if (r.type == 1 && r.volOk && !nan(r.volRatio) && r.volRatio < BREAKOUT_MIN_VOL_RATIO) { r.reject = "weakBreakoutVol"; return r; }
         r.max = 14 + 9 + 5;
         r.pts = (r.type == 1 ? 14 : 12) + 9 * cs + 5 * rc;
         if (r.volOk && !nan(r.volRatio)) {
@@ -754,6 +772,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double[] hs = htfScore(h, d), ms = score15(m, d);
         double htfRatio = hs[1] > 0 ? hs[0] / hs[1] : 0;
         c.counter = htfRatio < HTF_ALIGN_MIN;
+        if (c.counter && !ALLOW_COUNTER_TREND) { c.code = "counterTrendOff"; return c; }
+        if (!c.counter && !m15Aligned(m, d)) { c.code = "m15NotAligned"; return c; }
         Trig t = evalTrigger(s5, d, price);
         if (t.reject != null) { c.code = t.reject; return c; }
         c.level = t.level;
@@ -775,6 +795,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (c.score < thr) { c.code = "score"; return c; }
         c.ok = true;
         return c;
+    }
+
+    // BTC market filter: false when BTC's HTF trend is strongly against direction d (alts follow BTC)
+    static boolean btcAllows(String pair, int d, long now) {
+        if (!BTC_FILTER_ENABLED || BTC_PAIR.equals(pair)) return true;
+        HtfCtx b = getHtf(BTC_PAIR, now);
+        if (b == null || b.validCount < 2) return true;            // no BTC data -> do not block
+        double[] sc = htfScore(b, d);
+        return sc[1] <= 0 || sc[0] / sc[1] >= BTC_MIN_ALIGN;
     }
 
     // =========================================================================
@@ -1042,6 +1071,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (s5 == null || s5.n < 60 || !(px > 0)) { c.code = "noData"; return c; }
         if (s5.t[s5.n - 1] < alignedStart(now, FIVE_MIN_MS, 0L) - FIVE_MIN_MS) { c.code = "stale5m"; return c; }
         c = evaluateEntry(h, m, s5, px, d);
+        if (c.ok && !btcAllows(pair, d, now)) { c.ok = false; c.code = "btcAgainst"; }
         System.out.println("  [REVALIDATE] " + pair + " " + dirName(d) + " -> " + (c.ok ? "PASS" : "FAIL (" + c.code + ")") + " | " + c.ctx);
         return c;
     }
@@ -1052,9 +1082,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     public static void main(String[] args) {
         if (args.length > 0 && "--selftest".equals(args[0])) { System.exit(selfTest() ? 0 : 1); return; }
         System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " | SCORE STRATEGY HTF->15M->5M | leverage=" + LEVERAGE
-                + "x | symbols=" + COINS_TO_TRADE.length + " | min score " + ENTRY_SCORE_MIN + " (counter " + COUNTER_TREND_SCORE_MIN + ") ===");
-        System.out.println("=== SL " + MIN_SL_PCT + "-" + MAX_SL_PCT + "% (swing+ATR) TP=" + TP_R + "R | break-even ladder " + (BREAKEVEN_ENABLED ? "ON" : "OFF")
-                + " | trailing " + (TRAILING_ENABLED ? "ON" : "OFF") + (LIVE_TRADING_ENABLED ? "" : " (not applied in PAPER)") + " ===");
+                + "x | symbols=" + COINS_TO_TRADE.length + " | min score " + ENTRY_SCORE_MIN + " (counter " + (ALLOW_COUNTER_TREND ? String.valueOf(COUNTER_TREND_SCORE_MIN) : "OFF") + ") ===");
+        System.out.println("=== SL " + MIN_SL_PCT + "-" + MAX_SL_PCT + "% (swing+ATR) TP=" + TP_R + "R | first BE at " + BE_FIRST_TRIGGER_R + "R (SL:BE = 1:" + BE_FIRST_TRIGGER_R + ") | break-even ladder " + (BREAKEVEN_ENABLED ? "ON" : "OFF")
+                + " | trailing " + (TRAILING_ENABLED ? "ON" : "OFF") + (LIVE_TRADING_ENABLED ? "" : " (not applied in PAPER)") + " | BTC filter " + (BTC_FILTER_ENABLED ? "ON" : "OFF") + " ===");
         if (MAX_SL_PCT * LEVERAGE > 40) System.err.println("WARNING: MAX_SL_PCT x LEVERAGE > 40% of margin — liquidation risk is high");
         if (LIVE_TRADING_ENABLED && (API_KEY == null || API_SECRET == null)) { System.err.println("FATAL: DELTA_API_KEY / DELTA_API_SECRET not set"); return; }
         initInstrumentCache();
@@ -1108,14 +1138,18 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (m == null) { reject(rej, "m15Data"); continue; }
 
                 List<Integer> dirs = new ArrayList<>();
+                boolean btcBlocked = false;
                 for (int d : new int[]{1, -1}) {
                     double[] a = htfScore(h, d), b = score15(m, d);
                     boolean counter = a[1] > 0 && a[0] / a[1] < HTF_ALIGN_MIN;
                     double ratio = (a[0] + b[0]) / (a[1] + b[1]);
-                    if (!counter && ratio >= PRE_SCORE_MIN) dirs.add(d);
-                    else if (counter && reversal15(m, d) && b[0] / b[1] >= 0.6) dirs.add(d);
+                    boolean pass = false;
+                    if (!counter && ratio >= PRE_SCORE_MIN && m15Aligned(m, d)) pass = true;
+                    else if (counter && ALLOW_COUNTER_TREND && reversal15(m, d) && b[0] / b[1] >= 0.6) pass = true;
+                    if (pass && !btcAllows(pair, d, now)) { btcBlocked = true; pass = false; }
+                    if (pass) dirs.add(d);
                 }
-                if (dirs.isEmpty()) { reject(rej, "preScore"); continue; }
+                if (dirs.isEmpty()) { reject(rej, btcBlocked ? "btcAgainst" : "preScore"); continue; }
 
                 Series s5 = toSeries(fetchCandlesPaged(pair, "5", 5, FETCH_5M_TRIGGER), FIVE_MIN_MS, now);
                 fetched5++;
@@ -1826,6 +1860,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double[] ml = score15(m, 1);
         check("perfect 15M long = 30/30", Math.abs(ml[0] - 30) < 1e-9 && Math.abs(ml[1] - 30) < 1e-9);
         check("same 15M scores low for SHORT", score15(m, -1)[0] < 5);
+        check("15M alignment gate: long ok, short blocked", m15Aligned(m, 1) && !m15Aligned(m, -1));
 
         System.out.println("[Test] 5M trigger (fresh breakout above a confirmed swing high)");
         Series s5 = new Series(80);
@@ -1840,6 +1875,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("breakout detected, level = swing high 102.0", tr.reject == null && tr.type == 1 && Math.abs(tr.level - 102.0) < 1e-9);
         check("live price 3+ ATR away -> priceJump reject", "priceJump".equals(evalTrigger(s5, 1, 110).reject));
         check("same candle gives no SHORT trigger", evalTrigger(s5, -1, 102.8).reject != null);
+        s5.v[79] = 1;   // no volume spike on the breakout candle
+        check("breakout without volume spike -> weakBreakoutVol", "weakBreakoutVol".equals(evalTrigger(s5, 1, 102.8).reject));
+        s5.v[79] = 2;
 
         System.out.println("[Test] SL/TP from the actual fill");
         SlTp l = computeSlTp(true, 100.0, 2.0, 3.0, 0.01), s = computeSlTp(false, 100.0, 2.0, 3.0, 0.01);
@@ -1847,27 +1885,27 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("SHORT SL 102 / TP 97", s.ok && Math.abs(s.sl - 102) < 1e-9 && Math.abs(s.tp - 97) < 1e-9);
         check("zero distance rejected", !computeSlTp(true, 100.0, 0, 3, 0.01).ok);
 
-        System.out.println("[Test] Break-even ladder + trailing (LONG, entry 100, R=2, SL 98, TP 103)");
+        System.out.println("[Test] Break-even ladder + trailing (LONG, entry 100, R=2, SL 98, TP 104); first BE at 1R");
         double tk = 0.01, cost = 100 * COST_BUFFER_PCT / 100.0;
-        StopMgmt a0 = computeManagement(true, 100, 2, 98, 103, 101.0, 0, false, 0, tk);
-        check("0.5R -> nothing", !a0.slMove && !a0.tpMove && a0.newStage == 0);
-        StopMgmt a1 = computeManagement(true, 100, 2, 98, 103, 101.4, 0, false, 0, tk);
-        check("0.7R -> SL to entry + costs (net break-even)", a1.slMove && Math.abs(a1.newSl - (100 + cost)) < 0.011 && a1.newStage == 1 && !a1.trailActive);
-        StopMgmt a2 = computeManagement(true, 100, 2, a1.newSl, 103, 102.0, 1, false, 0, tk);
-        check("1.0R -> trailing active, SL >= entry + 0.4R", a2.slMove && a2.trailActive && a2.newSl >= 100 + 0.4 * 2 - 0.011 && a2.newStage == 2);
-        StopMgmt a3 = computeManagement(true, 100, 2, 100.8, 103, 101.2, 2, true, 0, tk);
-        check("price pulls back: SL never moves backwards", !a3.slMove && a3.newSl == 100.8);
-        StopMgmt a4 = computeManagement(true, 100, 2, 100.8, 103, 102.4, 2, true, 0, tk);
-        check("near TP with trailing: SL up AND TP extended once", a4.slMove && a4.tpMove && a4.newTp > 103 && a4.newTpExt == 1);
-        StopMgmt a5 = computeManagement(true, 100, 2, 101.2, 104.6, 104.4, 3, true, MAX_TP_EXTENSIONS, tk);
+        StopMgmt a0 = computeManagement(true, 100, 2, 98, 104, 101.5, 0, false, 0, tk);
+        check("0.75R -> nothing (first BE only at 1R)", !a0.slMove && !a0.tpMove && a0.newStage == 0);
+        StopMgmt a1 = computeManagement(true, 100, 2, 98, 104, 102.0, 0, false, 0, tk);
+        check("1.0R (== SL distance) -> SL to entry + costs (net break-even)", a1.slMove && Math.abs(a1.newSl - (100 + cost)) < 0.011 && a1.newStage == 1 && !a1.trailActive);
+        StopMgmt a2 = computeManagement(true, 100, 2, a1.newSl, 104, 103.0, 1, false, 0, tk);
+        check("1.5R -> trailing active, SL >= best - 0.6R, stage 2", a2.slMove && a2.trailActive && a2.newSl >= 103.0 - TRAIL_DISTANCE_R * 2 - 0.011 && a2.newStage == 2);
+        StopMgmt a3 = computeManagement(true, 100, 2, 101.8, 104, 103.0, 2, true, 0, tk);
+        check("price pulls back: SL never moves backwards", !a3.slMove && a3.newSl == 101.8);
+        StopMgmt a4 = computeManagement(true, 100, 2, 101.0, 104, 103.6, 2, true, 0, tk);
+        check("near TP with trailing: SL up AND TP extended once", a4.slMove && a4.tpMove && a4.newTp > 104 && a4.newTpExt == 1);
+        StopMgmt a5 = computeManagement(true, 100, 2, 102.4, 104, 103.9, 3, true, MAX_TP_EXTENSIONS, tk);
         check("TP extension capped at MAX_TP_EXTENSIONS", !a5.tpMove);
-        StopMgmt a6 = computeManagement(true, 100, 2, 102.0, 103, 101.5, 3, true, 0, tk);
-        check("manual SL already tighter than ladder/trail -> kept", !a6.slMove && a6.newSl == 102.0);
-        StopMgmt b1 = computeManagement(false, 100, 2, 102, 97, 98.6, 0, false, 0, tk);
-        check("SHORT 0.7R -> SL to entry - costs", b1.slMove && Math.abs(b1.newSl - (100 - cost)) < 0.011);
-        StopMgmt b2 = computeManagement(false, 100, 2, b1.newSl, 97, 97.6, 1, false, 0, tk);
-        check("SHORT 1.2R -> trailing SL moves DOWN", b2.slMove && b2.trailActive && b2.newSl < b1.newSl);
-        StopMgmt b3 = computeManagement(false, 100, 2, b2.newSl, 97, 99.0, 2, true, 0, tk);
+        StopMgmt a6 = computeManagement(true, 100, 2, 103.0, 105, 103.5, 3, true, 0, tk);
+        check("manual SL already tighter than ladder/trail -> kept", !a6.slMove && a6.newSl == 103.0);
+        StopMgmt b1 = computeManagement(false, 100, 2, 102, 96, 98.0, 0, false, 0, tk);
+        check("SHORT 1.0R -> SL to entry - costs", b1.slMove && Math.abs(b1.newSl - (100 - cost)) < 0.011);
+        StopMgmt b2 = computeManagement(false, 100, 2, b1.newSl, 96, 97.0, 1, false, 0, tk);
+        check("SHORT 1.5R -> trailing SL moves DOWN", b2.slMove && b2.trailActive && b2.newSl < b1.newSl);
+        StopMgmt b3 = computeManagement(false, 100, 2, b2.newSl, 96, 97.0, 2, true, 0, tk);
         check("SHORT price bounces: SL does not move up", !b3.slMove);
 
         System.out.println("[Test] State persistence / quantity / helpers");
