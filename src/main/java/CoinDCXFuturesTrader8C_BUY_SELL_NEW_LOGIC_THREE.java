@@ -56,7 +56,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
     // =========================================================================
-    private static final double FIXED_MARGIN = 1500.0;
+    private static final double FIXED_MARGIN = 2000.0;
     private static final int    LEVERAGE     = 10;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 10;
