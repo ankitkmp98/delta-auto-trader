@@ -32,8 +32,21 @@ import java.util.stream.Stream;
 //  MANAGE : FIRST break-even is booked at BE_FIRST_TRIGGER_R x SL distance (default 1.0 => SL : first BE profit = 1 : 1).
 //           Then profit-lock ladder, then R-based trailing SL; TP extended in limited steps.
 //           All distances are in "R" (R = initial SL distance), so they scale with every coin's volatility.
+//
+//  v6 CHANGES (after the trade_log_v5 review)
+//   RISK    : max MAX_SAME_DIRECTION_POSITIONS open LONGs and the same number of SHORTs (trades are highly correlated);
+//             per-pair cooldown after a close (PAIR_COOLDOWN_AFTER_CLOSE_MS, longer after a stop-loss).
+//   EXIT    : ladder stage 1 now locks +0.2R (was pure cost-covering break-even).
+//   BUGFIX  : roomR was "Infinity" when no S/R level exists -> capped at ROOM_R_CAP.
+//   LOGGING : trade_log_v6.csv. Exit reason is resolved from 1M candles since the position was last seen
+//             (TP / SL / SL_LOCKED_TRAIL / NO_LEVEL_TOUCHED = manual or liquidation), so the old
+//             "OTHER(manual/liquidation?)" bucket (mostly detection delay after a restart) goes away.
+//             New columns: config version, signal price + entry slippage, estimated exit price / R / net R,
+//             score components, trigger type, open positions at entry, BTC context.
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
+
+    static final String CONFIG_VERSION = "v6";
 
     // =========================================================================
     // Execution mode (false = PAPER: fixed SL/TP only, no break-even/trailing)
@@ -47,6 +60,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final int    LEVERAGE     = 10;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 5;
+    static final int MAX_SAME_DIRECTION_POSITIONS = 3;    // v6: max open LONGs and max open SHORTs (correlated trades move together)
 
     // =========================================================================
     // Entry scoring
@@ -104,6 +118,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MIN_ROOM_R      = 1.5;            // skip if next 1H/4H S/R is closer than this x SL distance (was 1.0)
     static final double MIN_TP_R        = 1.2;            // skip if TP (after cutting before S/R) is smaller than this x SL (was 0.8)
     static final double ROOM_BUFFER_ATR = 0.2;            // TP placed this x ATR(15M) before the S/R level
+    static final double ROOM_R_CAP      = 20.0;           // v6: roomR is capped here (no S/R found used to print "Infinity")
 
     // =========================================================================
     // Cost model (used so the break-even SL really locks NET profit)
@@ -122,7 +137,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean BREAKEVEN_ENABLED = true;
     static final double  BE_FIRST_TRIGGER_R = 1.0;
     static final double[] LADDER_TRIGGER_R = {BE_FIRST_TRIGGER_R, 1.5, 2.0, 3.0};
-    static final double[] LADDER_LOCK_R    = {0.0,                0.5, 1.0, 2.0};   // 0.0 = pure cost-covering break-even
+    static final double[] LADDER_LOCK_R    = {0.2,                0.5, 1.0, 2.0};   // v6: stage 1 locks +0.2R (was 0.0 = pure cost-covering break-even)
 
     // =========================================================================
     // Trailing SL (+ limited TP extension)
@@ -141,7 +156,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long    TRAIL_STATUS_LOG_MS = 60_000L;
     static final double  ENTRY_MISMATCH_PCT = 0.3;        // saved state with a different entry = another position
     static final double  RECOVER_R_PCT = 2.0;             // R (price %) assumed for positions rebuilt without a known initial SL
-    static final String  TRADE_STATE_FILE = "trade_state_v5.json";
+    static final String  TRADE_STATE_FILE = "trade_state_v5.json";   // unchanged on purpose: open positions survive the v6 upgrade
 
     // =========================================================================
     // API / exchange (unchanged)
@@ -178,13 +193,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Timing / logging
     // =========================================================================
-    static final long COOLDOWN_MS   = 5L * 60 * 1000L;
+    static final long COOLDOWN_MS   = 5L * 60 * 1000L;                       // after an ENTRY order (anti double-order)
+    static final long PAIR_COOLDOWN_AFTER_CLOSE_MS = 60L * 60 * 1000L;       // v6: no re-entry on the same pair after any close
+    static final long PAIR_COOLDOWN_AFTER_SL_MS    = 120L * 60 * 1000L;      // v6: ... and longer after a plain stop-loss
     static final long SCAN_STEP_MS  = 60_000L;
     static final long SCAN_DELAY_MS = 5_000L;
     static final long PAPER_MAX_HOLD_MS = 24L * 60 * 60 * 1000L;
     static final boolean LOG_TRADES_CSV = true;
     static final boolean LOG_NO_TRADE_DETAIL = false;
-    static final String TRADE_LOG_FILE = "trade_log_v5.csv";
+    static final String TRADE_LOG_FILE = "trade_log_v6.csv";
     static final String PAPER_LOG_FILE = "paper_trade_log_v5.csv";
     static final double EPS = 1e-12;
 
@@ -202,6 +219,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         int tpExt;              // TP extensions used
         long lastMoveMs;
         long nextTryMs, lastStatusLogMs;   // runtime only
+        // ---- v6: bookkeeping used only for the trade log / exit resolution ----
+        String cfg = CONFIG_VERSION;
+        long lastSeenMs;        // last time the position was seen open by the management pass
+        double lastSeenPx;
+        double signalPx;        // live price at the final re-validation (entry slippage = fill vs this)
+        int openAtEntry, longsAtEntry, shortsAtEntry;   // open positions (before this one) when it was entered
+        double score, htfPts, htfMax, m15Pts, m15Max, m5Pts, m5Max, slPct, tpPct, roomR;
+        double btcRatio = -1;   // BTC HTF score ratio for the trade direction (-1 = unavailable)
+        int btc15m;             // BTC 15M direction: +1 / -1 / 0 (EMA and Supertrend disagree or unavailable)
+        String trig = "";
+        boolean counter;
     }
     static class PaperTrade { boolean isLong; double entry, sl, tp; long openedMs; String ctx = ""; }
 
@@ -210,6 +238,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final Map<String, JSONObject> instrumentCache = new ConcurrentHashMap<>();
     private static long lastCacheUpdate = 0;
     private static final Map<String, Long> lastTradeTime = new ConcurrentHashMap<>();
+    private static final Map<String, Long> cooldownUntil = new ConcurrentHashMap<>();   // v6: per-pair cooldown after a close
     private static final Map<String, Long> lastSignalCandle = new ConcurrentHashMap<>();
     private static final Map<String, Long> lastEval5m = new ConcurrentHashMap<>();
 
@@ -709,6 +738,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return best;
     }
 
+    // v6: room to the next S/R expressed in R, capped (no S/R level found -> room is infinite -> used to print "Infinity")
+    static double capRoomR(double room, double slDist) {
+        if (!(slDist > 0)) return 0;
+        double r = room / slDist;
+        return Double.isNaN(r) ? 0 : Math.min(r, ROOM_R_CAP);
+    }
+
     static Plan buildPlan(HtfCtx h, M15Ctx m, int d, double price) {
         Plan p = new Plan();
         Series s = m.s;
@@ -735,7 +771,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double lvl = Double.NaN;
         for (double x : new double[]{l1, l4}) if (!nan(x) && (nan(lvl) || (d > 0 ? x < lvl : x > lvl))) lvl = x;
         double room = nan(lvl) ? Double.POSITIVE_INFINITY : Math.abs(lvl - price);
-        p.roomR = room / p.slDist;
+        p.roomR = capRoomR(room, p.slDist);
         if (p.roomR < MIN_ROOM_R) { p.reject = "nearSR"; return p; }
         p.tpDist = Math.min(TP_R * p.slDist, room - ROOM_BUFFER_ATR * atr15);
         if (p.tpDist < MIN_TP_R * p.slDist) { p.reject = "tpTooSmall"; return p; }
@@ -764,6 +800,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double score, price, level;
         Plan plan;
         String ctx = "";
+        // v6: score components + context, copied into the TradeInfo for the trade log
+        double htfPts, htfMax, m15Pts, m15Max, m5Pts, m5Max;
+        int trigType;
+        double btcRatio = -1;
+        int btc15m;
     }
 
     static Candidate evaluateEntry(HtfCtx h, M15Ctx m, Series s5, double price, int d) {
@@ -788,6 +829,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double roomCredit = p.roomR >= 2.5 ? 1.0 : p.roomR >= 1.8 ? 0.75 : p.roomR >= 1.3 ? 0.5 : 0.3;
         double pts = hs[0] + ms[0] + t.pts + 6 * roomCredit, max = hs[1] + ms[1] + t.max + 6;
         c.score = 100.0 * pts / max;
+        c.htfPts = hs[0]; c.htfMax = hs[1]; c.m15Pts = ms[0]; c.m15Max = ms[1];
+        c.m5Pts = t.pts + 6 * roomCredit; c.m5Max = t.max + 6; c.trigType = t.type;
         double thr = c.counter ? COUNTER_TREND_SCORE_MIN : ENTRY_SCORE_MIN;
         c.ctx = String.format("score=%.0f(htf=%.0f/%.0f,15m=%.0f/%.0f,5m=%.0f/%.0f)%s trig=%s@%.6f sl=%.2f%% tp=%.2f%% roomR=%.1f",
                 c.score, hs[0], hs[1], ms[0], ms[1], t.pts + 6 * roomCredit, t.max + 6, c.counter ? " COUNTER" : "",
@@ -797,13 +840,49 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         return c;
     }
 
+    // BTC HTF score ratio for direction d (NaN when BTC data is not available)
+    static double btcRatio(int d, long now) {
+        HtfCtx b = getHtf(BTC_PAIR, now);
+        if (b == null || b.validCount < 2) return Double.NaN;
+        double[] sc = htfScore(b, d);
+        return sc[1] > 0 ? sc[0] / sc[1] : Double.NaN;
+    }
+
+    // BTC 15M direction: +1 / -1 when EMA9/21 and Supertrend agree, else 0 (also 0 when unavailable)
+    static int btc15mDir(long now) {
+        M15Ctx m = getM15(BTC_PAIR, now);
+        if (m == null) return 0;
+        return m.emaDir == m.stDir ? m.emaDir : 0;
+    }
+
     // BTC market filter: false when BTC's HTF trend is strongly against direction d (alts follow BTC)
     static boolean btcAllows(String pair, int d, long now) {
         if (!BTC_FILTER_ENABLED || BTC_PAIR.equals(pair)) return true;
-        HtfCtx b = getHtf(BTC_PAIR, now);
-        if (b == null || b.validCount < 2) return true;            // no BTC data -> do not block
-        double[] sc = htfScore(b, d);
-        return sc[1] <= 0 || sc[0] / sc[1] >= BTC_MIN_ALIGN;
+        double r = btcRatio(d, now);
+        return nan(r) || r >= BTC_MIN_ALIGN;                       // no BTC data -> do not block
+    }
+
+    // =========================================================================
+    // v6 risk controls: same-direction cap + per-pair cooldown
+    // =========================================================================
+    // Number of currently open positions in the given direction (LIVE: from the persisted trade state, PAPER: paper trades)
+    static int sameDirCount(boolean isLong, Set<String> active) {
+        int n = 0;
+        if (LIVE_TRADING_ENABLED) {
+            for (String p : active) { TradeInfo t = tradeState.get(p); if (t != null && t.isLong == isLong) n++; }
+        } else {
+            for (PaperTrade p : paperTrades.values()) if (p.isLong == isLong) n++;
+        }
+        return n;
+    }
+
+    // Called when a position closed. exitMs = estimated exit time (so a long downtime does not extend the cooldown).
+    static void registerCloseCooldown(String pair, boolean slLoss, long exitMs) {
+        cooldownUntil.put(pair, exitMs + (slLoss ? PAIR_COOLDOWN_AFTER_SL_MS : PAIR_COOLDOWN_AFTER_CLOSE_MS));
+    }
+
+    static boolean pairInCooldown(String pair, long now) {
+        return now - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS || now < cooldownUntil.getOrDefault(pair, 0L);
     }
 
     // =========================================================================
@@ -866,6 +945,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         j.put("maxPrice", t.maxPrice); j.put("minPrice", t.minPrice); j.put("openedMs", t.openedMs);
         j.put("ctx", t.ctx == null ? "" : t.ctx);
         j.put("lockStage", t.lockStage); j.put("trailActive", t.trailActive); j.put("tpExt", t.tpExt); j.put("lastMoveMs", t.lastMoveMs);
+        // v6 bookkeeping
+        j.put("cfg", t.cfg == null ? "" : t.cfg);
+        j.put("lastSeenMs", t.lastSeenMs); j.put("lastSeenPx", t.lastSeenPx); j.put("signalPx", t.signalPx);
+        j.put("openAtEntry", t.openAtEntry); j.put("longsAtEntry", t.longsAtEntry); j.put("shortsAtEntry", t.shortsAtEntry);
+        j.put("score", t.score); j.put("htfPts", t.htfPts); j.put("htfMax", t.htfMax);
+        j.put("m15Pts", t.m15Pts); j.put("m15Max", t.m15Max); j.put("m5Pts", t.m5Pts); j.put("m5Max", t.m5Max);
+        j.put("slPct", t.slPct); j.put("tpPct", t.tpPct); j.put("roomR", t.roomR);
+        j.put("btcRatio", t.btcRatio); j.put("btc15m", t.btc15m);
+        j.put("trig", t.trig == null ? "" : t.trig); j.put("counter", t.counter);
         return j;
     }
 
@@ -878,6 +966,14 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         t.openedMs = j.optLong("openedMs", 0); t.ctx = j.optString("ctx", "");
         t.lockStage = j.optInt("lockStage", 0); t.trailActive = j.optBoolean("trailActive", false);
         t.tpExt = j.optInt("tpExt", 0); t.lastMoveMs = j.optLong("lastMoveMs", 0);
+        t.cfg = j.optString("cfg", "v5");                       // positions saved by the v5 bot have no cfg
+        t.lastSeenMs = j.optLong("lastSeenMs", 0); t.lastSeenPx = j.optDouble("lastSeenPx", 0); t.signalPx = j.optDouble("signalPx", 0);
+        t.openAtEntry = j.optInt("openAtEntry", 0); t.longsAtEntry = j.optInt("longsAtEntry", 0); t.shortsAtEntry = j.optInt("shortsAtEntry", 0);
+        t.score = j.optDouble("score", 0); t.htfPts = j.optDouble("htfPts", 0); t.htfMax = j.optDouble("htfMax", 0);
+        t.m15Pts = j.optDouble("m15Pts", 0); t.m15Max = j.optDouble("m15Max", 0); t.m5Pts = j.optDouble("m5Pts", 0); t.m5Max = j.optDouble("m5Max", 0);
+        t.slPct = j.optDouble("slPct", 0); t.tpPct = j.optDouble("tpPct", 0); t.roomR = j.optDouble("roomR", 0);
+        t.btcRatio = j.optDouble("btcRatio", -1); t.btc15m = j.optInt("btc15m", 0);
+        t.trig = j.optString("trig", ""); t.counter = j.optBoolean("counter", false);
         return t;
     }
 
@@ -1072,6 +1168,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         if (s5.t[s5.n - 1] < alignedStart(now, FIVE_MIN_MS, 0L) - FIVE_MIN_MS) { c.code = "stale5m"; return c; }
         c = evaluateEntry(h, m, s5, px, d);
         if (c.ok && !btcAllows(pair, d, now)) { c.ok = false; c.code = "btcAgainst"; }
+        double br = btcRatio(d, now);
+        c.btcRatio = nan(br) ? -1 : br;
+        c.btc15m = btc15mDir(now);
         System.out.println("  [REVALIDATE] " + pair + " " + dirName(d) + " -> " + (c.ok ? "PASS" : "FAIL (" + c.code + ")") + " | " + c.ctx);
         return c;
     }
@@ -1081,10 +1180,12 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     public static void main(String[] args) {
         if (args.length > 0 && "--selftest".equals(args[0])) { System.exit(selfTest() ? 0 : 1); return; }
-        System.out.println("=== Bot starting | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " | SCORE STRATEGY HTF->15M->5M | leverage=" + LEVERAGE
+        System.out.println("=== Bot starting (" + CONFIG_VERSION + ") | MODE=" + (LIVE_TRADING_ENABLED ? "LIVE" : "PAPER") + " | SCORE STRATEGY HTF->15M->5M | leverage=" + LEVERAGE
                 + "x | symbols=" + COINS_TO_TRADE.length + " | min score " + ENTRY_SCORE_MIN + " (counter " + (ALLOW_COUNTER_TREND ? String.valueOf(COUNTER_TREND_SCORE_MIN) : "OFF") + ") ===");
-        System.out.println("=== SL " + MIN_SL_PCT + "-" + MAX_SL_PCT + "% (swing+ATR) TP=" + TP_R + "R | first BE at " + BE_FIRST_TRIGGER_R + "R (SL:BE = 1:" + BE_FIRST_TRIGGER_R + ") | break-even ladder " + (BREAKEVEN_ENABLED ? "ON" : "OFF")
+        System.out.println("=== SL " + MIN_SL_PCT + "-" + MAX_SL_PCT + "% (swing+ATR) TP=" + TP_R + "R | first BE at " + BE_FIRST_TRIGGER_R + "R (SL:BE = 1:" + BE_FIRST_TRIGGER_R + ", locks +" + LADDER_LOCK_R[0] + "R) | break-even ladder " + (BREAKEVEN_ENABLED ? "ON" : "OFF")
                 + " | trailing " + (TRAILING_ENABLED ? "ON" : "OFF") + (LIVE_TRADING_ENABLED ? "" : " (not applied in PAPER)") + " | BTC filter " + (BTC_FILTER_ENABLED ? "ON" : "OFF") + " ===");
+        System.out.println("=== Risk: max " + MAX_OPEN_POSITIONS + " open, max " + MAX_SAME_DIRECTION_POSITIONS + " per direction | pair cooldown after close " + (PAIR_COOLDOWN_AFTER_CLOSE_MS / 60_000L)
+                + "m (after SL " + (PAIR_COOLDOWN_AFTER_SL_MS / 60_000L) + "m) | trade log " + TRADE_LOG_FILE + " ===");
         if (MAX_SL_PCT * LEVERAGE > 40) System.err.println("WARNING: MAX_SL_PCT x LEVERAGE > 40% of margin — liquidation risk is high");
         if (LIVE_TRADING_ENABLED && (API_KEY == null || API_SECRET == null)) { System.err.println("FATAL: DELTA_API_KEY / DELTA_API_SECRET not set"); return; }
         initInstrumentCache();
@@ -1126,7 +1227,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (LIVE_TRADING_ENABLED && System.currentTimeMillis() - lastTrailPassMs >= TRAIL_CHECK_INTERVAL_MS) runManagementPass();
                 if (active.size() + paperTrades.size() >= MAX_OPEN_POSITIONS) break;
                 if (active.contains(pair) || paperTrades.containsKey(pair)) continue;   // no duplicate / conflicting position
-                if (System.currentTimeMillis() - lastTradeTime.getOrDefault(pair, 0L) < COOLDOWN_MS) continue;
+                if (pairInCooldown(pair, System.currentTimeMillis())) { reject(rej, "pairCooldown"); continue; }
                 long now = System.currentTimeMillis();
                 long expected5 = alignedStart(now, FIVE_MIN_MS, 0L) - FIVE_MIN_MS;       // newest closed 5M candle
                 if (lastEval5m.getOrDefault(pair, 0L) >= expected5) continue;           // this 5M candle was already judged
@@ -1138,8 +1239,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                 if (m == null) { reject(rej, "m15Data"); continue; }
 
                 List<Integer> dirs = new ArrayList<>();
-                boolean btcBlocked = false;
+                boolean btcBlocked = false, dirLimited = false;
                 for (int d : new int[]{1, -1}) {
+                    if (sameDirCount(d > 0, active) >= MAX_SAME_DIRECTION_POSITIONS) { dirLimited = true; continue; }   // v6: too many trades already on this side
                     double[] a = htfScore(h, d), b = score15(m, d);
                     boolean counter = a[1] > 0 && a[0] / a[1] < HTF_ALIGN_MIN;
                     double ratio = (a[0] + b[0]) / (a[1] + b[1]);
@@ -1149,7 +1251,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     if (pass && !btcAllows(pair, d, now)) { btcBlocked = true; pass = false; }
                     if (pass) dirs.add(d);
                 }
-                if (dirs.isEmpty()) { reject(rej, btcBlocked ? "btcAgainst" : "preScore"); continue; }
+                if (dirs.isEmpty()) { reject(rej, dirLimited ? "sameDirLimit" : (btcBlocked ? "btcAgainst" : "preScore")); continue; }
 
                 Series s5 = toSeries(fetchCandlesPaged(pair, "5", 5, FETCH_5M_TRIGGER), FIVE_MIN_MS, now);
                 fetched5++;
@@ -1223,7 +1325,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     double px = getLastPrice(pair);
                     result = "TIMEOUT"; exitPx = px > 0 ? px : p.entry;
                 }
-                if (result != null) { logPaperClosed(pair, p, result, exitPx); it.remove(); }
+                if (result != null) {
+                    logPaperClosed(pair, p, result, exitPx);
+                    registerCloseCooldown(pair, "SL".equals(result), now);
+                    it.remove();
+                }
             } catch (Exception e) { System.err.println("updatePaperTrades " + pair + ": " + e.getMessage()); }
         }
     }
@@ -1250,6 +1356,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static boolean executeEntry(String pair, Candidate sig, Set<String> active) {
         try {
             boolean isLong = sig.dir > 0;
+            // v6: snapshot of the book BEFORE this trade (goes to the trade log)
+            int openBefore = active.size(), longsBefore = sameDirCount(true, active), shortsBefore = sameDirCount(false, active);
             Candidate rv = revalidate(pair, sig.dir);
             if (!rv.ok) { System.out.println("SIGNAL CANCELLED - " + pair + " - " + rv.code); return false; }
             if (!spreadOk(pair)) { System.out.println("SIGNAL CANCELLED - " + pair + " - spread too wide"); return false; }
@@ -1318,6 +1426,13 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             TradeInfo t = new TradeInfo();
             t.isLong = isLong; t.entry = avgEntry; t.sl = fin.sl; t.tp = fin.tp; t.initialSl = fin.sl; t.initialTp = fin.tp; t.risk = fin.risk;
             t.maxPrice = avgEntry; t.minPrice = avgEntry; t.openedMs = System.currentTimeMillis(); t.ctx = ctx;
+            // v6 bookkeeping for the trade log
+            t.lastSeenMs = t.openedMs; t.lastSeenPx = avgEntry; t.signalPx = currentPrice;
+            t.openAtEntry = openBefore; t.longsAtEntry = longsBefore; t.shortsAtEntry = shortsBefore;
+            t.score = rv.score; t.htfPts = rv.htfPts; t.htfMax = rv.htfMax; t.m15Pts = rv.m15Pts; t.m15Max = rv.m15Max; t.m5Pts = rv.m5Pts; t.m5Max = rv.m5Max;
+            t.trig = rv.trigType == 1 ? "breakout" : "retest"; t.counter = rv.counter;
+            t.slPct = plan.slDist / currentPrice * 100.0; t.tpPct = plan.tpDist / currentPrice * 100.0; t.roomR = plan.roomR;
+            t.btcRatio = rv.btcRatio; t.btc15m = rv.btc15m;
             tradeState.put(pair, t);
             saveTradeState();
             active.add(pair);
@@ -1357,8 +1472,121 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Closed-trade logging (approximate exit reason + MFE/MAE in R) -> console + CSV
+    // Closed-trade logging -> console + CSV (v6)
+    //   The exit reason is resolved from the 1M candles between "last seen open" and now, so a bot restart / detection
+    //   delay no longer turns a normal SL/TP into "OTHER". Labels:
+    //     TP | SL | SL_LOCKED_TRAIL          : confirmed by 1M candles (SL wins when both touched in one candle -> both_touched=true)
+    //     TP_approx | SL_approx | ..._approx : candles not conclusive, last price sits next to that level
+    //     NO_LEVEL_TOUCHED                   : neither level was touched -> closed manually / liquidated / by the exchange
+    //     UNKNOWN_NO_DATA                    : no candles and no price
     // =========================================================================
+    static class ExitInfo { String reason = "NONE"; double price; long atMs; boolean both; }
+
+    // Pure: first 1M candle (open time >= fromMs) that touched SL or TP. SL wins when both are touched in the same candle.
+    static ExitInfo resolveExit(boolean isLong, double sl, double tp, Series cs, long fromMs) {
+        ExitInfo e = new ExitInfo();
+        if (cs == null) return e;
+        for (int i = 0; i < cs.n; i++) {
+            if (cs.t[i] < fromMs) continue;
+            boolean slHit = isLong ? cs.l[i] <= sl : cs.h[i] >= sl;
+            boolean tpHit = isLong ? cs.h[i] >= tp : cs.l[i] <= tp;
+            if (slHit || tpHit) {
+                e.both = slHit && tpHit;
+                if (slHit) { e.reason = "SL"; e.price = sl; } else { e.reason = "TP"; e.price = tp; }
+                e.atMs = cs.t[i];
+                return e;
+            }
+        }
+        return e;
+    }
+
+    static String classifyExit(TradeInfo t, double lastPx) {
+        if (lastPx <= 0 || t.risk <= 0) return "UNKNOWN_NO_DATA";
+        double dTp = Math.abs(lastPx - t.tp), dSl = Math.abs(lastPx - t.sl);
+        if (Math.min(dTp, dSl) > 0.35 * t.risk) return "NO_LEVEL_TOUCHED";
+        return dTp < dSl ? "TP_approx" : (t.lockStage > 0 || t.trailActive ? "SL_LOCKED_TRAIL_approx" : "SL_approx");
+    }
+
+    static double[] mfeMaeR(TradeInfo t) {
+        if (t.risk <= 0) return new double[]{0, 0};
+        double mfe = t.isLong ? (t.maxPrice - t.entry) : (t.entry - t.minPrice);
+        double mae = t.isLong ? (t.entry - t.minPrice) : (t.maxPrice - t.entry);
+        return new double[]{Math.max(0, mfe) / t.risk, Math.max(0, mae) / t.risk};
+    }
+
+    private static ExitInfo resolveClosedExit(String pair, TradeInfo t, double lastPx, long now) {
+        long from = t.lastSeenMs > 0 ? t.lastSeenMs : t.openedMs;
+        ExitInfo e = new ExitInfo();
+        if (from > 0 && t.sl > 0 && t.tp > 0) {
+            long fromMin = alignedStart(from, MIN_MS, 0L);
+            int minutes = (int) Math.min(1500L, Math.max(5L, (now - fromMin) / MIN_MS + 3));
+            Series cs = toSeries(fetchCandlesPaged(pair, "1", 1, minutes), MIN_MS, now);
+            if (cs != null) e = resolveExit(t.isLong, t.sl, t.tp, cs, fromMin);
+            else e.reason = "UNKNOWN_NO_DATA";
+        } else e.reason = "UNKNOWN_NO_DATA";
+        if ("SL".equals(e.reason) && (t.lockStage > 0 || t.trailActive)) e.reason = "SL_LOCKED_TRAIL";
+        if ("NONE".equals(e.reason) || "UNKNOWN_NO_DATA".equals(e.reason)) {        // candles not conclusive -> price proximity
+            String approx = classifyExit(t, lastPx);
+            e.reason = approx;
+            e.price = approx.startsWith("TP") ? t.tp : approx.startsWith("SL") ? t.sl : lastPx;
+        }
+        return e;
+    }
+
+    static final String TRADE_LOG_HEADER = "closed_utc,pair,direction,exit_reason,config,entry,signal_px,entry_slip_pct,initial_sl,final_sl,initial_tp,final_tp,"
+            + "exit_px_est,last_price,exit_r_est,net_r_est,held_min,detect_delay_min,mfe_r,mae_r,lock_stage,trail_active,tp_ext,"
+            + "score,htf_pts,htf_max,m15_pts,m15_max,m5_pts,m5_max,trigger,counter,sl_pct,tp_pct,room_r,"
+            + "open_at_entry,longs_at_entry,shorts_at_entry,btc_htf_ratio,btc_15m_dir,both_touched,context";
+
+    static String f(double v, int dp) { return (Double.isNaN(v) || Double.isInfinite(v)) ? "" : String.format(Locale.US, "%." + dp + "f", v); }
+    static String fp(double v, int dp) { return v > 0 ? f(v, dp) : ""; }     // blank for 0 / unavailable
+
+    // One CSV row (pure). exit_r_est / net_r_est use the estimated exit price (SL/TP level or last price) and the cost model.
+    static String tradeLogRow(String closedUtc, String pair, TradeInfo t, String reason, double exitPx, double lastPx,
+                              long heldMin, long delayMin, boolean both) {
+        double[] m = mfeMaeR(t);
+        double slip = t.signalPx > 0 ? (t.isLong ? t.entry - t.signalPx : t.signalPx - t.entry) / t.signalPx * 100.0 : Double.NaN;
+        double move = t.isLong ? exitPx - t.entry : t.entry - exitPx;
+        double exitR = (t.risk > 0 && exitPx > 0) ? move / t.risk : Double.NaN;
+        double costR = t.risk > 0 ? (t.entry * COST_BUFFER_PCT / 100.0) / t.risk : Double.NaN;
+        double netR = (nan(exitR) || nan(costR)) ? Double.NaN : exitR - costR;
+        List<String> c = new ArrayList<>();
+        c.add(closedUtc); c.add(pair); c.add(t.isLong ? "LONG" : "SHORT"); c.add(reason); c.add(t.cfg == null ? "" : t.cfg);
+        c.add(f(t.entry, 8)); c.add(fp(t.signalPx, 8)); c.add(f(slip, 3));
+        c.add(f(t.initialSl, 8)); c.add(f(t.sl, 8)); c.add(f(t.initialTp, 8)); c.add(f(t.tp, 8));
+        c.add(fp(exitPx, 8)); c.add(fp(lastPx, 8)); c.add(f(exitR, 2)); c.add(f(netR, 2));
+        c.add(String.valueOf(heldMin)); c.add(String.valueOf(delayMin));
+        c.add(f(m[0], 2)); c.add(f(m[1], 2)); c.add(String.valueOf(t.lockStage)); c.add(String.valueOf(t.trailActive)); c.add(String.valueOf(t.tpExt));
+        c.add(fp(t.score, 1)); c.add(fp(t.htfPts, 1)); c.add(fp(t.htfMax, 1)); c.add(fp(t.m15Pts, 1)); c.add(fp(t.m15Max, 1)); c.add(fp(t.m5Pts, 1)); c.add(fp(t.m5Max, 1));
+        c.add(t.trig == null ? "" : t.trig); c.add(String.valueOf(t.counter));
+        c.add(fp(t.slPct, 2)); c.add(fp(t.tpPct, 2)); c.add(fp(t.roomR, 1));
+        c.add(String.valueOf(t.openAtEntry)); c.add(String.valueOf(t.longsAtEntry)); c.add(String.valueOf(t.shortsAtEntry));
+        c.add(t.btcRatio >= 0 ? f(t.btcRatio, 2) : ""); c.add(String.valueOf(t.btc15m)); c.add(String.valueOf(both));
+        return String.join(",", c) + ",\"" + (t.ctx == null ? "" : t.ctx.replace("\"", "\"\"")) + "\"";
+    }
+
+    private static synchronized void logClosedTrade(String pair, TradeInfo t, double lastPx) {
+        long now = System.currentTimeMillis();
+        ExitInfo e = resolveClosedExit(pair, t, lastPx, now);
+        long endMs = e.atMs > 0 ? e.atMs : now;
+        long heldMin = t.openedMs > 0 ? Math.max(0, (endMs - t.openedMs) / 60_000L) : -1;
+        long delayMin = Math.max(0, (now - endMs) / 60_000L);
+        double[] m = mfeMaeR(t);
+        System.out.printf("[CLOSED] %s %s exit=%s%s entry=%.6f initialSl=%.6f finalSl=%.6f finalTp=%.6f exitPx~%.6f lastPx=%.6f held=%dmin delay=%dmin stage=%d trail=%s tpExt=%d MFE=%.2fR MAE=%.2fR | %s%n",
+                pair, t.isLong ? "LONG" : "SHORT", e.reason, e.both ? "(both touched)" : "", t.entry, t.initialSl, t.sl, t.tp, e.price, lastPx, heldMin, delayMin,
+                t.lockStage, t.trailActive, t.tpExt, m[0], m[1], t.ctx);
+        registerCloseCooldown(pair, "SL".equals(e.reason) || "SL_approx".equals(e.reason), endMs);
+        if (!LOG_TRADES_CSV) return;
+        try {
+            File f = new File(TRADE_LOG_FILE);
+            boolean fresh = !f.exists();
+            try (PrintWriter pw = new PrintWriter(new FileWriter(f, true))) {
+                if (fresh) pw.println(TRADE_LOG_HEADER);
+                pw.println(tradeLogRow(Instant.now().toString(), pair, t, e.reason, e.price, lastPx, heldMin, delayMin, e.both));
+            }
+        } catch (Exception ex) { System.err.println("trade log write failed: " + ex.getMessage()); }
+    }
+
     private static void handleClosedTrades(Set<String> active) {
         boolean removed = false;
         for (Iterator<Map.Entry<String, TradeInfo>> it = tradeState.entrySet().iterator(); it.hasNext();) {
@@ -1369,38 +1597,6 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             removed = true;
         }
         if (removed) saveTradeState();
-    }
-
-    static String classifyExit(TradeInfo t, double lastPx) {
-        if (lastPx <= 0 || t.risk <= 0) return "UNKNOWN";
-        double dTp = Math.abs(lastPx - t.tp), dSl = Math.abs(lastPx - t.sl);
-        if (Math.min(dTp, dSl) > 0.35 * t.risk) return "OTHER(manual/liquidation?)";
-        return dTp < dSl ? "TP(approx)" : (t.lockStage > 0 || t.trailActive ? "SL-LOCKED/TRAIL(approx)" : "SL(approx)");
-    }
-
-    static double[] mfeMaeR(TradeInfo t) {
-        if (t.risk <= 0) return new double[]{0, 0};
-        double mfe = t.isLong ? (t.maxPrice - t.entry) : (t.entry - t.minPrice);
-        double mae = t.isLong ? (t.entry - t.minPrice) : (t.maxPrice - t.entry);
-        return new double[]{Math.max(0, mfe) / t.risk, Math.max(0, mae) / t.risk};
-    }
-
-    private static synchronized void logClosedTrade(String pair, TradeInfo t, double lastPx) {
-        String exit = classifyExit(t, lastPx);
-        double[] m = mfeMaeR(t);
-        long heldMin = t.openedMs > 0 ? (System.currentTimeMillis() - t.openedMs) / 60_000L : -1;
-        System.out.printf("[CLOSED] %s %s exit=%s entry=%.6f initialSl=%.6f finalSl=%.6f finalTp=%.6f lastPx=%.6f held=%dmin stage=%d trail=%s tpExt=%d MFE=%.2fR MAE=%.2fR | %s%n",
-                pair, t.isLong ? "LONG" : "SHORT", exit, t.entry, t.initialSl, t.sl, t.tp, lastPx, heldMin, t.lockStage, t.trailActive, t.tpExt, m[0], m[1], t.ctx);
-        if (!LOG_TRADES_CSV) return;
-        try {
-            File f = new File(TRADE_LOG_FILE);
-            boolean fresh = !f.exists();
-            try (PrintWriter pw = new PrintWriter(new FileWriter(f, true))) {
-                if (fresh) pw.println("closed_utc,pair,direction,exit_approx,entry,initial_sl,final_sl,initial_tp,final_tp,last_price,held_min,mfe_r,mae_r,lock_stage,trail_active,tp_ext,context");
-                pw.printf("%s,%s,%s,%s,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%d,%.2f,%.2f,%d,%s,%d,\"%s\"%n", Instant.now(), pair, t.isLong ? "LONG" : "SHORT", exit,
-                        t.entry, t.initialSl, t.sl, t.initialTp, t.tp, lastPx, heldMin, m[0], m[1], t.lockStage, t.trailActive, t.tpExt, t.ctx);
-            }
-        } catch (Exception e) { System.err.println("trade log write failed: " + e.getMessage()); }
     }
 
     // =========================================================================
@@ -1466,6 +1662,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             t.risk = slOnLossSide ? Math.abs(avg - exSl) : avg * RECOVER_R_PCT / 100.0;
             t.maxPrice = Math.max(avg, px); t.minPrice = Math.min(avg, px);
             t.openedMs = now; t.ctx = "recovered-from-exchange";
+            t.lastSeenMs = now; t.lastSeenPx = px;
             tradeState.put(pair, t);
             dirty = true;
         } else if (priceDiffers(avg, t.entry, tick)) {
@@ -1473,6 +1670,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
         if (px > t.maxPrice) { t.maxPrice = px; dirty = true; }
         if (px < t.minPrice) { t.minPrice = px; dirty = true; }
+        // v6: remember when/where the position was last seen open (used to resolve the exit reason after it closes)
+        if (now - t.lastSeenMs >= 60_000L) dirty = true;           // persisted at most once a minute
+        t.lastSeenMs = now; t.lastSeenPx = px;
         if (!BREAKEVEN_ENABLED && !TRAILING_ENABLED) { if (dirty) saveTradeState(); return; }
 
         // 2. exchange must hold BOTH levels (the safety sweep restores missing ones)
@@ -1576,6 +1776,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
                     nt.isLong = isLong; nt.entry = avgPrice; nt.sl = sl; nt.tp = tp; nt.initialSl = sl; nt.initialTp = tp;
                     nt.risk = avgPrice * RECOVER_R_PCT / 100.0; nt.maxPrice = avgPrice; nt.minPrice = avgPrice;
                     nt.openedMs = System.currentTimeMillis(); nt.ctx = "recovered-after-restart";
+                    nt.lastSeenMs = nt.openedMs; nt.lastSeenPx = avgPrice;
                     tradeState.put(pair, nt);
                 } else { trade.sl = sl; trade.tp = tp; }
                 saveTradeState();
@@ -1884,13 +2085,16 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("LONG SL 98 / TP 103", l.ok && Math.abs(l.sl - 98) < 1e-9 && Math.abs(l.tp - 103) < 1e-9 && Math.abs(l.risk - 2) < 1e-9);
         check("SHORT SL 102 / TP 97", s.ok && Math.abs(s.sl - 102) < 1e-9 && Math.abs(s.tp - 97) < 1e-9);
         check("zero distance rejected", !computeSlTp(true, 100.0, 0, 3, 0.01).ok);
+        check("roomR cap: no S/R (infinite room) -> ROOM_R_CAP, finite room -> room/SL", capRoomR(Double.POSITIVE_INFINITY, 2) == ROOM_R_CAP
+                && Math.abs(capRoomR(6, 2) - 3) < 1e-9 && capRoomR(5, 0) == 0);
 
-        System.out.println("[Test] Break-even ladder + trailing (LONG, entry 100, R=2, SL 98, TP 104); first BE at 1R");
-        double tk = 0.01, cost = 100 * COST_BUFFER_PCT / 100.0;
+        System.out.println("[Test] Break-even ladder + trailing (LONG, entry 100, R=2, SL 98, TP 104); first BE at 1R, locks +0.2R");
+        double tk = 0.01, cost = 100 * COST_BUFFER_PCT / 100.0, lock1 = Math.max(cost, LADDER_LOCK_R[0] * 2);
+        check("stage-1 lock is a real profit lock (> costs)", LADDER_LOCK_R[0] > 0 && lock1 > cost);
         StopMgmt a0 = computeManagement(true, 100, 2, 98, 104, 101.5, 0, false, 0, tk);
         check("0.75R -> nothing (first BE only at 1R)", !a0.slMove && !a0.tpMove && a0.newStage == 0);
         StopMgmt a1 = computeManagement(true, 100, 2, 98, 104, 102.0, 0, false, 0, tk);
-        check("1.0R (== SL distance) -> SL to entry + costs (net break-even)", a1.slMove && Math.abs(a1.newSl - (100 + cost)) < 0.011 && a1.newStage == 1 && !a1.trailActive);
+        check("1.0R (== SL distance) -> SL to entry + max(costs, 0.2R)", a1.slMove && Math.abs(a1.newSl - (100 + lock1)) < 0.011 && a1.newStage == 1 && !a1.trailActive);
         StopMgmt a2 = computeManagement(true, 100, 2, a1.newSl, 104, 103.0, 1, false, 0, tk);
         check("1.5R -> trailing active, SL >= best - 0.6R, stage 2", a2.slMove && a2.trailActive && a2.newSl >= 103.0 - TRAIL_DISTANCE_R * 2 - 0.011 && a2.newStage == 2);
         StopMgmt a3 = computeManagement(true, 100, 2, 101.8, 104, 103.0, 2, true, 0, tk);
@@ -1902,7 +2106,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         StopMgmt a6 = computeManagement(true, 100, 2, 103.0, 105, 103.5, 3, true, 0, tk);
         check("manual SL already tighter than ladder/trail -> kept", !a6.slMove && a6.newSl == 103.0);
         StopMgmt b1 = computeManagement(false, 100, 2, 102, 96, 98.0, 0, false, 0, tk);
-        check("SHORT 1.0R -> SL to entry - costs", b1.slMove && Math.abs(b1.newSl - (100 - cost)) < 0.011);
+        check("SHORT 1.0R -> SL to entry - max(costs, 0.2R)", b1.slMove && Math.abs(b1.newSl - (100 - lock1)) < 0.011);
         StopMgmt b2 = computeManagement(false, 100, 2, b1.newSl, 96, 97.0, 1, false, 0, tk);
         check("SHORT 1.5R -> trailing SL moves DOWN", b2.slMove && b2.trailActive && b2.newSl < b1.newSl);
         StopMgmt b3 = computeManagement(false, 100, 2, b2.newSl, 96, 97.0, 2, true, 0, tk);
@@ -1912,9 +2116,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         TradeInfo pt = new TradeInfo();
         pt.isLong = false; pt.entry = 123.456; pt.sl = 125.0; pt.tp = 120.5; pt.initialSl = 126.0; pt.initialTp = 119.0; pt.risk = 2.5;
         pt.maxPrice = 124.0; pt.minPrice = 119.9; pt.openedMs = 1_760_000_000_000L; pt.ctx = "score=71"; pt.lockStage = 3; pt.trailActive = true; pt.tpExt = 2; pt.lastMoveMs = 5;
+        pt.lastSeenMs = 1_760_000_100_000L; pt.lastSeenPx = 121.5; pt.signalPx = 123.4; pt.openAtEntry = 3; pt.longsAtEntry = 1; pt.shortsAtEntry = 2;
+        pt.score = 82.5; pt.htfPts = 24; pt.htfMax = 30; pt.m15Pts = 22; pt.m15Max = 30; pt.m5Pts = 30; pt.m5Max = 40; pt.trig = "retest";
+        pt.slPct = 1.5; pt.tpPct = 3.0; pt.roomR = 20; pt.btcRatio = 0.62; pt.btc15m = -1; pt.counter = false;
         TradeInfo rt = tradeFromJson(new JSONObject(tradeToJson(pt).toString()));
         check("all management fields survive save/load", !rt.isLong && rt.entry == pt.entry && rt.risk == pt.risk && rt.lockStage == 3 && rt.trailActive && rt.tpExt == 2
                 && rt.initialTp == pt.initialTp && rt.initialSl == pt.initialSl && rt.ctx.equals(pt.ctx));
+        check("v6 trade-log fields survive save/load", rt.lastSeenMs == pt.lastSeenMs && rt.signalPx == pt.signalPx && rt.openAtEntry == 3 && rt.longsAtEntry == 1
+                && rt.shortsAtEntry == 2 && rt.score == 82.5 && rt.htfPts == 24 && rt.m5Max == 40 && "retest".equals(rt.trig) && rt.btcRatio == 0.62 && rt.btc15m == -1
+                && rt.roomR == 20 && CONFIG_VERSION.equals(rt.cfg));
+        TradeInfo old = tradeFromJson(new JSONObject("{\"isLong\":true,\"entry\":10,\"sl\":9,\"tp\":12,\"risk\":1}"));
+        check("state saved by the v5 bot still loads (new fields default)", old.entry == 10 && old.lastSeenMs == 0 && old.btcRatio == -1 && "v5".equals(old.cfg));
         JSONObject inst = new JSONObject("{\"quantity_increment\":0.1,\"min_quantity\":1,\"min_notional\":5}");
         check("12.34 floors to 12.3", Math.abs(sizeQuantity(12.34, 100, false, inst).qty - 12.3) < 1e-9);
         check("0.57 rejected (below min quantity)", sizeQuantity(0.57, 100, false, inst).qty == 0);
@@ -1922,6 +2134,65 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         Map<String, Long> reg = new HashMap<>();
         check("duplicate signal blocked per closed 5M candle", registerSignal(reg, "X|LONG", 1000L) && !registerSignal(reg, "X|LONG", 1000L) && registerSignal(reg, "X|LONG", 1300L));
         check("partial fill / error helpers", isPartialFill(10, 4) && !isPartialFill(10, 10) && isErrorResponse("{\"err_code_dcx\":\"x\"}") && !isErrorResponse("{\"message\":\"success\"}"));
+
+        System.out.println("[Test] v6 exit resolution from 1M candles");
+        long m0 = (1_760_000_000_000L / MIN_MS) * MIN_MS;
+        Series cs = new Series(4);
+        for (int i = 0; i < 4; i++) { cs.t[i] = m0 + i * MIN_MS; cs.o[i] = 100; cs.c[i] = 100; cs.h[i] = 101; cs.l[i] = 99.5; cs.v[i] = 1; }
+        check("no level touched -> NONE", "NONE".equals(resolveExit(true, 98, 104, cs, m0).reason));
+        cs.h[2] = 104.5;
+        ExitInfo ex = resolveExit(true, 98, 104, cs, m0);
+        check("LONG: TP touched in candle 2 -> TP @104", "TP".equals(ex.reason) && ex.price == 104 && ex.atMs == m0 + 2 * MIN_MS && !ex.both);
+        cs.l[2] = 97.5;
+        ex = resolveExit(true, 98, 104, cs, m0);
+        check("both touched in one candle -> SL wins, both flagged", "SL".equals(ex.reason) && ex.price == 98 && ex.both);
+        check("candles before fromMs are ignored", "NONE".equals(resolveExit(true, 98, 104, cs, m0 + 3 * MIN_MS).reason));
+        Series cs2 = new Series(3);
+        for (int i = 0; i < 3; i++) { cs2.t[i] = m0 + i * MIN_MS; cs2.h[i] = 101; cs2.l[i] = 99.5; }
+        cs2.l[1] = 95.8;
+        ex = resolveExit(false, 102, 96, cs2, m0);
+        check("SHORT: low pierces TP 96 in candle 1 -> TP", "TP".equals(ex.reason) && ex.price == 96 && ex.atMs == m0 + MIN_MS);
+        cs2.h[2] = 102.2;
+        check("SHORT: high >= SL 102 -> SL", "SL".equals(resolveExit(false, 102, 96, cs2, m0 + 2 * MIN_MS).reason));
+        TradeInfo ct = new TradeInfo();
+        ct.isLong = true; ct.entry = 100; ct.sl = 98; ct.tp = 104; ct.risk = 2;
+        check("approx classifier: far from both levels -> NO_LEVEL_TOUCHED", "NO_LEVEL_TOUCHED".equals(classifyExit(ct, 101)));
+        check("approx classifier: next to TP / next to SL / no price", "TP_approx".equals(classifyExit(ct, 103.8)) && "SL_approx".equals(classifyExit(ct, 98.1))
+                && "UNKNOWN_NO_DATA".equals(classifyExit(ct, 0)));
+        ct.lockStage = 1;
+        check("approx classifier: SL with a lock stage -> SL_LOCKED_TRAIL_approx", "SL_LOCKED_TRAIL_approx".equals(classifyExit(ct, 98.1)));
+
+        System.out.println("[Test] v6 same-direction cap + pair cooldown");
+        tradeState.clear();
+        for (String p : new String[]{"A", "B"}) { TradeInfo x = new TradeInfo(); x.isLong = true; tradeState.put(p, x); }
+        TradeInfo xs = new TradeInfo(); xs.isLong = false; tradeState.put("C", xs);
+        Set<String> act = new HashSet<>(Arrays.asList("A", "B", "C"));
+        check("sameDirCount counts per direction", sameDirCount(true, act) == 2 && sameDirCount(false, act) == 1);
+        act.remove("A");
+        check("closed position stops counting", sameDirCount(true, act) == 1);
+        tradeState.clear();
+        long t1 = 10_000_000_000L;
+        registerCloseCooldown("P1", true, t1);
+        check("cooldown after SL lasts PAIR_COOLDOWN_AFTER_SL_MS", pairInCooldown("P1", t1 + PAIR_COOLDOWN_AFTER_SL_MS - 1) && !pairInCooldown("P1", t1 + PAIR_COOLDOWN_AFTER_SL_MS));
+        registerCloseCooldown("P2", false, t1);
+        check("cooldown after TP/trail/other lasts PAIR_COOLDOWN_AFTER_CLOSE_MS", pairInCooldown("P2", t1 + PAIR_COOLDOWN_AFTER_CLOSE_MS - 1) && !pairInCooldown("P2", t1 + PAIR_COOLDOWN_AFTER_CLOSE_MS));
+        check("pair without a close is not in cooldown", !pairInCooldown("P3", t1));
+        cooldownUntil.clear();
+
+        System.out.println("[Test] v6 trade-log row");
+        TradeInfo lt = new TradeInfo();
+        lt.isLong = false; lt.entry = 100; lt.signalPx = 99.9; lt.sl = 101.5; lt.initialSl = 101.5; lt.tp = 97; lt.initialTp = 97; lt.risk = 1.5;
+        lt.maxPrice = 100.4; lt.minPrice = 98.9; lt.score = 85.3; lt.htfPts = 24; lt.htfMax = 30; lt.m15Pts = 25; lt.m15Max = 30; lt.m5Pts = 33; lt.m5Max = 40;
+        lt.trig = "retest"; lt.slPct = 1.5; lt.tpPct = 3.0; lt.roomR = 20; lt.btcRatio = 0.7; lt.btc15m = -1; lt.openAtEntry = 2; lt.longsAtEntry = 0; lt.shortsAtEntry = 2;
+        lt.ctx = "score=85(htf=24/30,15m=25/30,5m=33/40) trig=retest@99.5 sl=1.50% tp=3.00% roomR=20.0";
+        String row = tradeLogRow("2026-11-20T10:00:00Z", "B-TEST_USDT", lt, "TP", 97, 97.1, 95, 2, false);
+        String prefix = row.substring(0, row.indexOf(",\""));
+        check("CSV row has exactly as many fields as the header", prefix.split(",", -1).length == TRADE_LOG_HEADER.split(",").length - 1);
+        check("CSV row: exit_r_est for a SHORT TP = +2.00R, context quoted last", row.contains(",2.00,") && row.endsWith("\"") && row.contains("B-TEST_USDT,SHORT,TP,"));
+        TradeInfo bare = new TradeInfo();
+        bare.isLong = true; bare.entry = 10; bare.sl = 9; bare.tp = 12; bare.risk = 1; bare.ctx = "recovered-from-exchange";
+        String row2 = tradeLogRow("2026-11-20T10:00:00Z", "B-REC_USDT", bare, "NO_LEVEL_TOUCHED", 0, 0, -1, 0, false);
+        check("recovered trade (no meta, no exit price) still gives a valid row", row2.substring(0, row2.indexOf(",\"")).split(",", -1).length == TRADE_LOG_HEADER.split(",").length - 1);
 
         System.out.println("\nSelf-test: " + (testsRun - testsFailed) + "/" + testsRun + " passed");
         return testsFailed == 0;
