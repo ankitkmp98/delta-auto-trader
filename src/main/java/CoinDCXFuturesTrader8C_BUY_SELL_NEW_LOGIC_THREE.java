@@ -54,10 +54,15 @@ import java.util.stream.Stream;
 //   BREAKER : SL_CIRCUIT_BREAKER - after SL_BREAKER_COUNT full stop-losses inside SL_BREAKER_WINDOW_MS no NEW entries are taken until the
 //             oldest of them leaves the window (open positions keep being managed). Stops the "whole book reverses together" bleed.
 //   UNCHANGED: SL/TP sizing, break-even ladder, trailing, TP extension, position sizing, 4H/2H/1H -> 15M -> 5M cascade.
+//
+//  v8 CHANGE : PORTFOLIO TAKE-PROFIT (LIVE only, switch: PORTFOLIO_TP_ENABLED, level: PORTFOLIO_TP_PCT)
+//   Combined unrealised profit of ALL open positions, as % of their combined margin (notional / leverage), is checked every
+//   management pass (~5 s). When it reaches PORTFOLIO_TP_PCT every open position is closed at market, each trade is logged with
+//   exit_reason = PORTFOLIO_TP, and the normal entry scan resumes afterwards (pair cooldowns still apply).
 // =============================================================================
 public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
-    static final String CONFIG_VERSION = "v7";
+    static final String CONFIG_VERSION = "v8";
 
     // =========================================================================
     // Execution mode (false = PAPER: fixed SL/TP only, no break-even/trailing)
@@ -68,7 +73,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;
-    private static final int    LEVERAGE     = 11;
+    private static final int    LEVERAGE     = 10;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 8;                // v7 (was 10)
     static final int MAX_SAME_DIRECTION_POSITIONS = 4;    // v6: max open LONGs and max open SHORTs (correlated trades move together)
@@ -119,6 +124,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Spread filter (public orderbook; if the call fails the trade is allowed when SPREAD_FAIL_OPEN)
     static final double  MAX_SPREAD_PCT = 0.15;
     static final boolean SPREAD_FAIL_OPEN = true;
+
+    // =========================================================================
+    // v8 PORTFOLIO TAKE-PROFIT: close EVERYTHING when the combined open profit reaches PORTFOLIO_TP_PCT % of the combined margin
+    //   profit % = (sum of unrealised PnL - estimated closing costs) / (sum of margin) x 100,  margin = notional / leverage
+    //   e.g. 3.0 with 10x leverage = the basket is up about 0.3% in price terms on average.
+    // =========================================================================
+    static final boolean PORTFOLIO_TP_ENABLED       = true;    // false = feature fully off
+    static final double  PORTFOLIO_TP_PCT           = 6.0;     // close all when combined profit >= this % of combined margin
+    static final int     PORTFOLIO_TP_MIN_POSITIONS = 2;       // needs at least this many open positions (set 2+ to ignore single trades)
+    static final boolean PORTFOLIO_TP_NET_OF_COSTS  = true;    // subtract estimated fees+slippage (COST_BUFFER_PCT) from the profit
+    static final long    PORTFOLIO_TP_RESUME_DELAY_MS = 60_000L;   // no new entries for this long after a portfolio close (exchange state settles)
 
     // v7 circuit breaker: SL losses cluster when the market turns against a one-sided book
     static final boolean SL_CIRCUIT_BREAKER_ENABLED = true;
@@ -219,7 +235,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long PAPER_MAX_HOLD_MS = 24L * 60 * 60 * 1000L;
     static final boolean LOG_TRADES_CSV = true;
     static final boolean LOG_NO_TRADE_DETAIL = false;
-    static final String TRADE_LOG_FILE = "trade_log_v7.csv";
+    static final String TRADE_LOG_FILE = "trade_log_v8.csv";
     static final String PAPER_LOG_FILE = "paper_trade_log_v5.csv";
     static final double EPS = 1e-12;
 
@@ -248,6 +264,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         int btc15m;             // BTC 15M direction: +1 / -1 / 0 (EMA and Supertrend disagree or unavailable)
         String trig = "";
         boolean counter;
+        // ---- v8: set when the bot itself closed the position (portfolio take-profit) ----
+        String forcedReason = "";
+        double forcedPx;
+        long forcedMs;
     }
     static class PaperTrade { boolean isLong; double entry, sl, tp; long openedMs; String ctx = ""; }
 
@@ -986,6 +1006,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         j.put("slPct", t.slPct); j.put("tpPct", t.tpPct); j.put("roomR", t.roomR);
         j.put("btcRatio", t.btcRatio); j.put("btc15m", t.btc15m);
         j.put("trig", t.trig == null ? "" : t.trig); j.put("counter", t.counter);
+        j.put("forcedReason", t.forcedReason == null ? "" : t.forcedReason); j.put("forcedPx", t.forcedPx); j.put("forcedMs", t.forcedMs);
         return j;
     }
 
@@ -1006,6 +1027,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         t.slPct = j.optDouble("slPct", 0); t.tpPct = j.optDouble("tpPct", 0); t.roomR = j.optDouble("roomR", 0);
         t.btcRatio = j.optDouble("btcRatio", -1); t.btc15m = j.optInt("btc15m", 0);
         t.trig = j.optString("trig", ""); t.counter = j.optBoolean("counter", false);
+        t.forcedReason = j.optString("forcedReason", ""); t.forcedPx = j.optDouble("forcedPx", 0); t.forcedMs = j.optLong("forcedMs", 0);
         return t;
     }
 
@@ -1217,6 +1239,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         System.out.println("=== SL " + MIN_SL_PCT + "-" + MAX_SL_PCT + "% (swing+ATR) TP=" + TP_R + "R | first BE at " + BE_FIRST_TRIGGER_R + "R (SL:BE = 1:" + BE_FIRST_TRIGGER_R + ", locks +" + LADDER_LOCK_R[0] + "R) | break-even ladder " + (BREAKEVEN_ENABLED ? "ON" : "OFF")
                 + " | trailing " + (TRAILING_ENABLED ? "ON" : "OFF") + (LIVE_TRADING_ENABLED ? "" : " (not applied in PAPER)") + " | BTC filter " + (BTC_FILTER_ENABLED ? "ON" : "OFF") + " ===");
         System.out.println("=== v7: BTC 15M opposite block " + (BTC_15M_OPPOSITE_BLOCK ? "ON" : "OFF") + " | retest needs score " + (ENTRY_SCORE_MIN + RETEST_EXTRA_SCORE) + " | SL breaker " + (SL_CIRCUIT_BREAKER_ENABLED ? SL_BREAKER_COUNT + " SL / " + (SL_BREAKER_WINDOW_MS / 60_000L) + "m" : "OFF") + " ===");
+        System.out.println("=== v8: portfolio take-profit " + (PORTFOLIO_TP_ENABLED ? "ON at " + PORTFOLIO_TP_PCT + "% of combined margin (min " + PORTFOLIO_TP_MIN_POSITIONS + " pos, " + (PORTFOLIO_TP_NET_OF_COSTS ? "net" : "gross") + " of costs)" : "OFF") + " ===");
         System.out.println("=== Risk: max " + MAX_OPEN_POSITIONS + " open, max " + MAX_SAME_DIRECTION_POSITIONS + " per direction | pair cooldown after close " + (PAIR_COOLDOWN_AFTER_CLOSE_MS / 60_000L)
                 + "m (after SL " + (PAIR_COOLDOWN_AFTER_SL_MS / 60_000L) + "m) | trade log " + TRADE_LOG_FILE + " ===");
         if (MAX_SL_PCT * LEVERAGE > 40) System.err.println("WARNING: MAX_SL_PCT x LEVERAGE > 40% of margin — liquidation risk is high");
@@ -1263,6 +1286,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try {
                 if (LIVE_TRADING_ENABLED && System.currentTimeMillis() - lastTrailPassMs >= TRAIL_CHECK_INTERVAL_MS) runManagementPass();
                 if (active.size() + paperTrades.size() >= MAX_OPEN_POSITIONS) break;
+                if (System.currentTimeMillis() - lastPortfolioTpMs < PORTFOLIO_TP_RESUME_DELAY_MS) break;   // v8: just closed everything
                 if (active.contains(pair) || paperTrades.containsKey(pair)) continue;   // no duplicate / conflicting position
                 if (pairInCooldown(pair, System.currentTimeMillis())) { reject(rej, "pairCooldown"); continue; }
                 long now = System.currentTimeMillis();
@@ -1604,7 +1628,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static synchronized void logClosedTrade(String pair, TradeInfo t, double lastPx) {
         long now = System.currentTimeMillis();
-        ExitInfo e = resolveClosedExit(pair, t, lastPx, now);
+        ExitInfo e;
+        if (t.forcedReason != null && !t.forcedReason.isEmpty()) {          // v8: the bot closed it itself -> no guessing from candles
+            e = new ExitInfo(); e.reason = t.forcedReason; e.price = t.forcedPx > 0 ? t.forcedPx : lastPx; e.atMs = t.forcedMs;
+        } else e = resolveClosedExit(pair, t, lastPx, now);
         long endMs = e.atMs > 0 ? e.atMs : now;
         long heldMin = t.openedMs > 0 ? Math.max(0, (endMs - t.openedMs) / 60_000L) : -1;
         long delayMin = Math.max(0, (now - endMs) / 60_000L);
@@ -1673,6 +1700,73 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             try { manageOne(en.getKey(), en.getValue()); }
             catch (Exception e) { System.err.println("[MANAGE] " + en.getKey() + ": " + e.getMessage()); }
         }
+        try { checkPortfolioTakeProfit(positions); }
+        catch (Exception e) { System.err.println("[PORTFOLIO-TP] " + e.getMessage()); }
+    }
+
+    // =========================================================================
+    // v8 portfolio take-profit
+    // =========================================================================
+    static class PortfolioPnl { double pnl, margin, costs, pct; int n; }
+
+    // Pure. legs: {signedQty (+long / -short), avgEntry, lastPrice, leverage}. Same currency for pnl and margin, so the ratio is unit-free.
+    static PortfolioPnl portfolioPnl(List<double[]> legs, boolean netOfCosts) {
+        PortfolioPnl r = new PortfolioPnl();
+        for (double[] l : legs) {
+            double q = l[0], avg = l[1], px = l[2], lev = l[3] > 0 ? l[3] : LEVERAGE;
+            if (!(Math.abs(q) > 0) || !(avg > 0) || !(px > 0)) continue;
+            double notional = Math.abs(q) * avg;
+            r.pnl += q * (px - avg);
+            r.margin += notional / lev;
+            if (netOfCosts) r.costs += notional * COST_BUFFER_PCT / 100.0;
+            r.n++;
+        }
+        r.pct = r.margin > 0 ? (r.pnl - r.costs) / r.margin * 100.0 : 0;
+        return r;
+    }
+
+    private static long lastPortfolioTpMs = 0, lastPortfolioLogMs = 0;
+
+    private static void checkPortfolioTakeProfit(Map<String, JSONObject> positions) {
+        if (!PORTFOLIO_TP_ENABLED || !LIVE_TRADING_ENABLED || positions == null || positions.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastPortfolioTpMs < PORTFOLIO_TP_RESUME_DELAY_MS) return;        // just fired; wait for the exchange to settle
+        List<double[]> legs = new ArrayList<>();
+        List<String> pairs = new ArrayList<>();
+        List<Double> pxs = new ArrayList<>();
+        for (Map.Entry<String, JSONObject> en : positions.entrySet()) {
+            JSONObject p = en.getValue();
+            double q = p.optDouble("active_pos", 0), avg = p.optDouble("avg_price", 0);
+            if (!(Math.abs(q) > 0) || !(avg > 0)) continue;
+            double px = getLastPrice(en.getKey());
+            if (!(px > 0)) return;                                                  // incomplete price data -> never decide on a partial picture
+            double lev = p.optDouble("leverage", LEVERAGE);
+            legs.add(new double[]{q, avg, px, lev > 0 ? lev : LEVERAGE});
+            pairs.add(en.getKey()); pxs.add(px);
+        }
+        if (legs.size() < PORTFOLIO_TP_MIN_POSITIONS || legs.isEmpty()) return;
+        PortfolioPnl r = portfolioPnl(legs, PORTFOLIO_TP_NET_OF_COSTS);
+        if (now - lastPortfolioLogMs >= TRAIL_STATUS_LOG_MS) {
+            System.out.printf("  [PORTFOLIO-TP] %d positions | combined profit %.2f%% of margin (target %.2f%%)%n", r.n, r.pct, PORTFOLIO_TP_PCT);
+            lastPortfolioLogMs = now;
+        }
+        if (r.pct < PORTFOLIO_TP_PCT) return;
+
+        System.out.printf("[PORTFOLIO-TP] TARGET HIT: %.2f%% >= %.2f%% -> closing ALL %d positions%n", r.pct, PORTFOLIO_TP_PCT, legs.size());
+        lastPortfolioTpMs = now;                                                    // set first: even a partial failure must not loop every 5 s
+        int closed = 0;
+        for (int i = 0; i < pairs.size(); i++) {
+            String pair = pairs.get(i);
+            String posId = positions.get(pair).optString("id", null);
+            if (posId == null || posId.isEmpty()) { System.err.println("  [PORTFOLIO-TP] " + pair + " position id missing — NOT closed"); continue; }
+            if (closePosition(posId)) {
+                closed++;
+                TradeInfo t = tradeState.get(pair);
+                if (t != null) { t.forcedReason = "PORTFOLIO_TP"; t.forcedPx = pxs.get(i); t.forcedMs = now; }
+            } else System.err.println("  [PORTFOLIO-TP] " + pair + " close FAILED — still open, check manually");
+        }
+        saveTradeState();
+        System.out.println("[PORTFOLIO-TP] closed " + closed + "/" + pairs.size() + " positions; new entries resume after " + (PORTFOLIO_TP_RESUME_DELAY_MS / 1000) + "s");
     }
 
     private static void manageOne(String pair, JSONObject pos) {
@@ -2239,8 +2333,24 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         String row2 = tradeLogRow("2026-11-20T10:00:00Z", "B-REC_USDT", bare, "NO_LEVEL_TOUCHED", 0, 0, -1, 0, false);
         check("recovered trade (no meta, no exit price) still gives a valid row", row2.substring(0, row2.indexOf(",\"")).split(",", -1).length == TRADE_LOG_HEADER.split(",").length - 1);
 
+        System.out.println("[Test] v8 portfolio take-profit maths");
+        List<double[]> legs = new ArrayList<>();
+        legs.add(new double[]{10, 100, 100.5, 10});      // long: +5 pnl, margin 100
+        legs.add(new double[]{-20, 50, 49.8, 10});       // short: +4 pnl, margin 100
+        PortfolioPnl pp = portfolioPnl(legs, false);
+        check("gross: (5+4)/(100+100) = 4.5% of margin", Math.abs(pp.pnl - 9) < 1e-9 && Math.abs(pp.margin - 200) < 1e-9 && Math.abs(pp.pct - 4.5) < 1e-9 && pp.n == 2);
+        PortfolioPnl pn = portfolioPnl(legs, true);
+        check("net of costs is lower than gross by (notional x COST_BUFFER_PCT)/margin", pn.pct < pp.pct && Math.abs((pp.pct - pn.pct) - (2000 * COST_BUFFER_PCT / 100.0) / 200 * 100) < 1e-9);
+        legs.add(new double[]{5, 100, 98, 10});          // a LONG that is losing: -10 pnl, margin 50
+        check("a losing leg reduces the combined profit (basket logic)", portfolioPnl(legs, false).pct < pp.pct && portfolioPnl(legs, false).pnl < 0);
+        List<double[]> sh = new ArrayList<>(); sh.add(new double[]{-1, 100, 101, 5});
+        check("SHORT with price up is a loss; leverage 5 margin = notional/5", portfolioPnl(sh, false).pnl < 0 && Math.abs(portfolioPnl(sh, false).margin - 20) < 1e-9);
+        check("empty / invalid legs give 0%, no crash", portfolioPnl(new ArrayList<>(), true).pct == 0);
+        TradeInfo ft = new TradeInfo(); ft.forcedReason = "PORTFOLIO_TP"; ft.forcedPx = 1.23; ft.forcedMs = 77;
+        TradeInfo fr = tradeFromJson(new JSONObject(tradeToJson(ft).toString()));
+        check("forced-exit marker survives save/load", "PORTFOLIO_TP".equals(fr.forcedReason) && fr.forcedPx == 1.23 && fr.forcedMs == 77);
+
         System.out.println("\nSelf-test: " + (testsRun - testsFailed) + "/" + testsRun + " passed");
         return testsFailed == 0;
     }
 }
-
