@@ -73,7 +73,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital (position sizing unchanged: notional INR = FIXED_MARGIN)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;
-    private static final int    LEVERAGE     = 10;
+    private static final int    LEVERAGE     = 15;
     static final double  USDT_INR_RATE       = 102.0;
     private static final int MAX_OPEN_POSITIONS = 8;                // v7 (was 10)
     static final int MAX_SAME_DIRECTION_POSITIONS = 4;    // v6: max open LONGs and max open SHORTs (correlated trades move together)
@@ -131,7 +131,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   e.g. 3.0 with 10x leverage = the basket is up about 0.3% in price terms on average.
     // =========================================================================
     static final boolean PORTFOLIO_TP_ENABLED       = true;    // false = feature fully off
-    static final double  PORTFOLIO_TP_PCT           = 6.0;     // close all when combined profit >= this % of combined margin
+    static final double  PORTFOLIO_TP_PCT           = 8.0;     // close all when combined profit >= this % of combined margin
     static final int     PORTFOLIO_TP_MIN_POSITIONS = 2;       // needs at least this many open positions (set 2+ to ignore single trades)
     static final boolean PORTFOLIO_TP_NET_OF_COSTS  = true;    // subtract estimated fees+slippage (COST_BUFFER_PCT) from the profit
     static final long    PORTFOLIO_TP_RESUME_DELAY_MS = 60_000L;   // no new entries for this long after a portfolio close (exchange state settles)
