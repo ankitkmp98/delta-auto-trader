@@ -89,7 +89,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean ALLOW_COUNTER_TREND    = false;  // counter-trend (reversal) trades are the usual loss source -> OFF
 
     // BTC market filter: alt trades are skipped when BTC's HTF trend is strongly against the direction
-    static final boolean BTC_FILTER_ENABLED = true;
+    static final boolean BTC_FILTER_ENABLED = false;
     static final String  BTC_PAIR           = "B-BTC_USDT";
     static final double  BTC_MIN_ALIGN      = 0.35;       // BTC HTF score ratio for the trade direction must be >= this
     static final boolean BTC_15M_OPPOSITE_BLOCK = true;   // v7: no trade when BTC's 15M direction (EMA9/21 + Supertrend agree) is AGAINST the trade
