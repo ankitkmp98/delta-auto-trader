@@ -81,7 +81,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Entry scoring
     // =========================================================================
-    static final double ENTRY_SCORE_MIN         = 70.0;   // v7: normal (trend-aligned) entries; v6 data: score 75-85 lost money, 85+ made money (was 68)
+    static final double ENTRY_SCORE_MIN         = 60.0;   // v7: normal (trend-aligned) entries; v6 data: score 75-85 lost money, 85+ made money (was 68)
     static final double RETEST_EXTRA_SCORE      = 0.0;    // v7: a RETEST trigger needs ENTRY_SCORE_MIN + this (retests under 88 lost -7.7R, breakouts were the best trigger)
     static final double COUNTER_TREND_SCORE_MIN = 80.0;   // reversal entries against the HTF trend   (was 72)
     static final double HTF_ALIGN_MIN           = 0.60;   // HTF score ratio below this = counter-trend (was 0.50)
