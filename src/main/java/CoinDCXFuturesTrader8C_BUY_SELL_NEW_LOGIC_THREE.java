@@ -114,9 +114,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double MIN_SL_PCT      = 1.0;            // price %, at 10x = 10% margin               (was 0.8)
     static final double MAX_SL_PCT      = 2.0;            // price %, at 10x = 20% margin               (was 1.5)
     static final double MIN_SL_ATR15    = 1.0;            // SL never tighter than this x ATR(15M)      (was 0.8)
-    static final double TP_R            = 2.0;            // initial TP = TP_R x SL distance            (was 1.5)
+    static final double TP_R            = 0.6;            // initial TP = TP_R x SL distance            (was 1.5)
     static final double MIN_ROOM_R      = 1.5;            // skip if next 1H/4H S/R is closer than this x SL distance (was 1.0)
-    static final double MIN_TP_R        = 1.2;            // skip if TP (after cutting before S/R) is smaller than this x SL (was 0.8)
+    static final double MIN_TP_R        = 0.45;            // skip if TP (after cutting before S/R) is smaller than this x SL (was 0.8)
     static final double ROOM_BUFFER_ATR = 0.2;            // TP placed this x ATR(15M) before the S/R level
     static final double ROOM_R_CAP      = 20.0;           // v6: roomR is capped here (no S/R found used to print "Infinity")
 
