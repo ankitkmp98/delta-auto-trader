@@ -63,15 +63,15 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // (reduced from 10 / 25)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 3.0;
-    static final double  FIXED_TP_PERCENT = 6.0;
+    static final double  FIXED_SL_PERCENT = 4.0;
+    static final double  FIXED_TP_PERCENT = 8.0;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF
     static final double  BREAKEVEN_TRIGGER_PERCENT = 3.0;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 2.0;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  PROFIT_LOCK_PERCENT       = 1.0;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
