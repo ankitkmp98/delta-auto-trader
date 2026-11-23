@@ -75,8 +75,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     private static final double FIXED_MARGIN = 1000.0;
     private static final int    LEVERAGE     = 15;
     static final double  USDT_INR_RATE       = 102.0;
-    private static final int MAX_OPEN_POSITIONS = 8;                // v7 (was 10)
-    static final int MAX_SAME_DIRECTION_POSITIONS = 4;    // v6: max open LONGs and max open SHORTs (correlated trades move together)
+    private static final int MAX_OPEN_POSITIONS = 10;                // v7 (was 10)
+    static final int MAX_SAME_DIRECTION_POSITIONS = 10;    // v6: max open LONGs and max open SHORTs (correlated trades move together)
 
     // =========================================================================
     // Entry scoring
@@ -89,7 +89,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean ALLOW_COUNTER_TREND    = false;  // counter-trend (reversal) trades are the usual loss source -> OFF
 
     // BTC market filter: alt trades are skipped when BTC's HTF trend is strongly against the direction
-    static final boolean BTC_FILTER_ENABLED = false;
+    static final boolean BTC_FILTER_ENABLED = true;
     static final String  BTC_PAIR           = "B-BTC_USDT";
     static final double  BTC_MIN_ALIGN      = 0.35;       // BTC HTF score ratio for the trade direction must be >= this
     static final boolean BTC_15M_OPPOSITE_BLOCK = true;   // v7: no trade when BTC's 15M direction (EMA9/21 + Supertrend agree) is AGAINST the trade
@@ -130,7 +130,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   profit % = (sum of unrealised PnL - estimated closing costs) / (sum of margin) x 100,  margin = notional / leverage
     //   e.g. 3.0 with 10x leverage = the basket is up about 0.3% in price terms on average.
     // =========================================================================
-    static final boolean PORTFOLIO_TP_ENABLED       = true;    // false = feature fully off
+    static final boolean PORTFOLIO_TP_ENABLED       = false;    // false = feature fully off
     static final double  PORTFOLIO_TP_PCT           = 8.0;     // close all when combined profit >= this % of combined margin
     static final int     PORTFOLIO_TP_MIN_POSITIONS = 2;       // needs at least this many open positions (set 2+ to ignore single trades)
     static final boolean PORTFOLIO_TP_NET_OF_COSTS  = true;    // subtract estimated fees+slippage (COST_BUFFER_PCT) from the profit
