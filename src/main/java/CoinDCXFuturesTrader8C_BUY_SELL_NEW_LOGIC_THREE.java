@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   Note: at 5x leverage, 3% of margin = 0.6% price move.
     // =========================================================================
     static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // MASTER SWITCH: false = feature OFF
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 3.0;     // edit this to change the target (% of total locked margin)
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 4.0;     // edit this to change the target (% of total locked margin)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the combined profit is checked
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L; // after a close-all, no new entries for this long
     static final long    PORTFOLIO_STATUS_LOG_MS         = 60_000L; // status log at most once per this interval
@@ -129,7 +129,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged except leverage)
     // =========================================================================
     private static final double FIXED_MARGIN = 1500.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 5;        // was 6
+    private static final int    LEVERAGE     = 15;        // was 6
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
