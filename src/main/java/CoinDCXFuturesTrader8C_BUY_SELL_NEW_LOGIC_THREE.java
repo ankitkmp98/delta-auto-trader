@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // (reduced from 10 / 25)
     // =========================================================================
     static final double  FIXED_SL_PERCENT = 12.0;
-    static final double  FIXED_TP_PERCENT = 0.6;
+    static final double  FIXED_TP_PERCENT = 0.75;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
