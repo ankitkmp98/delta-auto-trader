@@ -63,7 +63,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // (reduced from 10 / 25)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 2.0;
+    static final double  FIXED_SL_PERCENT = 3.0;
     static final double  FIXED_TP_PERCENT = 30.0;
 
     // =========================================================================
@@ -78,7 +78,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
     static final double  TRAIL_ACTIVATION_PERCENT = 2.50;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.50;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_STEP_PERCENT       = 0.20;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
     static final long    TRAIL_VERIFY_DELAY_MS    = 800;  // wait before reading the position back after an update
@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   Note: at 5x leverage, 3% of margin = 0.6% price move.
     // =========================================================================
     static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // MASTER SWITCH: false = feature OFF
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 6.0;     // edit this to change the target (% of total locked margin)
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 12.0;     // edit this to change the target (% of total locked margin)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the combined profit is checked
     // static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L; // after a close-all, no new entries for this long
 
