@@ -83,7 +83,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // hard target: close ALL when NET portfolio profit >= target
     static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 3.0;     // 3.0 / 4.0 / 5.0 ...
     static final String  PORTFOLIO_TARGET_BASIS          = "TOTAL_ACCOUNT_CAPITAL";   // or "TOTAL_DEPLOYED_MARGIN"
-    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 5000.0;  // SET THIS to your real trading capital (INR)
+    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 2000.0;  // SET THIS to your real trading capital (INR)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
     static final boolean PORTFOLIO_BREAKEVEN_ENABLED         = true;
