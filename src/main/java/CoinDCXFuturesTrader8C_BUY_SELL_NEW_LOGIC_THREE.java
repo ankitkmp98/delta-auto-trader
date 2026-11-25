@@ -49,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // (reduced from 10 / 25)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 2.0;
+    static final double  FIXED_SL_PERCENT = 3.0;
     static final double  FIXED_TP_PERCENT = 50.0;
 
     // =========================================================================
@@ -64,7 +64,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
     static final double  TRAIL_ACTIVATION_PERCENT = 2.50;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.50;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_STEP_PERCENT       = 0.20;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
     static final long    TRAIL_VERIFY_DELAY_MS    = 800;  // wait before reading the position back after an update
@@ -98,7 +98,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  PORTFOLIO_MAX_LOSS_PERCENT            = 2.0;  // close ALL + pause entries when net loss reaches this (% of basis)
     static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 600;    // no new entry above this many open positions (<= 0 disables)
 
-    static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L;      // cooldown after a successful close-all
+    static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 0L; //30_000L;      // cooldown after a successful close-all
     static final long    PORTFOLIO_RISK_PAUSE_MS         = 15L * 60_000L; // entry pause after a PORTFOLIO_RISK_LIMIT exit
     static final double  PORTFOLIO_FEE_RATE_PERCENT      = 0.05;         // estimated taker fee per side (% of notional) - VERIFY your CoinDCX tier
     static final double  PORTFOLIO_FEE_GST_PERCENT       = 18.0;         // GST on fees (% of the fee) - set 0 if not applicable to you
