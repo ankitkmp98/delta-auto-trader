@@ -97,7 +97,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     static final boolean PORTFOLIO_MAX_LOSS_ENABLED            = false;
     static final double  PORTFOLIO_MAX_LOSS_PERCENT            = 2.0;  // close ALL + pause entries when net loss reaches this (% of basis)
-    static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 60;    // no new entry above this many open positions (<= 0 disables)
+    static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 600;    // no new entry above this many open positions (<= 0 disables)
     static final double  PORTFOLIO_MAX_DEPLOYED_MARGIN_PERCENT = 50.0; // no new entry if deployed margin would exceed this % of ACCOUNT CAPITAL (<= 0 disables)
 
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L;      // cooldown after a successful close-all
@@ -132,7 +132,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 60;
+    private static final int MAX_OPEN_POSITIONS = 600;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
