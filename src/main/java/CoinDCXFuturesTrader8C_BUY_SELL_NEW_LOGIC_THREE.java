@@ -83,7 +83,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = false;    // hard target: close ALL when NET portfolio profit >= target
     static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 2.0;     // 3.0 / 4.0 / 5.0 ...
     static final String  PORTFOLIO_TARGET_BASIS          = "TOTAL_ACCOUNT_CAPITAL";   // or "TOTAL_DEPLOYED_MARGIN"
-    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 2000.0;  // SET THIS to your real trading capital (INR)
+    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 1000.0;  // SET THIS to your real trading capital (INR)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
     static final boolean PORTFOLIO_BREAKEVEN_ENABLED         = true;
@@ -97,7 +97,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     static final boolean PORTFOLIO_MAX_LOSS_ENABLED            = false;
     static final double  PORTFOLIO_MAX_LOSS_PERCENT            = 2.0;  // close ALL + pause entries when net loss reaches this (% of basis)
-    static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 6;    // no new entry above this many open positions (<= 0 disables)
+    static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 60;    // no new entry above this many open positions (<= 0 disables)
     static final double  PORTFOLIO_MAX_DEPLOYED_MARGIN_PERCENT = 50.0; // no new entry if deployed margin would exceed this % of ACCOUNT CAPITAL (<= 0 disables)
 
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L;      // cooldown after a successful close-all
@@ -132,7 +132,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     private static final long TICK_CACHE_TTL_MS = 3_600_000L;
 
-    private static final int MAX_OPEN_POSITIONS = 6;
+    private static final int MAX_OPEN_POSITIONS = 60;
 
     private static final int  POSITION_ID_MAX_RETRIES = 5;
     private static final long POSITION_ID_RETRY_DELAY_MS = 1500L;
