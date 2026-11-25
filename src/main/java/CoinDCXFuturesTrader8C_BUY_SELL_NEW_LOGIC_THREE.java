@@ -691,8 +691,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         Breakout b = findBreakout(hi, lo, cl, isLong, SWING_PIVOT_BARS, SWING_LOOKBACK_5M);
         r.brkLevel = b.level;
         if (!b.ok) { fail(r, "breakout", "5M breakout: " + b.reason); return; }
-        // r.signal = isLong ? "BUY" : "SELL";
-        r.signal = isLong ? "SELL" : "BUY";
+        r.signal = isLong ? "BUY" : "SELL";
         r.code = "signal";
         r.reason = String.format("%s | 15M EMA9=%.6f EMA21=%.6f | 5M %s", summary(r), e[0], e[1], b.reason);
     }
