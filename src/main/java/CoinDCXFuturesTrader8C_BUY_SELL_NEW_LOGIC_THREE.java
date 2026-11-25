@@ -99,7 +99,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 600;    // no new entry above this many open positions (<= 0 disables)
 
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L;      // cooldown after a successful close-all
-    static final long    PORTFOLIO_RISK_PAUSE_MS         = 1L * 60_000L; // entry pause after a PORTFOLIO_RISK_LIMIT exit
+    static final long    PORTFOLIO_RISK_PAUSE_MS         = 15L * 60_000L; // entry pause after a PORTFOLIO_RISK_LIMIT exit
     static final double  PORTFOLIO_FEE_RATE_PERCENT      = 0.05;         // estimated taker fee per side (% of notional) - VERIFY your CoinDCX tier
     static final double  PORTFOLIO_FEE_GST_PERCENT       = 18.0;         // GST on fees (% of the fee) - set 0 if not applicable to you
     static final long    PORTFOLIO_CLOSE_RETRY_INTERVAL_MS   = 6_000L;   // min gap between two close requests for the same position
