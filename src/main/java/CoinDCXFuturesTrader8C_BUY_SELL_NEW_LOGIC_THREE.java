@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  PORTFOLIO_TRAILING_GIVEBACK_PERCENT   = 25.0; // allowed giveback = this % OF THE PEAK profit: floor = max(lock, peak - peak*giveback)
     static final long    PORTFOLIO_TRAILING_CHECK_INTERVAL_MS  = 5_000L; // the portfolio pass runs every min(CHECK, TRAILING_CHECK) ms
 
-    static final boolean PORTFOLIO_MAX_LOSS_ENABLED            = true;
+    static final boolean PORTFOLIO_MAX_LOSS_ENABLED            = false;
     static final double  PORTFOLIO_MAX_LOSS_PERCENT            = 2.0;  // close ALL + pause entries when net loss reaches this (% of basis)
     static final int     PORTFOLIO_MAX_OPEN_POSITIONS          = 6;    // no new entry above this many open positions (<= 0 disables)
     static final double  PORTFOLIO_MAX_DEPLOYED_MARGIN_PERCENT = 50.0; // no new entry if deployed margin would exceed this % of ACCOUNT CAPITAL (<= 0 disables)
