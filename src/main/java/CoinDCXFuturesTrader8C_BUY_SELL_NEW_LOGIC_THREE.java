@@ -187,7 +187,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean ENTRY_REQUIRE_15M_EMA = true;             // mandatory 15M EMA9>EMA21 (LONG) / EMA9<EMA21 (SHORT); false = score only
 
     // signal quality score (normalised to 100 over the active components)
-    static final int ENTRY_MIN_SCORE = 90;
+    static final int ENTRY_MIN_SCORE = 80;
     static final int SCORE_HTF = 25, SCORE_EMA15 = 20, SCORE_ADX = 15, SCORE_TRIGGER = 20, SCORE_VOLUME = 10, SCORE_BTC = 10;
 
     static final int    ADX_PERIOD = 14;
