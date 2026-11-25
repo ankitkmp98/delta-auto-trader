@@ -28,9 +28,9 @@ import java.util.stream.Stream;
 //     scored    : HTF 25 + 15M EMA 20 + ADX 15 + 5M trigger 20 + volume 10 + BTC 10 = 100  (ENTRY_MIN_SCORE to qualify)
 //     The old ST_CONTRARIAN (countertrend) mode is removed. Revalidated on fresh data immediately before the order.
 //
-//   SL / TP = fixed % from the ACTUAL average filled entry price.            [UNCHANGED]
-//   BREAK-EVEN + PROFIT LOCK per position (BREAKEVEN_ENABLED)                  [UNCHANGED]
-//   DYNAMIC TRAILING per position (TRAILING_ENABLED)                           [UNCHANGED]
+//   SL = fixed % from the actual average fill; TP = distant safety ceiling.
+//   BREAK-EVEN + PROFIT LOCK per position moves SL only; dynamic trailing moves SL only.
+//   The safety TP stays fixed and is still sent with SL because the exchange endpoint requires both levels.
 //
 //   PORTFOLIO V2 (works alongside the per-position logic, never touches a position's SL/TP):
 //     hard profit target  |  portfolio breakeven  |  portfolio trailing profit floor  |  max-loss limit  |  close-all with
@@ -46,25 +46,25 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final boolean LIVE_TRADING_ENABLED = true;
 
     // =========================================================================
-    // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
-    // (reduced from 10 / 25)
+    // Fixed SL + distant safety TP (percent of the actual average entry price).
+    // Normal exits are intended to be managed by the SL; TP is a far safety ceiling.
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 2.0;
-    static final double  FIXED_TP_PERCENT = 3.5;
+    static final double  FIXED_SL_PERCENT = 1.0;
+    static final double  FIXED_TP_PERCENT = 50.0;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 1.0;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 0.3;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.80;   // favourable move (% of entry) that activates profit lock
+    static final double  PROFIT_LOCK_PERCENT       = 0.50;   // SL goes to entry +0.50% (LONG) / entry -0.50% (SHORT)
 
     // =========================================================================
-    // Dynamic trailing SL / TP  (LIVE mode only)
+    // Dynamic trailing SL only (LIVE mode only). The distant safety TP is never trailed.
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 1.5;     // trailing starts after price moves this % in profit
-    static final double  TRAIL_STEP_PERCENT       = 0.3;     // SL/TP are moved only when price advanced this % beyond the last trail point
+    static final double  TRAIL_ACTIVATION_PERCENT = 1.25;    // trailing starts after price moves this % in profit
+    static final double  TRAIL_STEP_PERCENT       = 0.30;    // SL moves only after price advances this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
     static final long    TRAIL_VERIFY_DELAY_MS    = 800;  // wait before reading the position back after an update
@@ -80,19 +80,19 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //     TOTAL_DEPLOYED_MARGIN            : sum over open positions of |qty| * avgEntry / leverage
     //   Leveraged notional is never used as a basis. PnL is in USDT internally; INR = USDT * USDT_INR_RATE.
     // =========================================================================
-    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // hard target: close ALL when NET portfolio profit >= target
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 2.0;     // 3.0 / 4.0 / 5.0 ...
+    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = false;   // disabled: let portfolio trailing manage exits
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 2.0;      // dormant while hard target is disabled
     static final String  PORTFOLIO_TARGET_BASIS          = "TOTAL_ACCOUNT_CAPITAL";   // or "TOTAL_DEPLOYED_MARGIN"
-    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 1900.0;  // SET THIS to your real trading capital (INR)
+    static final double  PORTFOLIO_ACCOUNT_CAPITAL_INR   = 2000.0;   // portfolio capital in INR
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
     static final boolean PORTFOLIO_BREAKEVEN_ENABLED         = true;
-    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 0.75; // net profit (% of basis) that activates portfolio protection
-    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 0.3; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
+    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 2.5; // net profit (% of INR 2,000 basis) that activates portfolio protection
+    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 2.0; // minimum protected net profit floor = INR 40 (after estimated fees)
 
     static final boolean PORTFOLIO_TRAILING_ENABLED            = true;
-    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 1.0;  // trailing starts when the peak net profit reaches this (% of basis)
-    static final double  PORTFOLIO_TRAILING_GIVEBACK_PERCENT   = 25.0; // allowed giveback = this % OF THE PEAK profit: floor = max(lock, peak - peak*giveback)
+    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 3.0;  // trailing starts when peak net profit reaches 3% of basis
+    static final double  PORTFOLIO_TRAILING_GIVEBACK_PERCENT   = 25.0; // floor = max(INR 40 lock, peak - 25% of peak)
     static final long    PORTFOLIO_TRAILING_CHECK_INTERVAL_MS  = 5_000L; // the portfolio pass runs every min(CHECK, TRAILING_CHECK) ms
 
     static final boolean PORTFOLIO_MAX_LOSS_ENABLED            = false;
@@ -1219,7 +1219,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     }
 
     // =========================================================================
-    // Dynamic trailing — pure calculation (no I/O, unit-tested in --selftest)   [UNCHANGED]
+    // Dynamic SL-only trailing — pure calculation (no I/O, unit-tested in --selftest). TP is a fixed safety ceiling.
     // =========================================================================
     static class TrailStep {
         boolean active;          // trailing active after this evaluation
@@ -1233,7 +1233,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     // extreme = highest price since entry (LONG) / lowest price since entry (SHORT).
     // ref     = last trail point (only meaningful when active == true).
-    // SL and TP are shifted by the SAME price difference, so the SL<->TP gap never changes; never backward.
+    // Only SL moves; TP remains at its original distant safety level. Neither level ever moves backward.
     static TrailStep computeTrail(boolean isLong, double entry, double sl, double tp, double extreme,
                                   boolean active, double ref, double tick) {
         TrailStep r = new TrailStep();
@@ -1252,8 +1252,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double shift = tick > 0 ? Math.floor(delta / tick + 1e-9) * tick : delta;   // whole ticks only
         if (!(shift > 0)) { r.reason = "shift rounds to 0 ticks"; return r; }
         double newSl = roundToTick(isLong ? sl + shift : sl - shift, tick);
-        double newTp = roundToTick(isLong ? tp + shift : tp - shift, tick);
-        if (isLong ? (newSl <= sl || newTp <= tp) : (newSl >= sl || newTp >= tp)) { r.reason = "would not move in the favourable direction"; return r; }
+        double newTp = tp; // fixed safety TP: never trail it with the stop
+        if (isLong ? (newSl <= sl) : (newSl >= sl)) { r.reason = "SL would not move in the favourable direction"; return r; }
         r.move = true; r.shift = shift; r.newSl = newSl; r.newTp = newTp;
         r.newRef = isLong ? ref + shift : ref - shift;
         r.reason = "step reached";
@@ -1896,7 +1896,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // DYNAMIC TRAILING SL / TP  (LIVE)   [UNCHANGED]
     //   - the exchange is the source of truth for the CURRENT SL/TP (so manual edits are respected)
-    //   - SL and TP are replaced in ONE create_tpsl call (never cancelled first -> position is never unprotected)
+    //   - SL is trailed; the fixed safety TP is resent unchanged in ONE create_tpsl call
     //   - TP/SL attached to a position are exit-only by nature (they can only reduce/close that position)
     // =========================================================================
     private static long lastTrailPassMs = 0;
@@ -2582,7 +2582,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
         if (!TRAILING_ENABLED && !BREAKEVEN_ENABLED) { if (dirty) saveTradeState(); return; }
 
-        // ---- 3. exchange must hold BOTH levels (the safety sweep restores missing ones) ----
+        // ---- 3. exchange must hold BOTH levels (CoinDCX create_tpsl requires both) ----
         if (exSl <= 0 || exTp <= 0) {
             if (now - t.lastStatusLogMs >= TRAIL_STATUS_LOG_MS) {
                 System.out.println("  [TRAIL] " + pair + " SL or TP missing on exchange (SL=" + exSl + " TP=" + exTp + ") — trailing paused, safety sweep will restore");
@@ -2592,7 +2592,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
 
-        // ---- 4. manual change on the exchange -> adopt it, the NEW gap is maintained from now on ----
+        // ---- 4. manual exchange changes -> adopt both levels; only the SL will be trailed from here ----
         if (t.sl <= 0 || t.tp <= 0 || priceDiffers(exSl, t.sl, tick) || priceDiffers(exTp, t.tp, tick)) {
             if (t.sl > 0 && t.tp > 0) {
                 System.out.printf("  [TRAIL] %s SL/TP changed on the exchange (manual?): SL %.6f -> %.6f | TP %.6f -> %.6f | new gap=%.6f — adopted%n",
@@ -2638,7 +2638,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         }
         if (!TRAILING_ENABLED) { if (dirty) saveTradeState(); return; }
 
-        // ---- 5. trailing decision ----
+        // ---- 5. SL-only trailing decision; the TP remains a distant safety ceiling ----
         double extreme = t.isLong ? t.maxPrice : t.minPrice;
         TrailStep r = computeTrail(t.isLong, t.entry, t.sl, t.tp, extreme, t.trailActive, t.trailRef, tick);
         if (r.justActivated) {
@@ -2674,7 +2674,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             return;
         }
 
-        // ---- 6. replace SL+TP on the exchange (verified by reading the position back) ----
+        // ---- 6. update SL; resend the unchanged safety TP in the same exchange request ----
         double oldSl = t.sl, oldTp = t.tp;
         boolean ok = replaceTpSl(posId, pair, r.newTp, r.newSl, tick, oldTp, oldSl);
         if (ok) {
@@ -2682,8 +2682,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
             t.trailRef = r.newRef;
             t.lastTrailMs = now;
             t.nextTrailTryMs = 0;
-            System.out.printf("  [TRAIL-UPDATE] %s %s entry=%.6f price=%.6f best=%.6f | SL %.6f -> %.6f | TP %.6f -> %.6f | shift=%.6f gap=%.6f (unchanged)%n",
-                    pair, t.isLong ? "LONG" : "SHORT", t.entry, px, extreme, oldSl, t.sl, oldTp, t.tp, r.shift, Math.abs(t.tp - t.sl));
+            System.out.printf("  [TRAIL-UPDATE] %s %s entry=%.6f price=%.6f best=%.6f | SL %.6f -> %.6f | fixed safety TP=%.6f unchanged | shift=%.6f%n",
+                    pair, t.isLong ? "LONG" : "SHORT", t.entry, px, extreme, oldSl, t.sl, t.tp, r.shift);
         } else {
             t.nextTrailTryMs = now + TRAIL_RETRY_BACKOFF_MS;
             System.out.printf("  [TRAIL] %s update FAILED — keeping SL=%.6f TP=%.6f, retry in %ds%n", pair, t.sl, t.tp, TRAIL_RETRY_BACKOFF_MS / 1000);
@@ -3223,7 +3223,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         double tk = 0.01, entry = 100.0;
         double actL = entry * (1 + TRAIL_ACTIVATION_PERCENT / 100.0);
         double stepL = actL * TRAIL_STEP_PERCENT / 100.0;
-        double slL = 99.0, tpL = 101.5;
+        double slL = 99.0, tpL = 150.0;
         TrailStep t0 = computeTrail(true, entry, slL, tpL, actL - 0.1, false, 0, tk);
         check("LONG: below activation level -> not active, no move", !t0.active && !t0.move);
         TrailStep t1 = computeTrail(true, entry, slL, tpL, actL, false, 0, tk);
@@ -3231,10 +3231,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         TrailStep t2 = computeTrail(true, entry, slL, tpL, actL + stepL * 0.5, true, actL, tk);
         check("LONG: less than one step beyond the trail point -> no API update", !t2.move);
         TrailStep t3 = computeTrail(true, entry, slL, tpL, actL + stepL * 1.5, true, actL, tk);
-        check("LONG: step reached -> move", t3.move && t3.newSl > slL && t3.newTp > tpL);
-        check("LONG: SL and TP shifted by exactly the same amount", t3.move && Math.abs((t3.newSl - slL) - (t3.newTp - tpL)) < 1e-9
-                && Math.abs((t3.newSl - slL) - t3.shift) < 1e-9);
-        check("LONG: SL<->TP gap unchanged", t3.move && Math.abs((t3.newTp - t3.newSl) - (tpL - slL)) < 1e-9);
+        check("LONG: step reached -> SL moves while safety TP stays fixed", t3.move && t3.newSl > slL && t3.newTp == tpL);
+        check("LONG: SL advances by the calculated shift", t3.move && Math.abs((t3.newSl - slL) - t3.shift) < 1e-9);
+        check("LONG: safety TP is unchanged", t3.move && t3.newTp == tpL);
         check("LONG: trail point advances by the shift", t3.move && Math.abs(t3.newRef - (actL + t3.shift)) < 1e-9);
         TrailStep t4 = computeTrail(true, entry, t3.newSl, t3.newTp, actL, true, t3.newRef, tk);
         check("LONG: price falling back never moves SL/TP down", !t4.move && t4.newSl == t3.newSl && t4.newTp == t3.newTp);
@@ -3244,12 +3243,11 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         TrailStep s1 = computeTrail(false, entry, slS, tpS, actS, false, 0, tk);
         check("SHORT: activation level reached -> active, no move yet", s1.active && s1.justActivated && !s1.move);
         TrailStep s3 = computeTrail(false, entry, slS, tpS, actS - stepS * 1.5, true, actS, tk);
-        check("SHORT: step reached -> SL and TP both move DOWN by the same amount", s3.move && s3.newSl < slS && s3.newTp < tpS
-                && Math.abs((slS - s3.newSl) - (tpS - s3.newTp)) < 1e-9 && Math.abs((s3.newTp - s3.newSl) - (tpS - slS)) < 1e-9);
+        check("SHORT: step reached -> SL moves DOWN while safety TP stays fixed", s3.move && s3.newSl < slS && s3.newTp == tpS);
         TrailStep s4 = computeTrail(false, entry, s3.newSl, s3.newTp, actS + 0.5, true, s3.newRef, tk);
         check("SHORT: price rising back never moves SL/TP up", !s4.move);
         TrailStep tc = computeTrail(true, entry, 98.0, 103.0, actL + stepL * 1.5, true, actL, tk);
-        check("custom (manually set) SL/TP: their gap (5.00) is preserved", tc.move && Math.abs((tc.newTp - tc.newSl) - 5.0) < 1e-9);
+        check("custom TP remains unchanged while SL trails", tc.move && tc.newTp == 103.0 && tc.newSl > 98.0);
         check("manual-change detection uses half a tick", priceDiffers(99.0, 99.02, 0.01) && !priceDiffers(99.0, 99.004, 0.01));
 
         System.out.println("[Test] Break-even + profit lock (SL only, never backward)");
@@ -3575,6 +3573,9 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
 
     static void selfTestPortfolio() {
         PortfolioParams P = new PortfolioParams();
+        // Keep portfolio unit tests deterministic and independent from live production tuning.
+        P.capitalInr = 5000.0; P.targetEnabled = true; P.targetPct = 3.0;
+        P.beTrigPct = 1.0; P.beLockPct = 0.3; P.trActPct = 1.8; P.trGivebackPct = 30.0;
         final double CAP = P.capitalInr / USDT_INR_RATE;       // 5000 INR -> 49.02 USDT
 
         System.out.println("[Test] Portfolio target examples: INR 5000 capital -> 3% / 4% / 5% = INR 150 / 200 / 250");
@@ -3813,8 +3814,10 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
         check("the portfolio settings are independent of the per-position settings", PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT != BREAKEVEN_TRIGGER_PERCENT && PORTFOLIO_TRAILING_ACTIVATION_PERCENT != TRAIL_ACTIVATION_PERCENT);
         TradeInfo q1 = new TradeInfo(); q1.qty = 12.5; q1.entry = 1;
         check("trade state keeps the quantity across restarts", tradeFromJson(new JSONObject(tradeToJson(q1).toString())).qty == 12.5);
-        check("config sanity: lock < BE trigger < trailing activation < hard target", PORTFOLIO_BREAKEVEN_LOCK_PERCENT < PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT
-                && PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT < PORTFOLIO_TRAILING_ACTIVATION_PERCENT && PORTFOLIO_TRAILING_ACTIVATION_PERCENT < PORTFOLIO_PROFIT_TARGET_PERCENT);
+        check("config sanity: portfolio lock < BE trigger < trailing activation; hard target is disabled",
+                PORTFOLIO_BREAKEVEN_LOCK_PERCENT < PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT
+                && PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT < PORTFOLIO_TRAILING_ACTIVATION_PERCENT
+                && !PORTFOLIO_PROFIT_TARGET_ENABLED);
         resetPortfolioTestState();
     }
 
