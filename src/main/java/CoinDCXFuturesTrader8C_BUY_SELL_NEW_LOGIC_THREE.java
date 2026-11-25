@@ -64,20 +64,20 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // (reduced from 10 / 25)
     // =========================================================================
     static final double  FIXED_SL_PERCENT = 2.0;
-    static final double  FIXED_TP_PERCENT = 1.5;
+    static final double  FIXED_TP_PERCENT = 4.5;
 
     // =========================================================================
     // Break-even + Profit Lock  (LIVE mode only)  -- SL only, TP is never changed by this feature
     // =========================================================================
     static final boolean BREAKEVEN_ENABLED = true;           // MASTER SWITCH: false = break-even / profit-lock OFF
-    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.60;    // favourable move (% of entry) that activates break-even
-    static final double  PROFIT_LOCK_PERCENT       = 0.15;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
+    static final double  BREAKEVEN_TRIGGER_PERCENT = 0.75;    // favourable move (% of entry) that activates break-even
+    static final double  PROFIT_LOCK_PERCENT       = 0.30;    // SL goes to entry +PROFIT_LOCK% (LONG) / entry -PROFIT_LOCK% (SHORT). 0 = exact break-even
 
     // =========================================================================
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 0.75;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_ACTIVATION_PERCENT = 1.2;     // trailing starts after price moves this % in profit
     static final double  TRAIL_STEP_PERCENT       = 0.1;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
@@ -95,7 +95,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //   Note: at 5x leverage, 3% of margin = 0.6% price move.
     // =========================================================================
     static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // MASTER SWITCH: false = feature OFF
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 3.0;     // edit this to change the target (% of total locked margin)
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 9.0;     // edit this to change the target (% of total locked margin)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the combined profit is checked
     static final long    PORTFOLIO_REENTRY_PAUSE_MS      = 30_000L; // after a close-all, no new entries for this long
     static final long    PORTFOLIO_STATUS_LOG_MS         = 60_000L; // status log at most once per this interval
@@ -129,7 +129,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged except leverage)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 5;        // was 6
+    private static final int    LEVERAGE     = 20;        // was 6
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
