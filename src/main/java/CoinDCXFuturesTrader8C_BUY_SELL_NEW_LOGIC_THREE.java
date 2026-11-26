@@ -80,17 +80,17 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //     e.g. locked margin INR 5000: 3% = INR 150, 4% = 200, 5% = 250  -> the targets scale automatically as positions open/close
     //   Leveraged notional is never used as a basis. PnL is in USDT internally; INR = USDT * USDT_INR_RATE.
     // =========================================================================
-    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // hard target: close ALL when NET portfolio profit >= target
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 6.0;     // 3.0 / 4.0 / 5.0 ...
+    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = false;    // hard target: close ALL when NET portfolio profit >= target
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 20.0;     // 3.0 / 4.0 / 5.0 ...
     // (basis = current locked margin, computed live - there is no capital constant to set)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
     static final boolean PORTFOLIO_BREAKEVEN_ENABLED         = true;
-    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 8.0; // net profit (% of basis) that activates portfolio protection
-    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 6.0; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
+    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 20.0; // net profit (% of basis) that activates portfolio protection
+    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 8.0; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
 
     static final boolean PORTFOLIO_TRAILING_ENABLED            = true;
-    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 12.0;  // trailing starts when the peak net profit reaches this (% of basis)
+    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 25.0;  // trailing starts when the peak net profit reaches this (% of basis)
     static final double  PORTFOLIO_TRAILING_GIVEBACK_PERCENT   = 25.0; // allowed giveback = this % OF THE PEAK profit: floor = max(lock, peak - peak*giveback)
     static final long    PORTFOLIO_TRAILING_CHECK_INTERVAL_MS  = 5_000L; // the portfolio pass runs every min(CHECK, TRAILING_CHECK) ms
 
