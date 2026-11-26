@@ -90,7 +90,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 5.0; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
 
     static final boolean PORTFOLIO_TRAILING_ENABLED            = true;
-    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 12.0;  // trailing starts when the peak net profit reaches this (% of basis)
+    static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 10.0;  // trailing starts when the peak net profit reaches this (% of basis)
     static final double  PORTFOLIO_TRAILING_GIVEBACK_PERCENT   = 20.0; // allowed giveback = this % OF THE PEAK profit: floor = max(lock, peak - peak*giveback)
     static final long    PORTFOLIO_TRAILING_CHECK_INTERVAL_MS  = 5_000L; // the portfolio pass runs every min(CHECK, TRAILING_CHECK) ms
 
@@ -139,7 +139,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Capital configuration (unchanged except leverage)
     // =========================================================================
     private static final double FIXED_MARGIN = 1000.0;   // legacy sizing: notional INR value = FIXED_MARGIN
-    private static final int    LEVERAGE     = 20;        // was 6
+    private static final int    LEVERAGE     = 30;        // was 6
     static final double  USDT_INR_RATE       = 102.0;
 
     // =========================================================================
