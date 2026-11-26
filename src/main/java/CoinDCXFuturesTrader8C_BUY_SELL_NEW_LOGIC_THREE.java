@@ -49,7 +49,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
     // (reduced from 10 / 25)
     // =========================================================================
-    static final double  FIXED_SL_PERCENT = 3.0;
+    static final double  FIXED_SL_PERCENT = 2.0;
     static final double  FIXED_TP_PERCENT = 50.0;
 
     // =========================================================================
@@ -63,7 +63,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // Dynamic trailing SL / TP  (LIVE mode only)
     // =========================================================================
     static final boolean TRAILING_ENABLED = true;            // MASTER SWITCH: false = fixed SL/TP only, no trailing
-    static final double  TRAIL_ACTIVATION_PERCENT = 2.50;     // trailing starts after price moves this % in profit
+    static final double  TRAIL_ACTIVATION_PERCENT = 2.0;     // trailing starts after price moves this % in profit
     static final double  TRAIL_STEP_PERCENT       = 0.20;     // SL/TP are moved only when price advanced this % beyond the last trail point
     static final long    TRAIL_CHECK_INTERVAL_MS  = 5_000L; // how often open positions are checked for trailing
     static final int     TRAIL_UPDATE_MAX_RETRIES = 3;       // SL/TP replace attempts per update
@@ -80,8 +80,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     //     e.g. locked margin INR 5000: 3% = INR 150, 4% = 200, 5% = 250  -> the targets scale automatically as positions open/close
     //   Leveraged notional is never used as a basis. PnL is in USDT internally; INR = USDT * USDT_INR_RATE.
     // =========================================================================
-    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = false;    // hard target: close ALL when NET portfolio profit >= target
-    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 1.5;     // 3.0 / 4.0 / 5.0 ...
+    static final boolean PORTFOLIO_PROFIT_TARGET_ENABLED = true;    // hard target: close ALL when NET portfolio profit >= target
+    static final double  PORTFOLIO_PROFIT_TARGET_PERCENT = 6.0;     // 3.0 / 4.0 / 5.0 ...
     // (basis = current locked margin, computed live - there is no capital constant to set)
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
