@@ -86,8 +86,8 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     static final long    PORTFOLIO_CHECK_INTERVAL_MS     = 5_000L;  // how often the portfolio is evaluated
 
     static final boolean PORTFOLIO_BREAKEVEN_ENABLED         = true;
-    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 10.0; // net profit (% of basis) that activates portfolio protection
-    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 6.0; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
+    static final double  PORTFOLIO_BREAKEVEN_TRIGGER_PERCENT = 15.0; // net profit (% of basis) that activates portfolio protection
+    static final double  PORTFOLIO_BREAKEVEN_LOCK_PERCENT    = 10.0; // protected net profit floor (% of basis) once activated. 0 = true breakeven after costs
 
     static final boolean PORTFOLIO_TRAILING_ENABLED            = true;
     static final double  PORTFOLIO_TRAILING_ACTIVATION_PERCENT = 15.0;  // trailing starts when the peak net profit reaches this (% of basis)
