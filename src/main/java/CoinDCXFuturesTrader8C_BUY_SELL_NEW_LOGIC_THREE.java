@@ -48,7 +48,7 @@ public class CoinDCXFuturesTrader8C_BUY_SELL_NEW_LOGIC_THREE {
     // =========================================================================
     // Execution mode  (false = PAPER. Switch to true only after paper results are good)
     // =========================================================================
-    static final boolean LIVE_TRADING_ENABLED = false;   // NEW STRATEGY: paper-test first, switch to true only after the paper results look right
+    static final boolean LIVE_TRADING_ENABLED = true;   // NEW STRATEGY: paper-test first, switch to true only after the paper results look right
 
     // =========================================================================
     // Fixed SL / TP (percent of the actual average entry price) -- initial values at entry
